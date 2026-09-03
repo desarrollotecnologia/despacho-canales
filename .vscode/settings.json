@@ -1,0 +1,5 @@
+{
+  "git.openRepositoryInParentFolders": "never",
+  "git.autoRepositoryDetection": "subFolders",
+  "git.ignoreLimitWarning": true
+}
