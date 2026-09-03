@@ -1401,7 +1401,11 @@ def run_apps_script_function(function_name: str, payload: AppsScriptRequest):
 
 @app.get("/favicon.ico")
 def favicon():
-    return FileResponse("static/favicon.svg", media_type="image/svg+xml")
+    return FileResponse(
+        "static/favicon.png",
+        media_type="image/png",
+        headers={"Cache-Control": "no-cache, max-age=0, must-revalidate"},
+    )
 
 
 @app.get("/")

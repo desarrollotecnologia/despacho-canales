@@ -4,8 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Colbeef · Despacho de Canales</title>
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=4">
-  <link rel="shortcut icon" href="/static/favicon.svg?v=4">
+  <link rel="icon" type="image/png" href="/static/favicon.png?v=6">
+  <link rel="shortcut icon" href="/favicon.ico?v=6">
+  <link rel="apple-touch-icon" href="/static/favicon.png?v=6">
   <style>
     :root{
       --vp:#1a6fc4;--vh:#2563eb;--vs:#60a5fa;--vc:#bfdbfe;
@@ -19,7 +20,8 @@
     /* HEADER */
     .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:2.5rem;flex-wrap:wrap;gap:1rem;}
     .logo-area{display:flex;align-items:center;gap:1rem;}
-    .logo-icon{font-size:2.5rem;background:var(--vp);color:white;width:60px;height:60px;display:flex;align-items:center;justify-content:center;border-radius:18px;box-shadow:var(--sombra);}
+    .logo-icon{width:60px;height:60px;display:flex;align-items:center;justify-content:center;border-radius:14px;background:transparent;box-shadow:none;padding:0;overflow:visible;cursor:pointer;}
+    .logo-icon img{width:56px;height:56px;display:block;object-fit:contain;}
     .logo-text h1{font-size:1.8rem;font-weight:700;letter-spacing:-0.5px;}
     .logo-text p{color:var(--gris);font-size:0.9rem;}
     .header-right{display:flex;align-items:center;gap:0.8rem;flex-wrap:wrap;}
@@ -202,10 +204,12 @@
   <!-- HEADER -->
   <div class="header">
     <div class="logo-area">
-      <div class="logo-icon" id="logoIconGestor" title="Colbeef">🥩</div>
+      <div class="logo-icon" id="logoIconGestor" title="Colbeef">
+        <img src="/static/favicon.png?v=6" alt="Colbeef" width="56" height="56">
+      </div>
       <div class="logo-text">
         <h1><span style="color:var(--vp)">Col</span><span style="color:var(--rojo)">beef</span> · Despacho de Canales</h1>
-        <p>Control de medias canales · Despachos y OPL en tiempo real</p>
+        <p>Control de medias canales · Despachos, planilla de puntos e inventario en cava</p>
       </div>
     </div>
     <div class="header-right">
@@ -256,16 +260,15 @@
         <div class="resumen-sub">medias canales activas</div>
         <div class="resumen-icon">📦</div>
       </div>
-      <div class="tarjeta-resumen tarjeta-opl" onclick="irModulo('opl')" title="Click para ver detalle de cada OPL">
-        <div class="resumen-label">🚚 Progreso OPL <span style="font-size:0.65rem;opacity:0.7;">▼ ver detalle</span></div>
-        <div id="dashOplMini">
-          <div style="color:var(--gris);font-size:0.82rem;margin-top:0.5rem;">Cargando operadores...</div>
-        </div>
-        <div class="resumen-icon">🚚</div>
+      <div class="tarjeta-resumen">
+        <div class="resumen-label">Puestos / Destinos</div>
+        <div class="resumen-valor" id="numPuestosDash">—</div>
+        <div class="resumen-sub">activos en despacho</div>
+        <div class="resumen-icon">📍</div>
       </div>
     </div>
 
-    <!-- OPL mini resumen (clickable) -->
+    <!-- Progreso operación -->
     <div class="progreso-card">
       <div class="progreso-header">
         <span>📊 Progreso de la operación</span>
@@ -281,20 +284,14 @@
       </div>
     </div>
 
-    <!-- MÓDULOS -->
+    <!-- MÓDULOS — solo Despachos, Planilla de Puntos y Canales en Cava -->
     <div class="modulos-titulo">📂 Módulos del sistema</div>
     <div class="modulos-grid">
       <div class="modulo-card" onclick="irModulo('despachos')">
         <div class="modulo-icono">📋</div>
         <div class="modulo-nombre">Despachos</div>
-        <div class="modulo-desc">Lista por propietario/cliente: un código, MC1, MC2 y total (cada media = 0.5). Doble clic para desglosar.</div>
+        <div class="modulo-desc">Lista por puesto y zona: un código, MC1, MC2 y total (cada media = 0.5). Doble clic para desglosar.</div>
         <span class="modulo-badge">Lista de despacho</span>
-      </div>
-      <div class="modulo-card" onclick="irModulo('opl')">
-        <div class="modulo-icono">👷</div>
-        <div class="modulo-nombre">Planilla OPL</div>
-        <div class="modulo-desc">Tablero de operadores logísticos con progreso en tiempo real. Barras de avance por cada OPL y descarga individual.</div>
-        <span class="modulo-badge">Operadores logísticos</span>
       </div>
       <div class="modulo-card" onclick="irModulo('planilla')">
         <div class="modulo-icono">📌</div>
@@ -637,7 +634,6 @@ function irModulo(m) {
   if (window.ColbeefUsage) ColbeefUsage.track('module_open', m, 'Abrir módulo');
   marcarTurnoSugerido();
   if (m === 'despachos') { showView('viewDespachos'); cargarDespachos(); }
-  else if (m === 'opl')  { showView('viewOpl');       cargarOpl(); }
   else if (m === 'planilla') { showView('viewPlanilla'); cargarPlanillaPuntos(); }
   else if (m === 'cavas'){ showView('viewCavas');     cargarCavas(); }
 }
@@ -690,8 +686,8 @@ async function actualizarDashboard(silent) {
   try {
     if (!silent) showSpinner();
     const [dash, planilla] = await Promise.all([
-      apiFetch(API(`/dashboard?fecha=${fecha}&turno=${encodeURIComponent(turnoSeleccionado('turnoBtnsOpl') || turnoDeFecha(fecha))}`)),
-      apiFetch(API(`/planilla_opl?fecha=${fecha}&turno=${encodeURIComponent(turnoOpl || turnoDeFecha(fecha))}`)),
+      apiFetch(API(`/dashboard?fecha=${fecha}&turno=${encodeURIComponent(turnoDeFecha(fecha))}`)),
+      apiFetch(API(`/planilla_opl?fecha=${fecha}&turno=${encodeURIComponent(turnoDeFecha(fecha))}`)),
     ]);
     S.dashData = dash;
     S.planillaData = planilla;
@@ -700,16 +696,19 @@ async function actualizarDashboard(silent) {
     $('numMC2').textContent = fmt(dash.mc2);
     $('numCanalesComp').textContent = fmtD(dash.canales_completas);
     $('numTotal').textContent = fmt(dash.total_partes);
+    if ($('numPuestosDash')) {
+      const nP = (dash.top_destinos && dash.top_destinos.length) || 0;
+      $('numPuestosDash').textContent = fmt(nP);
+    }
 
-    // Progreso global + mini OPL (tiempo real)
-    const tot = planilla.totales;
+    // Progreso global
+    const tot = planilla.totales || {};
     const pct = tot.progreso_global || 0;
     $('progresoPct').textContent = fmtPct(pct);
     $('barraProgreso').style.width = pct + '%';
     $('progSal').textContent = fmt(tot.sal_total);
     $('progPend').textContent = fmt(tot.pend_total);
     $('progCanSal').textContent = fmtD(tot.canales_sal);
-    renderDashOplMini(planilla);
 
     // Cavas mini
     if (dash.cavas && dash.cavas.length) {
