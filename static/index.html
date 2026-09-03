@@ -104,6 +104,12 @@
     .turno-btn.sugerido{border-color:#93c5fd;background:#eff6ff;}
     .turno-btn.selected{border-color:var(--vp);background:var(--vp);color:white;}
     .turno-btn.sugerido:not(.selected)::after{content:'fecha';font-size:0.62rem;color:var(--vp);margin-left:0.2rem;opacity:0.8;}
+    .opl-chip{display:inline-flex;align-items:center;gap:0.4rem;padding:0.45rem 0.85rem;border-radius:30px;border:2px solid var(--vc);background:white;cursor:pointer;font-size:0.82rem;font-weight:700;color:var(--vp);}
+    .opl-chip:hover{border-color:var(--vp);background:#eff6ff;}
+    .opl-chip.selected{background:var(--vp);color:white;border-color:var(--vp);}
+    .opl-chip .chip-dl{background:rgba(255,255,255,0.25);border:none;border-radius:20px;padding:0.1rem 0.4rem;cursor:pointer;font-size:0.78rem;}
+    .opl-chip:not(.selected) .chip-dl{background:#dbeafe;color:var(--vp);}
+    .resumen-bar{background:#eff6ff;border:1px solid var(--vc);border-radius:12px;padding:0.7rem 1rem;font-size:0.88rem;color:var(--vp);font-weight:600;margin-bottom:1rem;}
 
     /* TABLAS */
     .table-wrap{overflow-x:auto;border-radius:12px;border:1px solid var(--vc);margin-top:1rem;}
@@ -115,6 +121,11 @@
     tbody tr:nth-child(even){background:var(--fondo);}
     tbody tr.total-row{background:#eff6ff;font-weight:700;border-top:2px solid var(--vp);}
     tbody tr.clickable:hover{background:#dbeafe;cursor:pointer;}
+    tbody tr.desp-row{user-select:none;}
+    tbody tr.desp-row.expandible td:nth-child(1){color:var(--vp);font-weight:600;}
+    tbody tr.desp-child{background:#f8fafc;}
+    tbody tr.desp-child td:first-child{color:var(--gris);font-size:0.82rem;padding-left:1.6rem;}
+    tbody tr.desp-child code{font-size:0.82rem;}
     tbody td{padding:0.75rem 1rem;}
     tbody td.num{text-align:center;}
     .empty-state{text-align:center;padding:3rem;color:var(--gris);}
@@ -272,7 +283,7 @@
       <div class="modulo-card" onclick="irModulo('despachos')">
         <div class="modulo-icono">📋</div>
         <div class="modulo-nombre">Despachos</div>
-        <div class="modulo-desc">Lista de canales agrupadas por destino con MC1, MC2 y total. Selecciona turno y descarga por cliente.</div>
+        <div class="modulo-desc">Lista por propietario/cliente: un código, MC1, MC2 y total (cada media = 0.5). Doble clic para desglosar.</div>
         <span class="modulo-badge">Lista de despacho</span>
       </div>
       <div class="modulo-card" onclick="irModulo('opl')">
@@ -280,6 +291,12 @@
         <div class="modulo-nombre">Planilla OPL</div>
         <div class="modulo-desc">Tablero de operadores logísticos con progreso en tiempo real. Barras de avance por cada OPL y descarga individual.</div>
         <span class="modulo-badge">Operadores logísticos</span>
+      </div>
+      <div class="modulo-card" onclick="irModulo('planilla')">
+        <div class="modulo-icono">📌</div>
+        <div class="modulo-nombre">Planilla de Puntos</div>
+        <div class="modulo-desc">Lista por OPL para ubicar medias canales en cava y riel. Descarga Excel por operador (código, cliente, cava, riel).</div>
+        <span class="modulo-badge">Logística</span>
       </div>
       <div class="modulo-card" onclick="irModulo('cavas')">
         <div class="modulo-icono">🏭</div>
@@ -305,7 +322,8 @@
   <!-- ══════ VISTA DESPACHOS ══════ -->
   <div class="view-detail" id="viewDespachos">
     <button class="back-btn" onclick="irMain()">← Volver al inicio</button>
-    <h2 style="color:var(--vp);margin-bottom:1.5rem;">📋 Despachos de Canales</h2>
+    <h2 style="color:var(--vp);margin-bottom:0.4rem;">📋 Despachos de Canales</h2>
+    <p id="despTurnoInfo" style="font-size:0.88rem;color:var(--gris);margin-bottom:1.2rem;"></p>
 
     <!-- Selector turno -->
     <!-- Selector turno -->
@@ -328,10 +346,11 @@
     <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
       <div class="search-bar">
         <span class="s-icon">🔍</span>
-        <input id="searchDesp" type="text" placeholder="Buscar destino..." oninput="filtrarDespachos()">
+        <input id="searchDesp" type="text" placeholder="Buscar propietario o código..." oninput="filtrarDespachos()">
       </div>
       <button class="btn btn-secondary btn-sm" onclick="cargarDespachos()">🔄 Refrescar</button>
       <button class="btn btn-primary btn-sm" onclick="imprimirTablaDespachos()">🖨️ Imprimir</button>
+      <span style="font-size:0.78rem;color:var(--gris)">Doble clic en un cliente con más de una canal para desglosar. Total partes: 2 medias = 1.</span>
     </div>
 
     <!-- Tabla despachos -->
@@ -339,11 +358,11 @@
       <table id="tablaDespachos">
         <thead>
           <tr>
-            <th>Destino / Cliente</th>
+            <th>Código</th>
+            <th>Propietario / Cliente</th>
             <th class="num">MC1</th>
             <th class="num">MC2</th>
-            <th class="num">Total Partes</th>
-            <th class="num">Canales (0.5 c/u)</th>
+            <th class="num">Total partes</th>
           </tr>
         </thead>
         <tbody id="tablaDespachosCuerpo">
@@ -420,6 +439,71 @@
     </div>
   </div>
 
+  <!-- ══════ VISTA PLANILLA DE PUNTOS ══════ -->
+  <div class="view-detail" id="viewPlanilla">
+    <button class="back-btn" onclick="irMain()">← Volver al inicio</button>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem;margin-bottom:1.2rem;">
+      <div>
+        <h2 style="color:var(--vp);margin-bottom:0.2rem;">📋 Planilla de Puntos por OPL</h2>
+        <p style="color:var(--gris);font-size:0.84rem;">Medias canales pendientes: código, propietario/cliente, cava y riel para localizar y despachar.</p>
+      </div>
+      <button class="btn btn-primary" id="btnExcelOpl" onclick="descargarExcelOplActivo()" style="padding:0.5rem 1.1rem;font-size:0.85rem;">📥 Exportar Excel</button>
+    </div>
+    <div class="alert" id="planillaAlert"></div>
+
+    <p style="font-size:0.85rem;color:var(--gris);margin-bottom:0.8rem;">El turno se asigna según la fecha. Puedes cambiarlo a mano.</p>
+    <div class="turno-btns" id="turnoBtnsPlanilla">
+      <button class="turno-btn" data-turno="" onclick="selTurnoPlanilla(this,'')">🔵 Todos</button>
+      <button class="turno-btn" data-turno="DxL" onclick="selTurnoPlanilla(this,'DxL')"><span>Dom→Lun</span> DxL</button>
+      <button class="turno-btn" data-turno="LxM" onclick="selTurnoPlanilla(this,'LxM')"><span>Lun→Mar</span> LxM</button>
+      <button class="turno-btn" data-turno="MxM" onclick="selTurnoPlanilla(this,'MxM')"><span>Mar→Mié</span> MxM</button>
+      <button class="turno-btn" data-turno="MxJ" onclick="selTurnoPlanilla(this,'MxJ')"><span>Mié→Jue</span> MxJ</button>
+      <button class="turno-btn" data-turno="JxV" onclick="selTurnoPlanilla(this,'JxV')"><span>Jue→Vie</span> JxV</button>
+      <button class="turno-btn" data-turno="VxS" onclick="selTurnoPlanilla(this,'VxS')"><span>Vie→Sáb</span> VxS</button>
+      <button class="turno-btn" data-turno="SxD" onclick="selTurnoPlanilla(this,'SxD')"><span>Sáb→Dom</span> SxD</button>
+    </div>
+
+    <div style="background:var(--blanco);border-radius:var(--radio);padding:1rem 1.2rem;box-shadow:var(--sombra);border:1px solid rgba(96,165,250,0.2);margin-bottom:1.2rem;">
+      <div style="font-weight:600;color:var(--vp);font-size:0.85rem;margin-bottom:0.5rem;">Operador Logístico</div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;" id="planillaOplBtns">
+        <span style="color:var(--gris);font-size:0.82rem;">Cargando OPLs...</span>
+      </div>
+      <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:2px dashed var(--vc);display:flex;justify-content:center;">
+        <button class="btn btn-secondary" onclick="mostrarResumenGeneralPlanilla()">📊 Ver resumen general</button>
+      </div>
+    </div>
+
+    <div class="resumen-bar" id="planillaResumenBar">Selecciona un OPL para ver sus medias canales.</div>
+    <div style="text-align:center;margin-bottom:1rem;">
+      <h3 id="planillaTitulo" style="font-size:1.15rem;font-weight:700;color:var(--vp);">LISTA DE MEDIAS CANALES — SALIDA DE CAVA</h3>
+      <div id="planillaSubtitulo" style="font-size:0.8rem;color:var(--gris);margin-top:3px;"></div>
+    </div>
+
+    <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
+      <div class="search-bar">
+        <span class="s-icon">🔍</span>
+        <input id="searchPlanilla" type="text" placeholder="Buscar código, cliente, cava, riel..." oninput="filtrarPlanillaPuntos()">
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="cargarPlanillaPuntos()">🔄 Refrescar</button>
+    </div>
+
+    <div class="table-wrap">
+      <table id="tablaPlanilla">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Propietario / Cliente</th>
+            <th>Cava</th>
+            <th>Riel</th>
+          </tr>
+        </thead>
+        <tbody id="tablaPlanillaCuerpo">
+          <tr><td colspan="4" class="empty-state">Selecciona un OPL para ver la lista.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
 </div><!-- /container -->
 
 <!-- MODAL DETALLE OPL / DESPACHO -->
@@ -468,7 +552,7 @@ function turnoDeFecha(fechaStr) {
 
 function marcarTurnoSugerido() {
   const t = turnoDeFecha(getFecha());
-  document.querySelectorAll('#turnoBtns .turno-btn, #turnoBtnsOpl .turno-btn').forEach(btn => {
+  document.querySelectorAll('#turnoBtns .turno-btn, #turnoBtnsOpl .turno-btn, #turnoBtnsPlanilla .turno-btn').forEach(btn => {
     btn.classList.toggle('sugerido', btn.dataset.turno === t);
   });
 }
@@ -477,10 +561,8 @@ function aplicarTurnoDeFecha() {
   const t = turnoDeFecha(getFecha());
   turnoDesp = t;
   turnoOpl = t;
-  document.querySelectorAll('#turnoBtns .turno-btn').forEach(btn => {
-    btn.classList.toggle('selected', btn.dataset.turno === t);
-  });
-  document.querySelectorAll('#turnoBtnsOpl .turno-btn').forEach(btn => {
+  turnoPlanilla = t;
+  document.querySelectorAll('#turnoBtns .turno-btn, #turnoBtnsOpl .turno-btn, #turnoBtnsPlanilla .turno-btn').forEach(btn => {
     btn.classList.toggle('selected', btn.dataset.turno === t);
   });
   marcarTurnoSugerido();
@@ -496,14 +578,28 @@ function onFechaChange() {
 // ═══════════════════════════════════════════════════
 // UTILIDADES
 // ═══════════════════════════════════════════════════
+let _spinN = 0, _spinT = null;
 const API = (path) => `/api${path}`;
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString('es-CO'));
 const fmtD = (n) => (n == null ? '—' : Number(n).toFixed(1));
 const fmtPct = (n) => `${Math.round(n || 0)}%`;
 
-function showSpinner() { $('spinnerOverlay').classList.add('show'); }
-function hideSpinner() { $('spinnerOverlay').classList.remove('show'); }
+function showSpinner() {
+  _spinN++;
+  if (_spinN > 1) return;
+  _spinT = setTimeout(() => {
+    const el = $('spinnerOverlay');
+    if (el && _spinN > 0) el.classList.add('show');
+  }, 280);
+}
+function hideSpinner() {
+  _spinN = Math.max(0, _spinN - 1);
+  if (_spinN > 0) return;
+  if (_spinT) { clearTimeout(_spinT); _spinT = null; }
+  const el = $('spinnerOverlay');
+  if (el) el.classList.remove('show');
+}
 function alertWarn(msg){ const a=$('alertGlobal'); a.textContent=msg; a.className='alert alert-warn show'; setTimeout(()=>a.classList.remove('show'),6000); }
 function alertErr(msg) { const a=$('alertGlobal'); a.textContent=msg; a.className='alert alert-error show'; setTimeout(()=>a.classList.remove('show'),8000); }
 
@@ -521,13 +617,10 @@ function getFecha() {
 // NAVEGACIÓN
 // ═══════════════════════════════════════════════════
 function showView(id) {
-  ['viewMain','viewDespachos','viewOpl','viewCavas'].forEach(v => {
+  ['viewMain','viewDespachos','viewOpl','viewCavas','viewPlanilla'].forEach(v => {
     const el = $(v);
     if (el) el.classList.remove('active');
   });
-  $('viewMain').style.display = 'none';
-  const views = ['viewDespachos','viewOpl','viewCavas'];
-  views.forEach(v => { const el=$(v); if(el) el.classList.remove('active'); });
   if (id === 'main') {
     $('viewMain').style.display = '';
   } else {
@@ -545,6 +638,7 @@ function irModulo(m) {
   marcarTurnoSugerido();
   if (m === 'despachos') { showView('viewDespachos'); cargarDespachos(); }
   else if (m === 'opl')  { showView('viewOpl');       cargarOpl(); }
+  else if (m === 'planilla') { showView('viewPlanilla'); cargarPlanillaPuntos(); }
   else if (m === 'cavas'){ showView('viewCavas');     cargarCavas(); }
 }
 
@@ -590,12 +684,12 @@ async function actualizarTodo() {
 // ═══════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════
-async function actualizarDashboard() {
+async function actualizarDashboard(silent) {
   const fecha = getFecha();
   try {
-    showSpinner();
+    if (!silent) showSpinner();
     const [dash, planilla] = await Promise.all([
-      apiFetch(API(`/dashboard?fecha=${fecha}`)),
+      apiFetch(API(`/dashboard?fecha=${fecha}&turno=${encodeURIComponent(turnoSeleccionado('turnoBtnsOpl') || turnoDeFecha(fecha))}`)),
       apiFetch(API(`/planilla_opl?fecha=${fecha}&turno=${encodeURIComponent(turnoOpl || turnoDeFecha(fecha))}`)),
     ]);
     S.dashData = dash;
@@ -643,7 +737,7 @@ async function actualizarDashboard() {
   } catch(e) {
     alertErr('Error al cargar dashboard: ' + e.message);
   } finally {
-    hideSpinner();
+    if (!silent) hideSpinner();
   }
 }
 
@@ -700,12 +794,19 @@ function selTurno(btn, turno) {
   cargarDespachos();
 }
 
+function turnoSeleccionado(grupoId) {
+  const sel = document.querySelector(`#${grupoId} .turno-btn.selected`);
+  if (!sel) return turnoDeFecha(getFecha());
+  return sel.dataset.turno || '';
+}
+
 async function cargarDespachos() {
   const fecha = getFecha();
+  const t = turnoSeleccionado('turnoBtns');
   try {
     showSpinner();
-    const url = turnoDesp
-      ? API(`/despachos?fecha=${fecha}&turno=${turnoDesp}`)
+    const url = t
+      ? API(`/despachos?fecha=${fecha}&turno=${encodeURIComponent(t)}`)
       : API(`/despachos?fecha=${fecha}&turno=Todos`);
     const data = await apiFetch(url);
     S.despData = data;
@@ -719,12 +820,20 @@ async function cargarDespachos() {
 
 function renderDespachos(data) {
   const tot = data.totales || {};
+  const totalPartes = tot.total_partes != null ? tot.total_partes : tot.total_canales;
+  const turno = data.turno;
+  const info = $('despTurnoInfo');
+  if (info) {
+    const nom = NOMBRE_TURNO[turno] || '';
+    info.innerHTML = turno
+      ? `Solo canales de <strong>salida ${escHtml(data.fecha || getFecha())}</strong> · turno <strong>${escHtml(turno)}</strong>${nom ? ' ('+escHtml(nom)+')' : ''}. Destino con ese turno y aún en cava.`
+      : `Mostrando todos los turnos · fecha ${escHtml(data.fecha || getFecha())}.`;
+  }
   $('despStats').innerHTML = `
     <div class="stat-card"><div class="stat-label">MC1</div><div class="stat-valor">${fmt(tot.mc1)}</div><div class="stat-sub">Media Canal 1</div></div>
     <div class="stat-card"><div class="stat-label">MC2</div><div class="stat-valor">${fmt(tot.mc2)}</div><div class="stat-sub">Media Canal 2</div></div>
-    <div class="stat-card"><div class="stat-label">Total partes</div><div class="stat-valor">${fmt(tot.total_partes)}</div><div class="stat-sub">pendientes despacho</div></div>
-    <div class="stat-card"><div class="stat-label">Canales completas</div><div class="stat-valor">${fmtD(tot.total_canales)}</div><div class="stat-sub">equivalente (×0.5)</div></div>
-    <div class="stat-card"><div class="stat-label">Puestos</div><div class="stat-valor">${fmt(tot.puestos)}</div><div class="stat-sub">destinos activos</div></div>
+    <div class="stat-card"><div class="stat-label">Total partes</div><div class="stat-valor">${fmtD(totalPartes)}</div><div class="stat-sub">cada media = 0.5</div></div>
+    <div class="stat-card"><div class="stat-label">Clientes</div><div class="stat-valor">${fmt(tot.clientes != null ? tot.clientes : tot.puestos)}</div><div class="stat-sub">propietarios activos</div></div>
   `;
 
   const rows = data.data || [];
@@ -733,43 +842,94 @@ function renderDespachos(data) {
     return;
   }
   let html = '';
-  rows.forEach(r => {
-    const mc1=r.mc1||0, mc2=r.mc2||0, tp=r.total_partes||0, tc=parseFloat(r.total_canales||0);
-    html += `<tr class="clickable" onclick="abrirDetalleDespacho('${escHtml(r.destino)}')">
-      <td>${escHtml(r.destino||'—')}</td>
+  rows.forEach((r, i) => {
+    const mc1 = r.mc1 || 0, mc2 = r.mc2 || 0;
+    const tp = parseFloat(r.total_partes != null ? r.total_partes : r.total_canales || 0);
+    const n = r.total_medias || (mc1 + mc2);
+    const codigo = r.codigo || r.codigo_completo || '—';
+    const extra = n > 1 ? ` <span class="badge badge-canal">+${n - 1}</span>` : '';
+    const hint = n > 1 ? ' title="Doble clic para desglosar las canales de este cliente"' : '';
+    html += `<tr class="clickable desp-row${n > 1 ? ' expandible' : ''}" data-idx="${i}" data-n="${n}"${hint} ondblclick="toggleDesgloseDespacho(${i})">
+      <td><code>${escHtml(codigo)}</code>${extra}</td>
+      <td>${escHtml(r.propietario || '—')}</td>
       <td class="num"><span class="badge badge-mc1">${fmt(mc1)}</span></td>
       <td class="num"><span class="badge badge-mc2">${fmt(mc2)}</span></td>
-      <td class="num">${fmt(tp)}</td>
-      <td class="num"><strong>${tc.toFixed(1)}</strong></td>
+      <td class="num"><strong>${tp.toFixed(1)}</strong></td>
     </tr>`;
   });
-  // Fila total
   html += `<tr class="total-row">
-    <td>TOTAL (${rows.length} destinos)</td>
+    <td colspan="2">TOTAL (${rows.length} clientes)</td>
     <td class="num">${fmt(tot.mc1)}</td>
     <td class="num">${fmt(tot.mc2)}</td>
-    <td class="num">${fmt(tot.total_partes)}</td>
-    <td class="num">${fmtD(tot.total_canales)}</td>
+    <td class="num">${fmtD(totalPartes)}</td>
   </tr>`;
   $('tablaDespachosCuerpo').innerHTML = html;
 }
 
 function filtrarDespachos() {
   const q = $('searchDesp').value.toLowerCase().trim();
-  document.querySelectorAll('#tablaDespachosCuerpo tr:not(.total-row)').forEach(tr => {
+  document.querySelectorAll('#tablaDespachosCuerpo tr.desp-row').forEach(tr => {
     const txt = tr.textContent.toLowerCase();
-    if (!q) { tr.classList.remove('hl-match','hl-hidden'); return; }
-    if (txt.includes(q)) { tr.classList.add('hl-match'); tr.classList.remove('hl-hidden'); }
-    else { tr.classList.remove('hl-match'); tr.classList.add('hl-hidden'); }
+    const match = !q || txt.includes(q);
+    tr.classList.toggle('hl-match', !!q && match);
+    tr.classList.toggle('hl-hidden', !!q && !match);
+    const idx = tr.dataset.idx;
+    document.querySelectorAll(`#tablaDespachosCuerpo tr.desp-child[data-parent="${idx}"]`).forEach(ch => {
+      if (!match) ch.classList.add('hl-hidden');
+      else if (!q) ch.classList.remove('hl-hidden','hl-match');
+    });
   });
 }
 
-async function abrirDetalleDespacho(destino) {
+async function toggleDesgloseDespacho(idx) {
+  const rows = (S.despData && S.despData.data) || [];
+  const r = rows[idx];
+  if (!r) return;
+  const n = r.total_medias || ((r.mc1 || 0) + (r.mc2 || 0));
+  if (n <= 1) return;
+
+  const parent = document.querySelector(`#tablaDespachosCuerpo tr.desp-row[data-idx="${idx}"]`);
+  if (!parent) return;
+  const abiertas = document.querySelectorAll(`#tablaDespachosCuerpo tr.desp-child[data-parent="${idx}"]`);
+  if (abiertas.length) {
+    abiertas.forEach(ch => ch.remove());
+    parent.classList.remove('expanded');
+    return;
+  }
+
   const fecha = getFecha();
+  const turnoQ = turnoDesp ? `&turno=${encodeURIComponent(turnoDesp)}` : '';
   try {
     showSpinner();
-    const data = await apiFetch(API(`/despachos/detalle?destino=${encodeURIComponent(destino)}&fecha=${fecha}`));
-    renderModalDetalleDespacho(destino, data);
+    const data = await apiFetch(API(`/despachos/detalle?propietario=${encodeURIComponent(r.propietario || '')}&fecha=${fecha}${turnoQ}`));
+    const items = data.data || [];
+    let html = '';
+    items.forEach(item => {
+      const esMc1 = item.id_tipo === ID_MC1_JS;
+      html += `<tr class="desp-child" data-parent="${idx}">
+        <td>↳ <code>${escHtml(item.codigo || item.codigo_completo || '—')}</code></td>
+        <td>${escHtml(item.propietario || '—')} · ${escHtml(item.cava || '—')} · ${escHtml(item.riel || '—')}</td>
+        <td class="num">${esMc1 ? '<span class="badge badge-mc1">1</span>' : '—'}</td>
+        <td class="num">${esMc1 ? '—' : '<span class="badge badge-mc2">1</span>'}</td>
+        <td class="num">0.5</td>
+      </tr>`;
+    });
+    parent.insertAdjacentHTML('afterend', html);
+    parent.classList.add('expanded');
+  } catch(e) {
+    alertErr('Error al desglosar: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
+}
+
+async function abrirDetalleDespacho(propietario) {
+  const fecha = getFecha();
+  const turnoQ = turnoDesp ? `&turno=${encodeURIComponent(turnoDesp)}` : '';
+  try {
+    showSpinner();
+    const data = await apiFetch(API(`/despachos/detalle?propietario=${encodeURIComponent(propietario)}&fecha=${fecha}${turnoQ}`));
+    renderModalDetalleDespacho(propietario, data);
   } catch(e) {
     alertErr('Error al cargar detalle: ' + e.message);
   } finally {
@@ -777,8 +937,8 @@ async function abrirDetalleDespacho(destino) {
   }
 }
 
-function renderModalDetalleDespacho(destino, data) {
-  $('modalTitulo').textContent = `📋 Detalle · ${destino} · ${data.total} medias canales`;
+function renderModalDetalleDespacho(propietario, data) {
+  $('modalTitulo').textContent = `📋 Detalle · ${propietario} · ${data.total} medias canales`;
   const rows = data.data || [];
   let mc1=0, mc2=0;
   rows.forEach(r => { if(r.id_tipo === ID_MC1_JS) mc1++; else mc2++; });
@@ -789,8 +949,8 @@ function renderModalDetalleDespacho(destino, data) {
       <span class="badge badge-canal">Canales: ${((mc1+mc2)*0.5).toFixed(1)}</span>
     </div>
     <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
-      <button class="btn btn-primary btn-sm" onclick="imprimirDetalleDespacho('${escHtml(destino)}')">🖨️ Imprimir</button>
-      <button class="btn btn-secondary btn-sm" onclick="descargarCSVDespacho('${escHtml(destino)}')">📥 Descargar CSV</button>
+      <button class="btn btn-primary btn-sm" onclick="imprimirDetalleDespacho('${escHtml(propietario)}')">🖨️ Imprimir</button>
+      <button class="btn btn-secondary btn-sm" onclick="descargarCSVDespacho('${escHtml(propietario)}')">📥 Descargar CSV</button>
     </div>
     <div class="table-wrap">
     <table>
@@ -820,7 +980,7 @@ function renderModalDetalleDespacho(destino, data) {
   $('modalContenido').innerHTML = html;
   $('modalDetalle').classList.add('show');
   window._modalDetalleData = data;
-  window._modalDestino = destino;
+  window._modalDestino = propietario;
 }
 
 // Placeholder IDs de MC1/MC2 para el modal (se leen del backend)
@@ -966,9 +1126,10 @@ function renderModalOpl(propietario, data) {
 // ═══════════════════════════════════════════════════
 async function cargarCavas() {
   const fecha = getFecha();
+  const t = turnoOpl || turnoDeFecha(fecha);
   try {
     showSpinner();
-    const data = await apiFetch(API(`/cavas?fecha=${fecha}`));
+    const data = await apiFetch(API(`/cavas?fecha=${fecha}&turno=${encodeURIComponent(t)}`));
     S.cavasData = data;
     renderCavas(data);
   } catch(e) {
@@ -1032,6 +1193,170 @@ function imprimirTablaDespachos() {
 function imprimirCavas() {
   const tabla = document.getElementById('tablaCavas').outerHTML;
   abrirVentanaImpresion('Inventario Canales en Cava', tabla);
+}
+
+// ═══════════════════════════════════════════════════
+// PLANILLA DE PUNTOS POR OPL
+// ═══════════════════════════════════════════════════
+let turnoPlanilla = '';
+let _planillaOplActivo = '';
+let _planillaData = null;
+
+function selTurnoPlanilla(btn, turno) {
+  turnoPlanilla = turno;
+  document.querySelectorAll('#turnoBtnsPlanilla .turno-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  cargarPlanillaPuntos();
+}
+
+function planillaTurnoQ() {
+  return turnoPlanilla
+    ? `turno=${encodeURIComponent(turnoPlanilla)}`
+    : 'turno=Todos';
+}
+
+async function cargarPlanillaPuntos() {
+  const fecha = getFecha();
+  const oplQ = _planillaOplActivo ? `&opl=${encodeURIComponent(_planillaOplActivo)}` : '';
+  try {
+    showSpinner();
+    const data = await apiFetch(API(`/planilla_puntos?fecha=${fecha}&${planillaTurnoQ()}${oplQ}`));
+    _planillaData = data;
+    renderOplChipsPlanilla(data);
+    renderTablaPlanillaPuntos(data);
+  } catch(e) {
+    alertErr('Error al cargar planilla: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
+}
+
+function renderOplChipsPlanilla(data) {
+  const cont = $('planillaOplBtns');
+  const opls = data.opls || [];
+  const resumen = data.resumen || [];
+  const countBy = {};
+  resumen.forEach(r => { countBy[r.opl] = r.total_medias; });
+  if (!opls.length) {
+    cont.innerHTML = '<span style="color:var(--gris);font-size:0.82rem;">No hay OPLs para este turno.</span>';
+    return;
+  }
+  cont.innerHTML = opls.map(opl => {
+    const n = countBy[opl] || 0;
+    const sel = opl === _planillaOplActivo ? ' selected' : '';
+    return `<button class="opl-chip${sel}" data-opl="${escHtml(opl)}" onclick="seleccionarOPLPlanilla(this)">
+      ${escHtml(opl)} <span style="opacity:.75;font-weight:600;">${n}</span>
+      <span class="chip-dl" title="Descargar Excel de este OPL" onclick="event.stopPropagation();descargarExcelOpl('${escHtml(opl)}')">📥</span>
+    </button>`;
+  }).join('');
+}
+
+function seleccionarOPLPlanilla(btn) {
+  _planillaOplActivo = btn.getAttribute('data-opl') || '';
+  cargarPlanillaPuntos();
+}
+
+function renderTablaPlanillaPuntos(data) {
+  restaurarTheadPlanilla();
+  const opl = data.opl || _planillaOplActivo;
+  const rows = data.data || [];
+  const turno = data.turno || '—';
+  const total = data.total || 0;
+  const partes = (data.total_partes != null) ? data.total_partes : total * 0.5;
+
+  if (!opl) {
+    $('planillaResumenBar').textContent = `${fmt(sumResumenPlanilla(data))} medias · turno ${turno} · ${data.fecha || getFecha()} — selecciona un OPL`;
+    $('planillaTitulo').textContent = 'LISTA DE MEDIAS CANALES — SALIDA DE CAVA';
+    $('planillaSubtitulo').textContent = 'Elige un operador logístico para ver códigos, cava y riel.';
+    $('tablaPlanillaCuerpo').innerHTML = '<tr><td colspan="4" class="empty-state">Selecciona un OPL para ver la lista y descargar el Excel.</td></tr>';
+    return;
+  }
+
+  $('planillaResumenBar').textContent = `${fmt(total)} medias · ${fmtD(partes)} canales · turno ${turno} · ${data.fecha || getFecha()}`;
+  $('planillaTitulo').textContent = `LISTA DE MEDIAS CANALES: SALIDA DE CAVA — ${fmtFechaTitulo(data.fecha)}`;
+  $('planillaSubtitulo').textContent = `OPL: ${opl} | Total: ${fmt(total)} medias (${fmtD(partes)} canales) · turno ${turno}`;
+
+  if (!rows.length) {
+    $('tablaPlanillaCuerpo').innerHTML = `<tr><td colspan="4" class="empty-state">Sin medias canales pendientes para ${escHtml(opl)}</td></tr>`;
+    return;
+  }
+  $('tablaPlanillaCuerpo').innerHTML = rows.map(r => `<tr>
+    <td><code>${escHtml(r.codigo || '—')}</code></td>
+    <td>${escHtml(r.propietario || '—')}</td>
+    <td>${escHtml(r.cava || '—')}</td>
+    <td>${escHtml(r.riel || '—')}</td>
+  </tr>`).join('');
+}
+
+function sumResumenPlanilla(data) {
+  return (data.resumen || []).reduce((a, r) => a + (r.total_medias || 0), 0);
+}
+
+function fmtFechaTitulo(fechaStr) {
+  const s = fechaStr || getFecha();
+  const p = String(s).split('-');
+  if (p.length === 3) return `${p[2]}/${p[1]}/${p[0]}`;
+  return s;
+}
+
+function filtrarPlanillaPuntos() {
+  const q = ($('searchPlanilla').value || '').toLowerCase().trim();
+  document.querySelectorAll('#tablaPlanillaCuerpo tr').forEach(tr => {
+    const txt = tr.textContent.toLowerCase();
+    if (!q) { tr.classList.remove('hl-match','hl-hidden'); return; }
+    if (txt.includes(q)) { tr.classList.add('hl-match'); tr.classList.remove('hl-hidden'); }
+    else { tr.classList.remove('hl-match'); tr.classList.add('hl-hidden'); }
+  });
+}
+
+function descargarExcelOplActivo() {
+  if (!_planillaOplActivo) {
+    alertWarn('Selecciona un OPL primero para descargar su Excel.');
+    return;
+  }
+  descargarExcelOpl(_planillaOplActivo);
+}
+
+function descargarExcelOpl(opl) {
+  const fecha = getFecha();
+  const a = document.createElement('a');
+  a.href = API(`/planilla_puntos/excel?opl=${encodeURIComponent(opl)}&fecha=${fecha}&${planillaTurnoQ()}`);
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function mostrarResumenGeneralPlanilla() {
+  _planillaOplActivo = '';
+  const data = _planillaData;
+  if (!data) { cargarPlanillaPuntos(); return; }
+  document.querySelectorAll('#planillaOplBtns .opl-chip').forEach(b => b.classList.remove('selected'));
+  const resumen = data.resumen || [];
+  const totMed = sumResumenPlanilla(data);
+  $('planillaResumenBar').textContent = `${fmt(totMed)} medias · turno ${data.turno || '—'} · ${data.fecha || getFecha()}`;
+  $('planillaTitulo').textContent = 'RESUMEN DESPACHO POR OPERADOR LOGÍSTICO';
+  $('planillaSubtitulo').textContent = fmtFechaTitulo(data.fecha);
+  if (!resumen.length) {
+    $('tablaPlanillaCuerpo').innerHTML = '<tr><td colspan="4" class="empty-state">Sin datos</td></tr>';
+    return;
+  }
+  const thead = `<tr><th>Operador Logístico</th><th class="num">Medias</th><th class="num">Canales (×0.5)</th><th></th></tr>`;
+  document.querySelector('#tablaPlanilla thead').innerHTML = thead;
+  let html = resumen.map(r => `<tr>
+    <td><strong>${escHtml(r.opl)}</strong></td>
+    <td class="num">${fmt(r.total_medias)}</td>
+    <td class="num">${fmtD(r.total_partes)}</td>
+    <td class="num"><button class="btn btn-primary btn-sm" onclick="descargarExcelOpl('${escHtml(r.opl)}')">📥 Excel</button></td>
+  </tr>`).join('');
+  html += `<tr class="total-row"><td>TOTAL</td><td class="num">${fmt(totMed)}</td><td class="num">${fmtD(totMed * 0.5)}</td><td></td></tr>`;
+  $('tablaPlanillaCuerpo').innerHTML = html;
+}
+
+function restaurarTheadPlanilla() {
+  document.querySelector('#tablaPlanilla thead').innerHTML = `<tr>
+    <th>Código</th><th>Propietario / Cliente</th><th>Cava</th><th>Riel</th>
+  </tr>`;
 }
 
 function imprimirDetalleDespacho(destino) {
@@ -1133,7 +1458,7 @@ function escHtml(s) {
 // Auto-refresh cada 3 minutos si la vista principal está activa
 setInterval(() => {
   if ($('viewMain').style.display !== 'none') {
-    actualizarDashboard();
+    actualizarDashboard(true);
   }
 }, 3 * 60 * 1000);
 

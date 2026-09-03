@@ -23,11 +23,11 @@ Log del servidor: `logs/server.log`
 ## Módulos
 
 ### 📋 Despachos
-- Lista de canales agrupadas por destino
-- Columnas: Destino, MC1, MC2, Total Partes, Canales (0.5 c/u)
+- Lista agrupada por propietario/cliente
+- Columnas: Código, Propietario/Cliente, MC1, MC2, Total partes (cada media = 0.5)
 - Filtro por turno (DxL, LxM, MxM, etc.)
-- Clic en fila → detalle con código+sufijo, propietario, cava, riel
-- Descarga CSV e impresión
+- Indicadores: MC1, MC2, Total partes, Clientes
+- Impresión de la lista principal
 
 ### 👷 Planilla OPL
 - Tablero de operadores logísticos en tiempo real
@@ -35,6 +35,11 @@ Log del servidor: `logs/server.log`
 - Cada media canal = 0.5 → par completo = 1.0
 - Clic en tarjeta OPL → lista completa con código+sufijo, cava, riel
 - Descarga CSV individual por OPL
+
+### 📌 Planilla de Puntos
+- Lista por operador logístico (CAVA AJR, CAVA MIREYA, etc.)
+- Columnas: Código, Propietario/Cliente, Cava, Riel
+- Excel por OPL con encabezado `OPL CAVA AJR` para ubicar y despachar
 
 ### 🏭 Canales en Cava
 - Inventario completo con código (sufijo MC1/MC2), propietario, cava, riel

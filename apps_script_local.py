@@ -11,7 +11,22 @@ DATA_DIR = Path(__file__).resolve().parent / "local_data"
 STATE_PATH = DATA_DIR / "canales_state.json"
 
 OPL_DEFAULT = "TRANSCARNES"
-OPL_EXCEPCIONES_DEFAULT = []  # Se pobla dinámicamente desde la BD
+OPL_EXCEPCIONES_DEFAULT = [
+    ["AVILA MONSALVE REINALDO", "DRA CAVA", 0],
+    ["BENITEZ GARNICA CEFERINO", "EDGAR AM", 0],
+    ["CALIXTO ARDILA JAIME", "DRA CAVA", 0],
+    ["CARNES SANTACRUZ S.A.S", "CSZ B/GA", 0],
+    ["CRUZ LEONIDAS", "CAVA WO", 0],
+    ["DRISTRIBUDORA DE CARNES AJR S.A.S", "CAVA AJR", 0],
+    ["DISTRIBUIDORA DE CARNES AJR S.A.S", "CAVA AJR", 0],
+    ["INVERSIONES ZULUAGA RUEDA S.A.S.", "MLT. GUARIN", 0],
+    ["JAIMES BERMUDEZ JOSE MARIA", "MLT. GUARIN", 0],
+    ["SANCHEZ CALDERON MIREYA", "CAVA MIREYA", 0],
+    ["SUPERMERCADOS MAS POR MENOS S.A.S.", "MLT. GUARIN", 0],
+    ["TECNOLOGIAS AGROPECUARIAS DE COLOMBIA S.A.S.", "CAVA T.A", 0],
+    ["ROMERO OSORIO JOHN IGNACIO", "SMOYA", 0],
+    ["COLBEEF S.A.S", "MLT. GUARIN", 0],
+]
 
 TURNOS = ["SxD", "VxS", "JxV", "MxJ", "MxM", "LxM", "DxL"]
 
@@ -40,6 +55,9 @@ def _load_state():
     base = _blank_state()
     for key, value in base.items():
         state.setdefault(key, value)
+    if not state.get("opl_config"):
+        state["opl_config"] = OPL_EXCEPCIONES_DEFAULT.copy()
+        _save_state(state)
     return state
 
 

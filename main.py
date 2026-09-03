@@ -5,17 +5,22 @@ v1.0 — Medias canales: Media Canal 1 (sufijo -1001) y Media Canal 2 (sufijo -1
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import psycopg2
-import psycopg2.extras
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
-from typing import Optional
+from io import BytesIO
+from threading import Lock
+from typing import Optional, List
+from urllib.parse import quote
 
 from dotenv import load_dotenv
+import psycopg2
+import psycopg2.extras
+from psycopg2.pool import ThreadedConnectionPool
 import apps_script_local
 
 load_dotenv()
@@ -37,13 +42,20 @@ def turno_de_fecha(fecha_str: Optional[str] = None) -> str:
 
 
 def resolver_turno(fecha_str: Optional[str], turno: Optional[str]) -> Optional[str]:
-    """Si turno viene vacío, usa el de la fecha. 'Todos' o None explícito = sin filtro."""
+    """Si turno viene vacío o None, usa el de la fecha. 'Todos' = sin filtro."""
     if turno is None:
         return turno_de_fecha(fecha_str)
     t = str(turno).strip()
-    if t == "" or t.lower() == "todos":
+    if t.lower() == "todos":
         return None
+    if t == "":
+        return turno_de_fecha(fecha_str)
     return t
+
+
+def patron_turno(turno: Optional[str]) -> Optional[str]:
+    """Patrón ILIKE para el código de turno dentro de con_destino (ej. /JxV/)."""
+    return f"%{turno}%" if turno else None
 
 app.add_middleware(
     CORSMiddleware,
@@ -59,15 +71,39 @@ DB_CONFIG = {
     "user":            os.getenv("POSTGRES_USER", "acceso"),
     "password":        os.getenv("POSTGRES_PASSWORD", ""),
     "connect_timeout": int(os.getenv("POSTGRES_CONNECT_TIMEOUT", "5")),
-    "options": f"-c statement_timeout={os.getenv('POSTGRES_STATEMENT_TIMEOUT_MS', '30000')}",
+    "options": f"-c statement_timeout={os.getenv('POSTGRES_STATEMENT_TIMEOUT_MS', '20000')}",
 }
+
+_POOL = None
+_POOL_LOCK = Lock()
+_CACHE = {}
+_CACHE_LOCK = Lock()
+CACHE_TTL_SEG = 12
+
+
+def get_pool():
+    global _POOL
+    with _POOL_LOCK:
+        if _POOL is None:
+            _POOL = ThreadedConnectionPool(2, 10, **DB_CONFIG)
+        return _POOL
 
 
 def get_conn():
     try:
-        return psycopg2.connect(**DB_CONFIG)
+        return get_pool().getconn()
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"No se pudo conectar a la BD: {str(e)}")
+
+
+def put_conn(conn):
+    try:
+        get_pool().putconn(conn)
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def query(sql: str, params=None):
@@ -77,7 +113,20 @@ def query(sql: str, params=None):
             cur.execute(sql, params or ())
             return [dict(r) for r in cur.fetchall()]
     finally:
-        conn.close()
+        put_conn(conn)
+
+
+def cache_get(key):
+    with _CACHE_LOCK:
+        hit = _CACHE.get(key)
+        if hit and (time.time() - hit[0]) < CACHE_TTL_SEG:
+            return hit[1]
+    return None
+
+
+def cache_set(key, value):
+    with _CACHE_LOCK:
+        _CACHE[key] = (time.time(), value)
 
 
 def safe_query(sql: str, params=None, label: str = "consulta"):
@@ -153,6 +202,158 @@ def enriquecer_codigo(row: dict) -> dict:
     return row
 
 
+def _nombres_opl_conocidos():
+    cfg = apps_script_local.getOplConfig()
+    names = {apps_script_local._as_str(o).upper() for o in (cfg.get("opls") or [])}
+    names.add(apps_script_local.OPL_DEFAULT.upper())
+    return names
+
+
+def resolver_opl_de_propietario(propietario: str) -> str:
+    prop = (propietario or "").strip()
+    if not prop:
+        return apps_script_local.OPL_DEFAULT
+    conocidos = _nombres_opl_conocidos()
+    prop_up = prop.upper()
+    if prop_up in conocidos:
+        return prop
+    mapa = apps_script_local._opl_map(apps_script_local._load_state())
+    return apps_script_local._resolver_opl(prop, mapa)
+
+
+def consultar_canales_planilla(fecha_filtro: str, turno_filtro):
+    sql = """
+        SELECT
+            pp.id_producto                          AS codigo,
+            tpp.id                                  AS id_tipo,
+            COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') AS propietario,
+            c.nombre                                AS cava,
+            r.nombre                                AS riel,
+            pp.con_destino                          AS destino
+        FROM trazabilidad_proceso.parte_producto pp
+        JOIN trazabilidad_proceso.tipo_parte_producto tpp ON tpp.id = pp.id_tipo_parte_producto
+        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
+        LEFT JOIN trazabilidad_proceso.cava c ON c.id = ppcr.id_cava
+        LEFT JOIN trazabilidad_proceso.riel r ON r.id = ppcr.id_riel
+        LEFT JOIN trazabilidad_proceso.producto_empresa pe
+            ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
+        LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
+        WHERE pp.id_tipo_parte_producto IN %s
+          AND ppcr.fecha_salida IS NULL
+          AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
+          AND pp.con_destino IS NOT NULL
+          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
+        ORDER BY e3.nombre NULLS LAST, c.orden NULLS LAST, r.nombre, pp.id_producto
+    """
+    rows = safe_query(sql, (IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "planilla_puntos")
+    data = serializable(rows)
+    for r in data:
+        enriquecer_codigo(r)
+        r["opl"] = resolver_opl_de_propietario(r.get("propietario") or "")
+    return data
+
+
+def resumen_planilla_puntos(items: List[dict]):
+    por_opl = {}
+    for r in items:
+        opl = r.get("opl") or apps_script_local.OPL_DEFAULT
+        bucket = por_opl.setdefault(opl, {"opl": opl, "mc1": 0, "mc2": 0, "total_medias": 0})
+        if r.get("id_tipo") == ID_MC1:
+            bucket["mc1"] += 1
+        elif r.get("id_tipo") == ID_MC2:
+            bucket["mc2"] += 1
+        bucket["total_medias"] += 1
+    lista = []
+    for bucket in por_opl.values():
+        bucket["total_partes"] = bucket["total_medias"] * 0.5
+        lista.append(bucket)
+    lista.sort(key=lambda x: x["opl"])
+    return lista
+
+
+def construir_excel_opl(opl: str, fecha: str, turno, filas: List[dict]) -> BytesIO:
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="Falta openpyxl. En el servidor ejecuta: pip install openpyxl",
+        )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = (opl or "OPL")[:31]
+
+    verde = PatternFill("solid", fgColor="259C39")
+    verde_claro = PatternFill("solid", fgColor="E8F5E9")
+    blanco = Font(color="FFFFFF", bold=True, name="Calibri", size=11)
+    titulo = Font(color="FFFFFF", bold=True, name="Calibri", size=16)
+    normal = Font(name="Calibri", size=11)
+    thin = Border(
+        left=Side(style="thin", color="C8E6C9"),
+        right=Side(style="thin", color="C8E6C9"),
+        top=Side(style="thin", color="C8E6C9"),
+        bottom=Side(style="thin", color="C8E6C9"),
+    )
+
+    ws.merge_cells("A1:D1")
+    ws["A1"] = f"OPL {opl}"
+    ws["A1"].font = titulo
+    ws["A1"].fill = verde
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    for col in range(2, 5):
+        ws.cell(1, col).fill = verde
+    ws.row_dimensions[1].height = 28
+
+    turno_txt = turno or "Todos"
+    ws.merge_cells("A2:D2")
+    ws["A2"] = f"Medias canales pendientes · {fecha} · turno {turno_txt} · {len(filas)} registros"
+    ws["A2"].font = Font(name="Calibri", size=10, italic=True, color="374151")
+    ws["A2"].alignment = Alignment(horizontal="center")
+    ws.row_dimensions[2].height = 18
+
+    headers = ["Código", "Propietario/Cliente", "Cava", "Riel"]
+    for i, h in enumerate(headers, 1):
+        cell = ws.cell(3, i, h)
+        cell.font = blanco
+        cell.fill = verde
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = thin
+
+    for idx, r in enumerate(filas, 4):
+        vals = [
+            r.get("codigo") or "",
+            r.get("propietario") or "",
+            r.get("cava") or "",
+            r.get("riel") or "",
+        ]
+        for col, val in enumerate(vals, 1):
+            cell = ws.cell(idx, col, val)
+            cell.font = normal
+            cell.border = thin
+            if idx % 2 == 0:
+                cell.fill = verde_claro
+
+    ws.column_dimensions["A"].width = 24
+    ws.column_dimensions["B"].width = 42
+    ws.column_dimensions["C"].width = 16
+    ws.column_dimensions["D"].width = 14
+    ws.freeze_panes = "A4"
+    ws.auto_filter.ref = f"A3:D{max(3, 3 + len(filas))}"
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_title_rows = "1:3"
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
 # ═══════════════════════════════════════════════════════
 # PING
 # ═══════════════════════════════════════════════════════
@@ -200,8 +401,10 @@ def get_tipos_canal():
 # CAVAS — canales en cava a una fecha dada
 # ═══════════════════════════════════════════════════════
 @app.get("/api/cavas")
-def get_cavas(fecha: Optional[str] = None):
+def get_cavas(fecha: Optional[str] = None, turno: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
+    turno = resolver_turno(fecha_filtro, turno)
+    turno_filtro = patron_turno(turno)
     sql = """
         SELECT
             pp.id                               AS id_parte_producto,
@@ -250,25 +453,31 @@ def get_cavas(fecha: Optional[str] = None):
             pp.id_tipo_parte_producto IN %s
             AND ppcr.fecha_salida IS NULL
             AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
+            AND (%s::text IS NULL OR (pp.con_destino IS NOT NULL AND pp.con_destino ILIKE %s::text))
         ORDER BY
             c.orden NULLS LAST,
             r.nombre,
             pp.id_producto
     """
-    rows = safe_query(sql, (IDS_CANAL, fecha_filtro), "cavas")
+    rows = safe_query(sql, (IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "cavas")
     data = serializable(rows)
     for r in data:
         enriquecer_codigo(r)
-    return {"fecha": fecha_filtro, "total": len(data), "data": data}
+    return {"fecha": fecha_filtro, "turno": turno, "total": len(data), "data": data}
 
 
 # ═══════════════════════════════════════════════════════
 # DASHBOARD — resumen ejecutivo de canales en cava
 # ═══════════════════════════════════════════════════════
 @app.get("/api/dashboard")
-def get_dashboard(fecha: Optional[str] = None):
+def get_dashboard(fecha: Optional[str] = None, turno: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
-
+    turno = resolver_turno(fecha_filtro, turno)
+    turno_filtro = patron_turno(turno)
+    ck = ("dashboard", fecha_filtro, turno)
+    hit = cache_get(ck)
+    if hit is not None:
+        return hit
     sql_totales = """
         SELECT
             COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1,
@@ -280,6 +489,8 @@ def get_dashboard(fecha: Optional[str] = None):
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
+          AND pp.con_destino IS NOT NULL
+          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
     """
     sql_cavas = """
         SELECT c.nombre AS cava,
@@ -292,6 +503,8 @@ def get_dashboard(fecha: Optional[str] = None):
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
+          AND pp.con_destino IS NOT NULL
+          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
         GROUP BY c.id, c.nombre, c.orden ORDER BY c.orden NULLS LAST
     """
     sql_destinos = """
@@ -302,13 +515,14 @@ def get_dashboard(fecha: Optional[str] = None):
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
           AND pp.con_destino IS NOT NULL
+          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
         GROUP BY pp.con_destino ORDER BY total DESC LIMIT 10
     """
 
     results = safe_query_many([
-        ("totales", sql_totales, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro), "dashboard.totales"),
-        ("cavas",   sql_cavas,   (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro), "dashboard.cavas"),
-        ("destinos",sql_destinos,(IDS_CANAL, fecha_filtro),                 "dashboard.destinos"),
+        ("totales", sql_totales, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "dashboard.totales"),
+        ("cavas",   sql_cavas,   (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "dashboard.cavas"),
+        ("destinos",sql_destinos,(IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro),                 "dashboard.destinos"),
     ])
     t  = results.get("totales", [{}])
     cv = results.get("cavas", [])
@@ -320,8 +534,9 @@ def get_dashboard(fecha: Optional[str] = None):
     # Un animal completo = MC1 + MC2 → cada media vale 0.5 canales
     canales_completas = (mc1 + mc2) / 2
 
-    return {
+    payload = {
         "fecha":             fecha_filtro,
+        "turno":             turno or "Todos",
         "mc1":               mc1,
         "mc2":               mc2,
         "total_partes":      int(tot.get("total_partes") or 0),
@@ -330,61 +545,84 @@ def get_dashboard(fecha: Optional[str] = None):
         "cavas":             serializable(cv),
         "top_destinos":      serializable(ds),
     }
+    cache_set(ck, payload)
+    return payload
 
 
 # ═══════════════════════════════════════════════════════
-# DESPACHOS — canales agrupadas por destino/turno
-# Columnas: código con sufijo, propietario, MC1, MC2, Total
+# DESPACHOS — agrupado por propietario/cliente
+# Lista: un código visible; total partes = medias × 0.5
 # ═══════════════════════════════════════════════════════
 @app.get("/api/despachos")
 def get_despachos(fecha: Optional[str] = None, turno: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = f"%{turno}%" if turno else None
+    turno_filtro = patron_turno(turno)
+    ck = ("despachos", fecha_filtro, turno)
+    hit = cache_get(ck)
+    if hit is not None:
+        return hit
 
     sql = """
         SELECT
-            pp.con_destino AS destino,
+            COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') AS propietario,
+            (ARRAY_AGG(pp.id_producto ORDER BY pp.id_producto))[1] AS codigo,
+            (ARRAY_AGG(pp.id_tipo_parte_producto ORDER BY pp.id_producto))[1] AS id_tipo,
             COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1,
             COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2,
-            COUNT(pp.id) AS total_partes,
-            (COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s)
-             + COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s)) * 0.5 AS total_canales,
-            COUNT(DISTINCT
-                SPLIT_PART(pp.id_producto,'-',1)||'-'||SPLIT_PART(pp.id_producto,'-',2)
-            ) AS animales
+            COUNT(pp.id) AS total_medias,
+            COUNT(pp.id) * 0.5 AS total_partes
         FROM trazabilidad_proceso.parte_producto pp
         JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr
             ON ppcr.id_parte_producto = pp.id
+        LEFT JOIN trazabilidad_proceso.producto_empresa pe
+            ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
+        LEFT JOIN organizaciones.empresa e3
+            ON e3.id = pe.id_empresa
         WHERE
             pp.id_tipo_parte_producto IN %s
             AND ppcr.fecha_salida IS NULL
             AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
             AND pp.con_destino IS NOT NULL
             AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
-        GROUP BY pp.con_destino
+        GROUP BY COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario')
         HAVING COUNT(pp.id) > 0
-        ORDER BY pp.con_destino
+        ORDER BY 1
     """
-    rows = safe_query(sql, (ID_MC1, ID_MC2, ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "despachos")
+    rows = safe_query(sql, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "despachos")
     data = serializable(rows)
+    for r in data:
+        enriquecer_codigo(r)
+        r["total_canales"] = float(r.get("total_partes") or 0)
+        r["mas_de_una"] = int(r.get("total_medias") or 0) > 1
+    total_partes = sum(float(r.get("total_partes") or 0) for r in data)
     totales = {
-        "mc1":            sum(r.get("mc1", 0) or 0 for r in data),
-        "mc2":            sum(r.get("mc2", 0) or 0 for r in data),
-        "total_partes":   sum(r.get("total_partes", 0) or 0 for r in data),
-        "total_canales":  sum(float(r.get("total_canales", 0) or 0) for r in data),
-        "puestos":        len(data),
+        "mc1":           sum(r.get("mc1", 0) or 0 for r in data),
+        "mc2":           sum(r.get("mc2", 0) or 0 for r in data),
+        "total_partes":  total_partes,
+        "total_canales": total_partes,
+        "clientes":      len(data),
+        "puestos":       len(data),
     }
-    return {"fecha": fecha_filtro, "turno": turno, "totales": totales, "data": data}
+    payload = {"fecha": fecha_filtro, "turno": turno, "totales": totales, "data": data}
+    cache_set(ck, payload)
+    return payload
 
 
 # ═══════════════════════════════════════════════════════
-# DETALLE DESPACHO — lista individual de canales para un destino
-# Columnas de la imagen: Código, Cliente, Cava, Riel
+# DETALLE DESPACHO — lista individual por propietario/cliente
 # ═══════════════════════════════════════════════════════
 @app.get("/api/despachos/detalle")
-def get_despacho_detalle(destino: str, fecha: Optional[str] = None):
+def get_despacho_detalle(
+    propietario: Optional[str] = None,
+    destino: Optional[str] = None,
+    fecha: Optional[str] = None,
+    turno: Optional[str] = None,
+):
     fecha_filtro = fecha or date.today().isoformat()
+    cliente = (propietario or destino or "").strip()
+    turno = resolver_turno(fecha_filtro, turno)
+    turno_filtro = patron_turno(turno)
     sql = """
         SELECT
             pp.id_producto                          AS codigo,
@@ -393,7 +631,7 @@ def get_despacho_detalle(destino: str, fecha: Optional[str] = None):
             tpp.abreviatura                         AS abrev,
             pp.con_destino                          AS destino,
             pp.observaciones,
-            e3.nombre                               AS propietario,
+            COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') AS propietario,
             c.nombre                                AS cava,
             r.nombre                                AS riel,
             ppcr.fecha_ingreso                      AS fecha_ingreso,
@@ -406,19 +644,20 @@ def get_despacho_detalle(destino: str, fecha: Optional[str] = None):
         LEFT JOIN trazabilidad_proceso.producto p ON p.id::text = pp.id_producto::text
         LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = p.id::text AND pe.activo = true
         LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
-        LEFT JOIN trazabilidad_proceso.parte_producto_empresa ppe ON ppe.id_producto::text = pp.id_producto::text AND ppe.id_parte_producto = pp.id
-        LEFT JOIN trazabilidad_proceso.parte_producto_empresa_local ppel ON ppel.id_parte_producto_empresa = ppe.id
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
-          AND pp.con_destino = %s
+          AND pp.con_destino IS NOT NULL
+          AND COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') = %s
+          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
         ORDER BY c.orden NULLS LAST, r.nombre, pp.id_producto
     """
-    rows = safe_query(sql, (IDS_CANAL, fecha_filtro, destino), "despacho_detalle")
+    rows = safe_query(sql, (IDS_CANAL, fecha_filtro, cliente, turno_filtro, turno_filtro), "despacho_detalle")
     data = serializable(rows)
     for r in data:
         enriquecer_codigo(r)
-    return {"fecha": fecha_filtro, "destino": destino, "total": len(data), "data": data}
+        r["total_partes"] = 0.5
+    return {"fecha": fecha_filtro, "propietario": cliente, "destino": cliente, "total": len(data), "data": data}
 
 
 # ═══════════════════════════════════════════════════════
@@ -429,7 +668,7 @@ def get_despacho_detalle(destino: str, fecha: Optional[str] = None):
 def get_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = f"%{turno}%" if turno else None
+    turno_filtro = patron_turno(turno)
     sql = """
         SELECT
             e3.nombre                           AS propietario,
@@ -439,14 +678,9 @@ def get_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
             COUNT(pp.id) AS total_partes,
             COUNT(pp.id) * 0.5                  AS total_canales
         FROM trazabilidad_proceso.parte_producto pp
-        JOIN trazabilidad_proceso.tipo_parte_producto tpp ON tpp.id = pp.id_tipo_parte_producto
         JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
-        LEFT JOIN trazabilidad_proceso.cava c ON c.id = ppcr.id_cava
-        LEFT JOIN trazabilidad_proceso.producto p ON p.id::text = pp.id_producto::text
-        LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = p.id::text AND pe.activo = true
+        LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
         LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
-        LEFT JOIN trazabilidad_proceso.parte_producto_empresa ppe ON ppe.id_producto::text = pp.id_producto::text AND ppe.id_parte_producto = pp.id
-        LEFT JOIN trazabilidad_proceso.parte_producto_empresa_local ppel ON ppel.id_parte_producto_empresa = ppe.id
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
@@ -532,7 +766,7 @@ def get_opl_detalle(propietario: str, fecha: Optional[str] = None):
 def get_salidas(fecha: Optional[str] = None, dias: int = 1, turno: Optional[str] = None):
     fecha_fin = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_fin, turno)
-    turno_filtro = f"%{turno}%" if turno else None
+    turno_filtro = patron_turno(turno)
     sql = """
         SELECT
             pp.id_producto          AS codigo,
@@ -592,7 +826,11 @@ def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
     """
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = f"%{turno}%" if turno else None
+    turno_filtro = patron_turno(turno)
+    ck = ("planilla_opl", fecha_filtro, turno)
+    hit = cache_get(ck)
+    if hit is not None:
+        return hit
 
     sql_en_cava = """
         SELECT
@@ -602,11 +840,8 @@ def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
             COUNT(pp.id)                        AS total_pend
         FROM trazabilidad_proceso.parte_producto pp
         JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
-        LEFT JOIN trazabilidad_proceso.producto p ON p.id::text = pp.id_producto::text
-        LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = p.id::text AND pe.activo = true
+        LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
         LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
-        LEFT JOIN trazabilidad_proceso.parte_producto_empresa ppe ON ppe.id_producto::text = pp.id_producto::text AND ppe.id_parte_producto = pp.id
-        LEFT JOIN trazabilidad_proceso.parte_producto_empresa_local ppel ON ppel.id_parte_producto_empresa = ppe.id
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
@@ -621,11 +856,8 @@ def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
             COUNT(pp.id)                        AS total_sal
         FROM trazabilidad_proceso.parte_producto pp
         JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
-        LEFT JOIN trazabilidad_proceso.producto p ON p.id::text = pp.id_producto::text
-        LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = p.id::text AND pe.activo = true
+        LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
         LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
-        LEFT JOIN trazabilidad_proceso.parte_producto_empresa ppe ON ppe.id_producto::text = pp.id_producto::text AND ppe.id_parte_producto = pp.id
-        LEFT JOIN trazabilidad_proceso.parte_producto_empresa_local ppel ON ppel.id_parte_producto_empresa = ppe.id
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NOT NULL
           AND DATE(ppcr.fecha_salida) = %s::date
@@ -688,12 +920,75 @@ def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
     t_ini = totales["pend_total"] + totales["sal_total"]
     totales["progreso_global"] = round((totales["sal_total"] / t_ini) * 100) if t_ini else 0
 
-    return {
+    payload = {
         "fecha": fecha_filtro,
         "turno": turno or turno_de_fecha(fecha_filtro),
         "totales": totales,
         "data": lista,
     }
+    cache_set(ck, payload)
+    return payload
+
+
+# ═══════════════════════════════════════════════════════
+# PLANILLA DE PUNTOS — lista por OPL para logística
+# ═══════════════════════════════════════════════════════
+@app.get("/api/planilla_puntos")
+def get_planilla_puntos(
+    fecha: Optional[str] = None,
+    turno: Optional[str] = None,
+    opl: Optional[str] = None,
+):
+    fecha_filtro = fecha or date.today().isoformat()
+    turno = resolver_turno(fecha_filtro, turno)
+    turno_filtro = patron_turno(turno)
+    items = consultar_canales_planilla(fecha_filtro, turno_filtro)
+    resumen = resumen_planilla_puntos(items)
+    opl_sel = (opl or "").strip()
+    if opl_sel:
+        items = [r for r in items if (r.get("opl") or "") == opl_sel]
+    cfg = apps_script_local.getOplConfig()
+    opls_cfg = cfg.get("opls") or []
+    opls_data = [r["opl"] for r in resumen]
+    opls = sorted(set(opls_cfg) | set(opls_data))
+    return {
+        "fecha": fecha_filtro,
+        "turno": turno or "Todos",
+        "opl": opl_sel or None,
+        "opls": opls,
+        "resumen": resumen,
+        "total": len(items),
+        "total_partes": len(items) * 0.5,
+        "data": items,
+    }
+
+
+@app.get("/api/planilla_puntos/excel")
+def excel_planilla_puntos(
+    opl: str,
+    fecha: Optional[str] = None,
+    turno: Optional[str] = None,
+):
+    opl = (opl or "").strip()
+    if not opl:
+        raise HTTPException(status_code=400, detail="Indica el OPL")
+    fecha_filtro = fecha or date.today().isoformat()
+    turno = resolver_turno(fecha_filtro, turno)
+    turno_filtro = patron_turno(turno)
+    items = [
+        r for r in consultar_canales_planilla(fecha_filtro, turno_filtro)
+        if (r.get("opl") or "") == opl
+    ]
+    buf = construir_excel_opl(opl, fecha_filtro, turno, items)
+    fname = f"OPL_{opl.replace(' ', '_')}_{fecha_filtro}.xlsx"
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"
+    }
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 
 
 # ═══════════════════════════════════════════════════════
