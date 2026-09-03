@@ -443,12 +443,18 @@ def resumen_planilla_puntos(items: List[dict]):
         elif r.get("id_tipo") == ID_MC2:
             bucket["mc2"] += 1
         bucket["total_medias"] += 1
+    total_general = sum(b["total_medias"] for b in por_opl.values()) * 0.5
     lista = []
     for bucket in por_opl.values():
-        bucket["total_partes"] = bucket["total_medias"] * 0.5
+        partes = bucket["total_medias"] * 0.5
+        bucket["total_partes"] = partes
+        bucket["totalJuegos"] = partes  # alias estilo Vísceras (aquí = canales)
+        bucket["totalCanales"] = partes
+        pct = (partes / total_general * 100) if total_general > 0 else 0
+        bucket["porcentaje"] = round(pct, 1)
         lista.append(bucket)
-    lista.sort(key=lambda x: x["opl"])
-    return lista
+    lista.sort(key=lambda x: (-x["total_partes"], x["opl"]))
+    return lista, round(total_general, 2)
 
 
 def construir_excel_opl(opl: str, fecha: str, turno, filas: List[dict]) -> BytesIO:
@@ -1279,7 +1285,7 @@ def get_planilla_puntos(
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
     items = consultar_canales_planilla(fecha_filtro, turno)
-    resumen = resumen_planilla_puntos(items)
+    resumen, total_general = resumen_planilla_puntos(items)
     cfg = apps_script_local.getOplConfig()
     opls_cfg = cfg.get("opls") or []
     opls_data = [r["opl"] for r in resumen]
@@ -1287,6 +1293,8 @@ def get_planilla_puntos(
     pack = armar_planilla_estilo_visceras(items, opl, fecha_filtro, turno)
     pack["opls"] = opls
     pack["resumen"] = resumen
+    pack["totalGeneral"] = total_general
+    pack["success"] = True
     # Detalle pieza a pieza (Excel / apoyo)
     opl_sel = (opl or "").strip()
     detalle = items if not opl_sel or opl_sel.upper() == "TODOS" else [
