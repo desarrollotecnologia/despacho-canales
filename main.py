@@ -1,5 +1,5 @@
 """
-Gestor de Canales — Colbeef
+Despacho de Canales — Colbeef
 Backend FastAPI con conexión directa a PostgreSQL (solo lectura)
 v1.0 — Medias canales: Media Canal 1 (sufijo -1001) y Media Canal 2 (sufijo -1002)
 """
@@ -20,7 +20,7 @@ import apps_script_local
 
 load_dotenv()
 
-app = FastAPI(title="Gestor Canales Colbeef", version="1.0")
+app = FastAPI(title="Despacho de Canales Colbeef", version="1.0")
 
 # ─── IDs tipo_parte_producto para canales (verificados en BD sirt) ──
 ID_MC1 = 4   # "Media Canal 1"
@@ -95,12 +95,44 @@ def serializable(rows):
     return result
 
 
-def sufijo_canal(id_tipo: int) -> str:
+def tipo_canal_label(id_tipo: int) -> str:
     if id_tipo == ID_MC1:
-        return "MC1"
+        return "Media Canal 1"
     if id_tipo == ID_MC2:
-        return "MC2"
+        return "Media Canal 2"
     return str(id_tipo)
+
+
+def codigo_completo_canal(codigo: str, id_tipo: int) -> str:
+    """
+    Devuelve el código completo con sufijo numérico:
+    Media Canal 1 → ...-1001
+    Media Canal 2 → ...-1002
+    Si la BD ya trae el sufijo, se respeta.
+    """
+    codigo = (codigo or "").strip()
+    if not codigo:
+        return ""
+    partes = codigo.split("-")
+    # Ya trae sufijo 1001/1002
+    if len(partes) >= 3 and partes[-1] in ("1001", "1002", "001", "002"):
+        return codigo
+    sufijo_num = "1001" if id_tipo == ID_MC1 else ("1002" if id_tipo == ID_MC2 else "")
+    if not sufijo_num:
+        return codigo
+    return f"{codigo}-{sufijo_num}"
+
+
+def enriquecer_codigo(row: dict) -> dict:
+    """Código completo tipo 2608-09418-1001 (nunca letras MC1/MC2)."""
+    id_tipo = row.get("id_tipo", 0)
+    codigo = row.get("codigo") or ""
+    completo = codigo_completo_canal(codigo, id_tipo)
+    row["sufijo"] = tipo_canal_label(id_tipo)
+    row["codigo_completo"] = completo
+    row["codigo_sufijo"] = completo
+    row["codigo"] = completo  # el frontend muestra siempre el completo
+    return row
 
 
 # ═══════════════════════════════════════════════════════
@@ -207,12 +239,8 @@ def get_cavas(fecha: Optional[str] = None):
     """
     rows = safe_query(sql, (IDS_CANAL, fecha_filtro), "cavas")
     data = serializable(rows)
-    # Enriquecer con sufijo canal
     for r in data:
-        r["sufijo"] = sufijo_canal(r.get("id_tipo", 0))
-        # Código con sufijo legible: 2608-09418-MC1
-        partes = (r.get("codigo") or "").rsplit("-", 1)
-        r["codigo_sufijo"] = f"{partes[0]}-{r['sufijo']}" if len(partes) == 2 else r.get("codigo", "")
+        enriquecer_codigo(r)
     return {"fecha": fecha_filtro, "total": len(data), "data": data}
 
 
@@ -370,9 +398,7 @@ def get_despacho_detalle(destino: str, fecha: Optional[str] = None):
     rows = safe_query(sql, (IDS_CANAL, fecha_filtro, destino), "despacho_detalle")
     data = serializable(rows)
     for r in data:
-        r["sufijo"] = sufijo_canal(r.get("id_tipo", 0))
-        partes = (r.get("codigo") or "").rsplit("-", 1)
-        r["codigo_sufijo"] = f"{partes[0]}-{r['sufijo']}" if len(partes) == 2 else r.get("codigo", "")
+        enriquecer_codigo(r)
     return {"fecha": fecha_filtro, "destino": destino, "total": len(data), "data": data}
 
 
@@ -465,9 +491,7 @@ def get_opl_detalle(propietario: str, fecha: Optional[str] = None):
     rows = safe_query(sql, (IDS_CANAL, fecha_filtro, propietario), "opl_detalle")
     data = serializable(rows)
     for r in data:
-        r["sufijo"] = sufijo_canal(r.get("id_tipo", 0))
-        partes = (r.get("codigo") or "").rsplit("-", 1)
-        r["codigo_sufijo"] = f"{partes[0]}-{r['sufijo']}" if len(partes) == 2 else r.get("codigo", "")
+        enriquecer_codigo(r)
         r["horas_en_cava"] = round(float(r.get("horas_en_cava") or 0), 1)
     mc1 = sum(1 for r in data if r.get("id_tipo") == ID_MC1)
     mc2 = sum(1 for r in data if r.get("id_tipo") == ID_MC2)
@@ -519,9 +543,7 @@ def get_salidas(fecha: Optional[str] = None, dias: int = 1):
     rows = safe_query(sql, (IDS_CANAL, fecha_fin, dias, fecha_fin), "salidas")
     data = serializable(rows)
     for r in data:
-        r["sufijo"] = sufijo_canal(r.get("id_tipo", 0))
-        partes = (r.get("codigo") or "").rsplit("-", 1)
-        r["codigo_sufijo"] = f"{partes[0]}-{r['sufijo']}" if len(partes) == 2 else r.get("codigo", "")
+        enriquecer_codigo(r)
         r["horas_en_cava"] = round(float(r.get("horas_en_cava") or 0), 1)
     mc1 = sum(1 for r in data if r.get("id_tipo") == ID_MC1)
     mc2 = sum(1 for r in data if r.get("id_tipo") == ID_MC2)

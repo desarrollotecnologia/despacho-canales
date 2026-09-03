@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Colbeef · Gestor de Canales</title>
+  <title>Colbeef · Despacho de Canales</title>
   <style>
     :root{
       --vp:#1a6fc4;--vh:#2563eb;--vs:#60a5fa;--vc:#bfdbfe;
@@ -39,6 +39,11 @@
     .resumen-valor{font-size:2.8rem;font-weight:800;color:var(--vp);line-height:1;}
     .resumen-sub{font-size:0.78rem;color:var(--gris);margin-top:0.4rem;}
     .resumen-icon{position:absolute;right:1rem;bottom:1rem;font-size:3rem;opacity:0.1;color:var(--vp);}
+    .tarjeta-opl{cursor:pointer;min-width:260px;}
+    .tarjeta-opl:hover{transform:translateY(-4px);border-color:var(--vh);}
+    .opl-mini-item{display:flex;align-items:center;gap:0.5rem;margin-bottom:0.55rem;}
+    .opl-mini-nombre{font-size:0.78rem;font-weight:700;color:#1f2937;min-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .opl-ver-mas{font-size:0.72rem;color:var(--vp);font-weight:600;text-align:center;margin-top:0.4rem;}
 
     /* PROGRESO GLOBAL */
     .progreso-card{background:var(--blanco);border-radius:var(--radio);padding:1.8rem;box-shadow:var(--sombra);margin-bottom:2.5rem;border:1px solid rgba(96,165,250,0.2);}
@@ -183,7 +188,7 @@
     <div class="logo-area">
       <div class="logo-icon">🥩</div>
       <div class="logo-text">
-        <h1><span style="color:var(--vp)">Col</span><span style="color:var(--rojo)">beef</span> · Gestor de Canales</h1>
+        <h1><span style="color:var(--vp)">Col</span><span style="color:var(--rojo)">beef</span> · Despacho de Canales</h1>
         <p>Control de medias canales · Despachos y OPL en tiempo real</p>
       </div>
     </div>
@@ -234,18 +239,19 @@
         <div class="resumen-sub">medias canales activas</div>
         <div class="resumen-icon">📦</div>
       </div>
-      <div class="tarjeta-resumen">
-        <div class="resumen-label">Propietarios (OPL)</div>
-        <div class="resumen-valor" id="numOpl">—</div>
-        <div class="resumen-sub">operadores logísticos</div>
-        <div class="resumen-icon">👷</div>
+      <div class="tarjeta-resumen tarjeta-opl" onclick="irModulo('opl')" title="Click para ver detalle de cada OPL">
+        <div class="resumen-label">🚚 Progreso OPL <span style="font-size:0.65rem;opacity:0.7;">▼ ver detalle</span></div>
+        <div id="dashOplMini">
+          <div style="color:var(--gris);font-size:0.82rem;margin-top:0.5rem;">Cargando operadores...</div>
+        </div>
+        <div class="resumen-icon">🚚</div>
       </div>
     </div>
 
     <!-- OPL mini resumen (clickable) -->
     <div class="progreso-card">
       <div class="progreso-header">
-        <span>📊 Progreso despacho del día</span>
+        <span>📊 Progreso de la operación</span>
         <span id="progresoPct">0%</span>
       </div>
       <div class="barra-exterior">
@@ -547,9 +553,8 @@ async function actualizarDashboard() {
     $('numMC2').textContent = fmt(dash.mc2);
     $('numCanalesComp').textContent = fmtD(dash.canales_completas);
     $('numTotal').textContent = fmt(dash.total_partes);
-    $('numOpl').textContent = fmt(planilla.data.length);
 
-    // Progreso global
+    // Progreso global + mini OPL (tiempo real)
     const tot = planilla.totales;
     const pct = tot.progreso_global || 0;
     $('progresoPct').textContent = fmtPct(pct);
@@ -557,6 +562,7 @@ async function actualizarDashboard() {
     $('progSal').textContent = fmt(tot.sal_total);
     $('progPend').textContent = fmt(tot.pend_total);
     $('progCanSal').textContent = fmtD(tot.canales_sal);
+    renderDashOplMini(planilla);
 
     // Cavas mini
     if (dash.cavas && dash.cavas.length) {
@@ -587,6 +593,45 @@ async function actualizarDashboard() {
   } finally {
     hideSpinner();
   }
+}
+
+function renderDashOplMini(planilla) {
+  const box = $('dashOplMini');
+  if (!box) return;
+  const lista = (planilla && planilla.data) || [];
+  const tot = (planilla && planilla.totales) || {};
+  if (!lista.length) {
+    box.innerHTML = '<div style="color:var(--gris);font-size:0.82rem;margin-top:0.4rem;">Sin datos — no hay canales pendientes de despacho</div>';
+    return;
+  }
+  const sorted = lista.slice().sort((a,b) => (b.total_pendiente||0) - (a.total_pendiente||0));
+  const mostrar = sorted.slice(0, 5);
+  const extra = sorted.length > 5 ? sorted.length - 5 : 0;
+  const canalesProg = tot.canales_pend != null ? Number(tot.canales_pend).toFixed(1) : '0';
+  let html = `<div style="font-size:0.75rem;color:var(--gris);margin:0.2rem 0 0.55rem;">${canalesProg} canales programadas · pulse para ver detalle</div>`;
+  mostrar.forEach(p => {
+    const pct = Math.min(100, p.progreso_pct || 0);
+    const barColor = pct >= 100 ? '#16a34a' : (pct < 30 ? '#dc2626' : 'var(--vp)');
+    const pend = p.canales_pendiente != null ? Number(p.canales_pendiente).toFixed(1) : '0';
+    const pendTxt = (p.total_pendiente||0) > 0
+      ? `<span style="color:#dc2626;font-weight:700;font-size:0.72rem;">${pend} pend.</span>`
+      : '<span style="color:#16a34a;font-size:0.72rem;">✅</span>';
+    const nombre = (p.propietario || 'SIN PROPIETARIO');
+    html += `<div style="margin-bottom:0.45rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.18rem;">
+        <span style="font-size:0.76rem;font-weight:700;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px;">${escHtml(nombre)}</span>
+        <span style="font-size:0.72rem;color:var(--gris);margin:0 4px;">${pct}%</span>
+        ${pendTxt}
+      </div>
+      <div style="background:#e5e7eb;height:6px;border-radius:10px;overflow:hidden;">
+        <div style="height:100%;border-radius:10px;background:${barColor};width:${Math.max(pct,3)}%;transition:width 0.5s ease;"></div>
+      </div>
+    </div>`;
+  });
+  if (extra > 0) {
+    html += `<div class="opl-ver-mas">+ ${extra} más — clic para ver todo</div>`;
+  }
+  box.innerHTML = html;
 }
 
 // ═══════════════════════════════════════════════════
@@ -707,9 +752,9 @@ function renderModalDetalleDespacho(destino, data) {
     html += '<tr><td colspan="5" class="empty-state">Sin registros</td></tr>';
   } else {
     rows.forEach(r => {
-      const badge = r.sufijo === 'MC1' ? 'badge-mc1' : 'badge-mc2';
+      const badge = (r.sufijo || '').includes('1') ? 'badge-mc1' : 'badge-mc2';
       html += `<tr>
-        <td><code>${escHtml(r.codigo_sufijo||r.codigo||'—')}</code></td>
+        <td><code>${escHtml(r.codigo||r.codigo_completo||'—')}</code></td>
         <td>${escHtml(r.propietario||'—')}</td>
         <td>${escHtml(r.cava||'—')}</td>
         <td>${escHtml(r.riel||'—')}</td>
@@ -725,8 +770,8 @@ function renderModalDetalleDespacho(destino, data) {
 }
 
 // Placeholder IDs de MC1/MC2 para el modal (se leen del backend)
-let ID_MC1_JS = 1;
-let ID_MC2_JS = 2;
+let ID_MC1_JS = 4;
+let ID_MC2_JS = 5;
 
 // ═══════════════════════════════════════════════════
 // MÓDULO OPL
@@ -843,9 +888,9 @@ function renderModalOpl(propietario, data) {
     html += '<tr><td colspan="7" class="empty-state">Sin registros en cava</td></tr>';
   } else {
     rows.forEach(r => {
-      const badge = r.sufijo === 'MC1' ? 'badge-mc1' : 'badge-mc2';
+      const badge = (r.sufijo || '').includes('1') ? 'badge-mc1' : 'badge-mc2';
       html += `<tr>
-        <td><code>${escHtml(r.codigo_sufijo||r.codigo||'—')}</code></td>
+        <td><code>${escHtml(r.codigo||r.codigo_completo||'—')}</code></td>
         <td>${escHtml(r.propietario||'—')}</td>
         <td>${escHtml(r.cava||'—')}</td>
         <td>${escHtml(r.riel||'—')}</td>
@@ -887,9 +932,9 @@ function renderCavas(data) {
   }
   let html = '';
   rows.forEach(r => {
-    const badge = r.sufijo === 'MC1' ? 'badge-mc1' : 'badge-mc2';
+    const badge = (r.sufijo || '').includes('1') ? 'badge-mc1' : 'badge-mc2';
     html += `<tr>
-      <td><code style="font-weight:600">${escHtml(r.codigo_sufijo||r.codigo||'—')}</code></td>
+      <td><code style="font-weight:600">${escHtml(r.codigo||r.codigo_completo||'—')}</code></td>
       <td>${escHtml(r.propietario||'—')}</td>
       <td>${escHtml(r.cava||'—')}</td>
       <td>${escHtml(r.riel||'—')}</td>
@@ -962,7 +1007,7 @@ function abrirVentanaImpresion(titulo, contenido) {
   </style></head><body>
   <h1>${titulo} — ${getFecha()}</h1>
   ${contenido}
-  <p style="margin-top:12px;font-size:10px;color:#888">Generado: ${new Date().toLocaleString('es-CO')} · Colbeef Gestor de Canales</p>
+  <p style="margin-top:12px;font-size:10px;color:#888">Generado: ${new Date().toLocaleString('es-CO')} · Colbeef Despacho de Canales</p>
   <button onclick="window.print()" style="margin-top:10px;padding:8px 16px;background:#1a6fc4;color:white;border:none;border-radius:6px;cursor:pointer">Imprimir</button>
   </body></html>`);
   w.document.close();
@@ -972,7 +1017,7 @@ function buildTablaDetalleDespacho(data) {
   const rows = data.data || [];
   let html = '<table><thead><tr><th>Código con Sufijo</th><th>Propietario</th><th>Cava</th><th>Riel</th><th>Tipo</th></tr></thead><tbody>';
   rows.forEach(r => {
-    html += `<tr><td>${escHtml(r.codigo_sufijo||r.codigo||'')}</td><td>${escHtml(r.propietario||'')}</td><td>${escHtml(r.cava||'')}</td><td>${escHtml(r.riel||'')}</td><td>${escHtml(r.sufijo||'')}</td></tr>`;
+    html += `<tr><td>${escHtml(r.codigo||'')}</td><td>${escHtml(r.propietario||'')}</td><td>${escHtml(r.cava||'')}</td><td>${escHtml(r.riel||'')}</td><td>${escHtml(r.sufijo||'')}</td></tr>`;
   });
   html += '</tbody></table>';
   return html;
@@ -982,7 +1027,7 @@ function buildTablaDetalleOpl(data) {
   const rows = data.data || [];
   let html = '<table><thead><tr><th>Código con Sufijo</th><th>Cliente/Propietario</th><th>Cava</th><th>Riel</th><th>Tipo</th><th>Destino</th><th>Ingreso Cava</th></tr></thead><tbody>';
   rows.forEach(r => {
-    html += `<tr><td>${escHtml(r.codigo_sufijo||r.codigo||'')}</td><td>${escHtml(r.propietario||'')}</td><td>${escHtml(r.cava||'')}</td><td>${escHtml(r.riel||'')}</td><td>${escHtml(r.sufijo||'')}</td><td>${escHtml(r.destino||'')}</td><td>${(r.fecha_ingreso||'').slice(0,16)}</td></tr>`;
+    html += `<tr><td>${escHtml(r.codigo||'')}</td><td>${escHtml(r.propietario||'')}</td><td>${escHtml(r.cava||'')}</td><td>${escHtml(r.riel||'')}</td><td>${escHtml(r.sufijo||'')}</td><td>${escHtml(r.destino||'')}</td><td>${(r.fecha_ingreso||'').slice(0,16)}</td></tr>`;
   });
   html += '</tbody></table>';
   return html;
@@ -994,7 +1039,7 @@ function descargarCSVDespacho(destino) {
   const rows = data.data || [];
   let csv = 'Código con Sufijo,Propietario,Cava,Riel,Tipo,Destino\n';
   rows.forEach(r => {
-    csv += [r.codigo_sufijo||r.codigo, r.propietario, r.cava, r.riel, r.sufijo, r.destino].map(csvQ).join(',') + '\n';
+    csv += [r.codigo, r.propietario, r.cava, r.riel, r.sufijo, r.destino].map(csvQ).join(',') + '\n';
   });
   descargarArchivo(csv, `despacho_${destino.replace(/[^a-zA-Z0-9]/g,'_')}_${getFecha()}.csv`, 'text/csv');
 }
@@ -1005,7 +1050,7 @@ function descargarCSVOpl(nombre) {
   const rows = data.data || [];
   let csv = 'Código con Sufijo,Cliente/Propietario,Cava,Riel,Tipo,Destino,Ingreso Cava\n';
   rows.forEach(r => {
-    csv += [r.codigo_sufijo||r.codigo, r.propietario, r.cava, r.riel, r.sufijo, r.destino, (r.fecha_ingreso||'').slice(0,16)].map(csvQ).join(',') + '\n';
+    csv += [r.codigo, r.propietario, r.cava, r.riel, r.sufijo, r.destino, (r.fecha_ingreso||'').slice(0,16)].map(csvQ).join(',') + '\n';
   });
   descargarArchivo(csv, `opl_${nombre.replace(/[^a-zA-Z0-9]/g,'_')}_${getFecha()}.csv`, 'text/csv');
 }

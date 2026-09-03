@@ -1,5 +1,5 @@
 """
-apps_script_local.py — Gestor de Canales (Colbeef)
+apps_script_local.py — Despacho de Canales (Colbeef)
 Estado local persistente para planilla OPL, historial y configuración.
 """
 import json

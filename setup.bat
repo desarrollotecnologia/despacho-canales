@@ -1,6 +1,6 @@
 @echo off
 echo ============================================
-echo  Gestor de Canales - Colbeef
+echo  Despacho de Canales - Colbeef
 echo  Primera instalacion
 echo ============================================
 cd /d "%~dp0"

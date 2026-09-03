@@ -1,5 +1,5 @@
 @echo off
-echo === Estado Gestor de Canales ===
+echo === Estado Despacho de Canales ===
 tasklist | findstr uvicorn && (echo ACTIVO) || (echo DETENIDO)
 echo.
 echo Ultimas lineas del log:

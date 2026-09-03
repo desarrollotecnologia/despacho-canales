@@ -1,4 +1,4 @@
-# Gestor de Canales · Colbeef v1.0
+# Despacho de Canales · Colbeef v1.0
 
 Control de medias canales: despachos y operadores logísticos (OPL) en tiempo real.
 
@@ -55,8 +55,8 @@ APP_PORT=8000
 ## Importante: IDs de tipo_parte_producto
 
 El backend asume que las medias canales tienen los IDs:
-- `ID_MC1 = 1` → Media Canal 1
-- `ID_MC2 = 2` → Media Canal 2
+- `ID_MC1 = 4` → Media Canal 1
+- `ID_MC2 = 5` → Media Canal 2 Cola
 
 **Si los IDs son diferentes en la BD**, ajústalos en `main.py` líneas 20-21.
 Para verificar qué IDs corresponden, accede a: http://localhost:8000/api/tipos_canal
