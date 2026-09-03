@@ -27,6 +27,24 @@ ID_MC1 = 4   # "Media Canal 1"
 ID_MC2 = 5   # "Media Canal 2 Cola"
 IDS_CANAL = (ID_MC1, ID_MC2)
 
+# Turno según weekday de la fecha (Python: lunes=0 ... domingo=6)
+TURNO_POR_WEEKDAY = {0: "LxM", 1: "MxM", 2: "MxJ", 3: "JxV", 4: "VxS", 5: "SxD", 6: "DxL"}
+
+
+def turno_de_fecha(fecha_str: Optional[str] = None) -> str:
+    d = date.fromisoformat(fecha_str) if fecha_str else date.today()
+    return TURNO_POR_WEEKDAY[d.weekday()]
+
+
+def resolver_turno(fecha_str: Optional[str], turno: Optional[str]) -> Optional[str]:
+    """Si turno viene vacío, usa el de la fecha. 'Todos' o None explícito = sin filtro."""
+    if turno is None:
+        return turno_de_fecha(fecha_str)
+    t = str(turno).strip()
+    if t == "" or t.lower() == "todos":
+        return None
+    return t
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -321,6 +339,7 @@ def get_dashboard(fecha: Optional[str] = None):
 @app.get("/api/despachos")
 def get_despachos(fecha: Optional[str] = None, turno: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
+    turno = resolver_turno(fecha_filtro, turno)
     turno_filtro = f"%{turno}%" if turno else None
 
     sql = """
@@ -409,6 +428,7 @@ def get_despacho_detalle(destino: str, fecha: Optional[str] = None):
 @app.get("/api/opl")
 def get_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
+    turno = resolver_turno(fecha_filtro, turno)
     turno_filtro = f"%{turno}%" if turno else None
     sql = """
         SELECT
@@ -509,8 +529,10 @@ def get_opl_detalle(propietario: str, fecha: Optional[str] = None):
 # SALIDAS — canales despachadas (pistoleadas) en el rango
 # ═══════════════════════════════════════════════════════
 @app.get("/api/salidas")
-def get_salidas(fecha: Optional[str] = None, dias: int = 1):
+def get_salidas(fecha: Optional[str] = None, dias: int = 1, turno: Optional[str] = None):
     fecha_fin = fecha or date.today().isoformat()
+    turno = resolver_turno(fecha_fin, turno)
+    turno_filtro = f"%{turno}%" if turno else None
     sql = """
         SELECT
             pp.id_producto          AS codigo,
@@ -538,9 +560,10 @@ def get_salidas(fecha: Optional[str] = None, dias: int = 1):
           AND ppcr.fecha_salida IS NOT NULL
           AND ppcr.fecha_salida >= (%s::date - (%s * INTERVAL '1 day'))
           AND ppcr.fecha_salida < (%s::date + INTERVAL '1 day')
+          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
         ORDER BY ppcr.fecha_salida DESC, pp.id_producto
     """
-    rows = safe_query(sql, (IDS_CANAL, fecha_fin, dias, fecha_fin), "salidas")
+    rows = safe_query(sql, (IDS_CANAL, fecha_fin, dias, fecha_fin, turno_filtro, turno_filtro), "salidas")
     data = serializable(rows)
     for r in data:
         enriquecer_codigo(r)
@@ -548,7 +571,7 @@ def get_salidas(fecha: Optional[str] = None, dias: int = 1):
     mc1 = sum(1 for r in data if r.get("id_tipo") == ID_MC1)
     mc2 = sum(1 for r in data if r.get("id_tipo") == ID_MC2)
     return {
-        "fecha": fecha_fin, "dias_rango": dias,
+        "fecha": fecha_fin, "dias_rango": dias, "turno": turno,
         "mc1": mc1, "mc2": mc2,
         "total_partes": len(data),
         "total_canales": (mc1 + mc2) * 0.5,
@@ -562,12 +585,13 @@ def get_salidas(fecha: Optional[str] = None, dias: int = 1):
 @app.get("/api/planilla_opl")
 def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
     """
-    Combina:
-    - En cava (pendientes de despacho)
-    - Salidas del día (ya despachadas / pistoleadas)
-    Para calcular progreso real de cada OPL.
+    Progreso OPL del turno de la fecha:
+    - Pendientes: canales aún en cava cuyo destino trae el turno (DxL, JxV, etc.)
+    - Despachadas: canales con fecha_salida del día Y destino del mismo turno
+    Así solo entra lo pistoleado de ese turno, no salidas de otros.
     """
     fecha_filtro = fecha or date.today().isoformat()
+    turno = resolver_turno(fecha_filtro, turno)
     turno_filtro = f"%{turno}%" if turno else None
 
     sql_en_cava = """
@@ -605,26 +629,30 @@ def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NOT NULL
           AND DATE(ppcr.fecha_salida) = %s::date
+          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
         GROUP BY e3.nombre
     """
 
     results = safe_query_many([
         ("en_cava", sql_en_cava, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "planilla.cava"),
-        ("salidas",  sql_salidas, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro),                            "planilla.salidas"),
+        ("salidas",  sql_salidas, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "planilla.salidas"),
     ])
 
+    idx_cava = {
+        (r.get("propietario") or "SIN PROPIETARIO"): r
+        for r in serializable(results.get("en_cava", []))
+    }
     idx_salidas = {
-        r["propietario"]: r
+        (r.get("propietario") or "SIN PROPIETARIO"): r
         for r in serializable(results.get("salidas", []))
-        if r.get("propietario")
     }
 
     lista = []
-    for r in serializable(results.get("en_cava", [])):
-        prop = r.get("propietario") or "SIN PROPIETARIO"
+    for prop in sorted(set(idx_cava) | set(idx_salidas)):
+        cava = idx_cava.get(prop, {})
         sal  = idx_salidas.get(prop, {})
-        mc1_pend = int(r.get("mc1_pend") or 0)
-        mc2_pend = int(r.get("mc2_pend") or 0)
+        mc1_pend = int(cava.get("mc1_pend") or 0)
+        mc2_pend = int(cava.get("mc2_pend") or 0)
         mc1_sal  = int(sal.get("mc1_sal") or 0)
         mc2_sal  = int(sal.get("mc2_sal") or 0)
         total_pend = mc1_pend + mc2_pend
@@ -662,7 +690,7 @@ def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
 
     return {
         "fecha": fecha_filtro,
-        "turno": turno,
+        "turno": turno or turno_de_fecha(fecha_filtro),
         "totales": totales,
         "data": lista,
     }

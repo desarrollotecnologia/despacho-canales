@@ -101,7 +101,9 @@
     .turno-btns{display:flex;flex-wrap:wrap;gap:0.6rem;margin-bottom:1.5rem;}
     .turno-btn{display:flex;align-items:center;gap:0.35rem;padding:0.5rem 0.9rem;border-radius:30px;border:2px solid var(--vc);background:white;cursor:pointer;font-size:0.82rem;font-weight:600;transition:all 0.18s;white-space:nowrap;}
     .turno-btn:hover{border-color:var(--vp);background:#eff6ff;}
+    .turno-btn.sugerido{border-color:#93c5fd;background:#eff6ff;}
     .turno-btn.selected{border-color:var(--vp);background:var(--vp);color:white;}
+    .turno-btn.sugerido:not(.selected)::after{content:'fecha';font-size:0.62rem;color:var(--vp);margin-left:0.2rem;opacity:0.8;}
 
     /* TABLAS */
     .table-wrap{overflow-x:auto;border-radius:12px;border:1px solid var(--vc);margin-top:1rem;}
@@ -193,7 +195,7 @@
       </div>
     </div>
     <div class="header-right">
-      <input type="date" id="fechaSelect" title="Seleccionar fecha">
+      <input type="date" id="fechaSelect" title="Seleccionar fecha" onchange="onFechaChange()">
       <span class="db-badge" id="dbBadge">⏳ BD: sirt</span>
       <button class="btn-refresh" onclick="actualizarTodo()">🔄 Actualizar</button>
     </div>
@@ -306,15 +308,17 @@
     <h2 style="color:var(--vp);margin-bottom:1.5rem;">📋 Despachos de Canales</h2>
 
     <!-- Selector turno -->
+    <!-- Selector turno -->
+    <p style="font-size:0.85rem;color:var(--gris);margin-bottom:0.8rem;">El turno se asigna según la fecha (marcado como <strong>fecha</strong>). Puedes cambiarlo a mano.</p>
     <div class="turno-btns" id="turnoBtns">
       <button class="turno-btn" data-turno="" onclick="selTurno(this,'')">🔵 Todos</button>
-      <button class="turno-btn" data-turno="DxL" onclick="selTurno(this,'DxL')">DxL</button>
-      <button class="turno-btn" data-turno="LxM" onclick="selTurno(this,'LxM')">LxM</button>
-      <button class="turno-btn" data-turno="MxM" onclick="selTurno(this,'MxM')">MxM</button>
-      <button class="turno-btn" data-turno="MxJ" onclick="selTurno(this,'MxJ')">MxJ</button>
-      <button class="turno-btn" data-turno="JxV" onclick="selTurno(this,'JxV')">JxV</button>
-      <button class="turno-btn" data-turno="VxS" onclick="selTurno(this,'VxS')">VxS</button>
-      <button class="turno-btn" data-turno="SxD" onclick="selTurno(this,'SxD')">SxD</button>
+      <button class="turno-btn" data-turno="DxL" onclick="selTurno(this,'DxL')"><span>Dom→Lun</span> DxL</button>
+      <button class="turno-btn" data-turno="LxM" onclick="selTurno(this,'LxM')"><span>Lun→Mar</span> LxM</button>
+      <button class="turno-btn" data-turno="MxM" onclick="selTurno(this,'MxM')"><span>Mar→Mié</span> MxM</button>
+      <button class="turno-btn" data-turno="MxJ" onclick="selTurno(this,'MxJ')"><span>Mié→Jue</span> MxJ</button>
+      <button class="turno-btn" data-turno="JxV" onclick="selTurno(this,'JxV')"><span>Jue→Vie</span> JxV</button>
+      <button class="turno-btn" data-turno="VxS" onclick="selTurno(this,'VxS')"><span>Vie→Sáb</span> VxS</button>
+      <button class="turno-btn" data-turno="SxD" onclick="selTurno(this,'SxD')"><span>Sáb→Dom</span> SxD</button>
     </div>
 
     <!-- Stats -->
@@ -356,15 +360,16 @@
     <p style="color:var(--gris);font-size:0.88rem;margin-bottom:1.5rem;">Progreso en tiempo real — cada media canal vale <strong>0.5</strong>. Las salidas se actualizan al pistolar.</p>
 
     <!-- Selector turno OPL -->
+    <p style="font-size:0.85rem;color:var(--gris);margin-bottom:0.8rem;">Mismo turno de la fecha seleccionada. Puedes cambiarlo a mano.</p>
     <div class="turno-btns" id="turnoBtnsOpl">
-      <button class="turno-btn selected" data-turno="" onclick="selTurnoOpl(this,'')">🔵 Todos</button>
-      <button class="turno-btn" data-turno="DxL" onclick="selTurnoOpl(this,'DxL')">DxL</button>
-      <button class="turno-btn" data-turno="LxM" onclick="selTurnoOpl(this,'LxM')">LxM</button>
-      <button class="turno-btn" data-turno="MxM" onclick="selTurnoOpl(this,'MxM')">MxM</button>
-      <button class="turno-btn" data-turno="MxJ" onclick="selTurnoOpl(this,'MxJ')">MxJ</button>
-      <button class="turno-btn" data-turno="JxV" onclick="selTurnoOpl(this,'JxV')">JxV</button>
-      <button class="turno-btn" data-turno="VxS" onclick="selTurnoOpl(this,'VxS')">VxS</button>
-      <button class="turno-btn" data-turno="SxD" onclick="selTurnoOpl(this,'SxD')">SxD</button>
+      <button class="turno-btn" data-turno="" onclick="selTurnoOpl(this,'')">🔵 Todos</button>
+      <button class="turno-btn" data-turno="DxL" onclick="selTurnoOpl(this,'DxL')"><span>Dom→Lun</span> DxL</button>
+      <button class="turno-btn" data-turno="LxM" onclick="selTurnoOpl(this,'LxM')"><span>Lun→Mar</span> LxM</button>
+      <button class="turno-btn" data-turno="MxM" onclick="selTurnoOpl(this,'MxM')"><span>Mar→Mié</span> MxM</button>
+      <button class="turno-btn" data-turno="MxJ" onclick="selTurnoOpl(this,'MxJ')"><span>Mié→Jue</span> MxJ</button>
+      <button class="turno-btn" data-turno="JxV" onclick="selTurnoOpl(this,'JxV')"><span>Jue→Vie</span> JxV</button>
+      <button class="turno-btn" data-turno="VxS" onclick="selTurnoOpl(this,'VxS')"><span>Vie→Sáb</span> VxS</button>
+      <button class="turno-btn" data-turno="SxD" onclick="selTurnoOpl(this,'SxD')"><span>Sáb→Dom</span> SxD</button>
     </div>
 
     <!-- Totales planilla -->
@@ -443,6 +448,51 @@ const S = {
   planillaData: null,
 };
 
+// Turno según día de la fecha (igual que Gestor de Vísceras)
+// JS getDay: 0=Dom ... 6=Sáb
+const TURNO_POR_DIA = {0:'DxL',1:'LxM',2:'MxM',3:'MxJ',4:'JxV',5:'VxS',6:'SxD'};
+const NOMBRE_TURNO = {
+  DxL: 'Domingo → Lunes',
+  LxM: 'Lunes → Martes',
+  MxM: 'Martes → Miércoles',
+  MxJ: 'Miércoles → Jueves',
+  JxV: 'Jueves → Viernes',
+  VxS: 'Viernes → Sábado',
+  SxD: 'Sábado → Domingo',
+};
+
+function turnoDeFecha(fechaStr) {
+  const d = fechaStr ? new Date(fechaStr + 'T12:00:00') : new Date();
+  return TURNO_POR_DIA[d.getDay()] || 'DxL';
+}
+
+function marcarTurnoSugerido() {
+  const t = turnoDeFecha(getFecha());
+  document.querySelectorAll('#turnoBtns .turno-btn, #turnoBtnsOpl .turno-btn').forEach(btn => {
+    btn.classList.toggle('sugerido', btn.dataset.turno === t);
+  });
+}
+
+function aplicarTurnoDeFecha() {
+  const t = turnoDeFecha(getFecha());
+  turnoDesp = t;
+  turnoOpl = t;
+  document.querySelectorAll('#turnoBtns .turno-btn').forEach(btn => {
+    btn.classList.toggle('selected', btn.dataset.turno === t);
+  });
+  document.querySelectorAll('#turnoBtnsOpl .turno-btn').forEach(btn => {
+    btn.classList.toggle('selected', btn.dataset.turno === t);
+  });
+  marcarTurnoSugerido();
+  return t;
+}
+
+function onFechaChange() {
+  S.fecha = getFecha();
+  aplicarTurnoDeFecha();
+  actualizarTodo();
+}
+
 // ═══════════════════════════════════════════════════
 // UTILIDADES
 // ═══════════════════════════════════════════════════
@@ -492,6 +542,7 @@ function irMain() {
 }
 
 function irModulo(m) {
+  marcarTurnoSugerido();
   if (m === 'despachos') { showView('viewDespachos'); cargarDespachos(); }
   else if (m === 'opl')  { showView('viewOpl');       cargarOpl(); }
   else if (m === 'cavas'){ showView('viewCavas');     cargarCavas(); }
@@ -504,6 +555,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const hoy = new Date().toISOString().slice(0,10);
   $('fechaSelect').value = hoy;
   S.fecha = hoy;
+  aplicarTurnoDeFecha();
   $('viewMain').style.display = '';
   pingBD();
   actualizarDashboard();
@@ -544,7 +596,7 @@ async function actualizarDashboard() {
     showSpinner();
     const [dash, planilla] = await Promise.all([
       apiFetch(API(`/dashboard?fecha=${fecha}`)),
-      apiFetch(API(`/planilla_opl?fecha=${fecha}`)),
+      apiFetch(API(`/planilla_opl?fecha=${fecha}&turno=${encodeURIComponent(turnoOpl || turnoDeFecha(fecha))}`)),
     ]);
     S.dashData = dash;
     S.planillaData = planilla;
@@ -608,7 +660,9 @@ function renderDashOplMini(planilla) {
   const mostrar = sorted.slice(0, 5);
   const extra = sorted.length > 5 ? sorted.length - 5 : 0;
   const canalesProg = tot.canales_pend != null ? Number(tot.canales_pend).toFixed(1) : '0';
-  let html = `<div style="font-size:0.75rem;color:var(--gris);margin:0.2rem 0 0.55rem;">${canalesProg} canales programadas · pulse para ver detalle</div>`;
+  const t = planilla.turno || turnoOpl || turnoDeFecha(getFecha());
+  const tNom = NOMBRE_TURNO[t] || t;
+  let html = `<div style="font-size:0.75rem;color:var(--gris);margin:0.2rem 0 0.55rem;">${canalesProg} canales programadas del turno ${t} (${tNom})</div>`;
   mostrar.forEach(p => {
     const pct = Math.min(100, p.progreso_pct || 0);
     const barColor = pct >= 100 ? '#16a34a' : (pct < 30 ? '#dc2626' : 'var(--vp)');
@@ -652,7 +706,7 @@ async function cargarDespachos() {
     showSpinner();
     const url = turnoDesp
       ? API(`/despachos?fecha=${fecha}&turno=${turnoDesp}`)
-      : API(`/despachos?fecha=${fecha}`);
+      : API(`/despachos?fecha=${fecha}&turno=Todos`);
     const data = await apiFetch(url);
     S.despData = data;
     renderDespachos(data);
@@ -791,7 +845,7 @@ async function cargarOpl() {
     showSpinner();
     const url = turnoOpl
       ? API(`/planilla_opl?fecha=${fecha}&turno=${turnoOpl}`)
-      : API(`/planilla_opl?fecha=${fecha}`);
+      : API(`/planilla_opl?fecha=${fecha}&turno=Todos`);
     const data = await apiFetch(url);
     S.planillaData = data;
     renderOpl(data);
