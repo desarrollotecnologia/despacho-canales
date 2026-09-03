@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" fill="#000"/>
+  <!-- caja -->
+  <rect x="5" y="16" width="37" height="26" rx="2" fill="#f4f4f5"/>
+  <rect x="5" y="16" width="37" height="6" fill="#2563eb"/>
+  <rect x="5" y="33" width="37" height="3.5" fill="#f97316"/>
+  <rect x="5" y="36.5" width="37" height="5.5" fill="#2563eb"/>
+  <!-- cabina -->
+  <path d="M42 20h11.5c2.4 0 4.5 2 4.5 4.6V42H42V20z" fill="#f97316"/>
+  <rect x="45.5" y="23.5" width="10" height="9" rx="2.2" fill="#fff"/>
+  <rect x="46.5" y="34.5" width="4" height="1.6" rx="0.6" fill="#fff"/>
+  <rect x="54.5" y="36" width="2.4" height="3" rx="0.4" fill="#fff"/>
+  <!-- ruedas -->
+  <circle cx="16" cy="46.5" r="6.2" fill="#4b5563"/>
+  <circle cx="16" cy="46.5" r="2.6" fill="#e5e7eb"/>
+  <circle cx="48" cy="46.5" r="6.2" fill="#4b5563"/>
+  <circle cx="48" cy="46.5" r="2.6" fill="#e5e7eb"/>
+</svg>

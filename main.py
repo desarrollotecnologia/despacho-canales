@@ -3,7 +3,7 @@ Despacho de Canales — Colbeef
 Backend FastAPI con conexión directa a PostgreSQL (solo lectura)
 v1.0 — Medias canales: Media Canal 1 (sufijo -1001) y Media Canal 2 (sufijo -1002)
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +22,7 @@ import psycopg2
 import psycopg2.extras
 from psycopg2.pool import ThreadedConnectionPool
 import apps_script_local
+import usability
 
 load_dotenv()
 
@@ -1001,12 +1002,65 @@ class AppsScriptRequest(BaseModel):
     args: list = []
 
 
+class UsageEventIn(BaseModel):
+    usuario: str = "anonimo"
+    action: str = "event"
+    module: str = ""
+    detail: str = ""
+    sessionId: str = ""
+    page: str = ""
+    meta: dict = {}
+
+
+class UsageLoginIn(BaseModel):
+    password: str = ""
+
+
+@app.post("/api/usability/event")
+def usability_event(payload: UsageEventIn, request: Request):
+    ip = request.client.host if request.client else ""
+    ua = request.headers.get("user-agent", "")
+    return usability.record_event(payload.dict(), ip=ip, user_agent=ua)
+
+
+@app.post("/api/usability/login")
+def usability_login(payload: UsageLoginIn):
+    token = usability.login_admin(payload.password)
+    if not token:
+        return {"success": False, "message": "Contraseña incorrecta"}
+    return {"success": True, "token": token}
+
+
+@app.get("/api/usability/stats")
+def usability_stats(
+    days: int = 30,
+    x_usability_admin: str = Header(default="", alias="X-Usability-Admin"),
+    authorization: str = Header(default=""),
+):
+    token = (x_usability_admin or "").strip()
+    if not token and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    if not usability.verify_admin(token):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    return usability.get_stats(days)
+
+
+@app.get("/usabilidad.html")
+def usabilidad_page():
+    return FileResponse("static/usabilidad.html")
+
+
 @app.post("/api/apps-script/{function_name}")
 def run_apps_script_function(function_name: str, payload: AppsScriptRequest):
     try:
         return apps_script_local.dispatch(function_name, payload.args)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return FileResponse("static/favicon.svg", media_type="image/svg+xml")
 
 
 @app.get("/")

@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Colbeef · Despacho de Canales</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3">
+  <link rel="shortcut icon" href="/static/favicon.svg?v=3">
   <style>
     :root{
       --vp:#1a6fc4;--vh:#2563eb;--vs:#60a5fa;--vc:#bfdbfe;
@@ -199,7 +201,7 @@
   <!-- HEADER -->
   <div class="header">
     <div class="logo-area">
-      <div class="logo-icon">🥩</div>
+      <div class="logo-icon" id="logoIconGestor" title="Colbeef">🥩</div>
       <div class="logo-text">
         <h1><span style="color:var(--vp)">Col</span><span style="color:var(--rojo)">beef</span> · Despacho de Canales</h1>
         <p>Control de medias canales · Despachos y OPL en tiempo real</p>
@@ -207,6 +209,7 @@
     </div>
     <div class="header-right">
       <input type="date" id="fechaSelect" title="Seleccionar fecha" onchange="onFechaChange()">
+      <span class="db-badge" id="usuarioBadge" style="display:none;"></span>
       <span class="db-badge" id="dbBadge">⏳ BD: sirt</span>
       <button class="btn-refresh" onclick="actualizarTodo()">🔄 Actualizar</button>
     </div>
@@ -635,6 +638,7 @@ function irMain() {
 }
 
 function irModulo(m) {
+  if (window.ColbeefUsage) ColbeefUsage.track('module_open', m, 'Abrir módulo');
   marcarTurnoSugerido();
   if (m === 'despachos') { showView('viewDespachos'); cargarDespachos(); }
   else if (m === 'opl')  { showView('viewOpl');       cargarOpl(); }
@@ -653,6 +657,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('viewMain').style.display = '';
   pingBD();
   actualizarDashboard();
+  if (window.ColbeefUsage) ColbeefUsage.init({ page: 'despacho-canales' });
 });
 
 async function pingBD() {
@@ -1318,6 +1323,7 @@ function descargarExcelOplActivo() {
 }
 
 function descargarExcelOpl(opl) {
+  if (window.ColbeefUsage) ColbeefUsage.track('excel_download', 'planilla', 'Excel OPL '+opl);
   const fecha = getFecha();
   const a = document.createElement('a');
   a.href = API(`/planilla_puntos/excel?opl=${encodeURIComponent(opl)}&fecha=${fecha}&${planillaTurnoQ()}`);
@@ -1461,6 +1467,106 @@ setInterval(() => {
     actualizarDashboard(true);
   }
 }, 3 * 60 * 1000);
+
+(function () {
+  var STORAGE_USER = 'colbeef_usuario';
+  var STORAGE_SESSION = 'colbeef_session_id';
+  function newSessionId() {
+    return 's_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+  }
+  function send(payload) {
+    try {
+      fetch('/api/usability/event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true
+      }).catch(function () {});
+    } catch (_) {}
+  }
+  window.ColbeefUsage = {
+    usuario: 'anonimo',
+    sessionId: '',
+    init: function (opts) {
+      opts = opts || {};
+      try {
+        var fromUrl = new URLSearchParams(location.search).get('usuario');
+        if (fromUrl) localStorage.setItem(STORAGE_USER, fromUrl.trim());
+      } catch (_) {}
+      this.usuario = (opts.usuario || localStorage.getItem(STORAGE_USER) || 'anonimo').trim() || 'anonimo';
+      localStorage.setItem(STORAGE_USER, this.usuario);
+      this.sessionId = sessionStorage.getItem(STORAGE_SESSION);
+      if (!this.sessionId) {
+        this.sessionId = newSessionId();
+        sessionStorage.setItem(STORAGE_SESSION, this.sessionId);
+      }
+      this.track('session_start', opts.page || 'main', 'Inicio de sesión');
+      var badge = document.getElementById('usuarioBadge');
+      if (badge) {
+        badge.textContent = '👤 ' + this.usuario;
+        badge.style.display = 'inline-flex';
+      }
+    },
+    track: function (action, module, detail) {
+      send({
+        usuario: this.usuario,
+        action: action || 'event',
+        module: module || '',
+        detail: detail || '',
+        sessionId: this.sessionId,
+        page: (location.pathname || '').replace(/^\//, '')
+      });
+    }
+  };
+
+  function openUsabilidadAdmin() {
+    var pwd = prompt('Contraseña de administración (usabilidad):');
+    if (!pwd) return;
+    fetch('/api/usability/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.success) {
+          alert(data.message || 'Contraseña incorrecta');
+          return;
+        }
+        sessionStorage.setItem('colbeef_usabilidad_token', data.token);
+        if (window.ColbeefUsage) ColbeefUsage.track('admin_open', 'usabilidad', 'Dashboard oculto');
+        location.href = '/usabilidad.html';
+      })
+      .catch(function () {
+        alert('No se pudo verificar la contraseña. ¿El servicio está activo?');
+      });
+  }
+
+  var logoClicks = 0, logoTimer = null;
+  document.addEventListener('DOMContentLoaded', function () {
+    var logo = document.getElementById('logoIconGestor');
+    if (logo) {
+      logo.style.cursor = 'pointer';
+      logo.addEventListener('click', function (e) {
+        if (e) e.stopPropagation();
+        logoClicks++;
+        clearTimeout(logoTimer);
+        logoTimer = setTimeout(function () { logoClicks = 0; }, 1200);
+        if (logoClicks >= 5) {
+          logoClicks = 0;
+          openUsabilidadAdmin();
+        }
+      });
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.ctrlKey && e.shiftKey && (e.key === 'U' || e.key === 'u')) {
+      e.preventDefault();
+      openUsabilidadAdmin();
+    }
+  });
+})();
+
 
 </script>
 </body>

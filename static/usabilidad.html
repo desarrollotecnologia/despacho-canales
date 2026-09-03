@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Usabilidad · Despacho Canales</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <style>
+    :root{--vp:#1a6fc4;--vh:#2563eb;--vs:#60a5fa;--vc:#bfdbfe;--gris:#6b7280;--fondo:#f0f6ff;}
+    *{box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif;}
+    body{margin:0;background:var(--fondo);color:#111827;padding:1.5rem;}
+    .wrap{max-width:1280px;margin:0 auto;}
+    .login-card{background:#fff;border-radius:16px;padding:1.5rem;box-shadow:0 8px 24px rgba(26,111,196,0.08);border:1px solid var(--vc);max-width:400px;margin:4rem auto;}
+    input,select{padding:0.65rem 0.8rem;border:1.5px solid var(--vc);border-radius:10px;width:100%;font-size:0.95rem;}
+    .btn{padding:0.65rem 1rem;border:none;border-radius:10px;background:var(--vp);color:#fff;font-weight:700;cursor:pointer;}
+    .btn.secondary{background:#fff;color:var(--vp);border:1.5px solid var(--vc);}
+    .btn-row{display:flex;gap:0.6rem;flex-wrap:wrap;margin-top:1rem;}
+    .header{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem;}
+    h1{margin:0;font-size:1.5rem;color:var(--vp);}
+    .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem;}
+    .kpi{background:#fff;border-radius:14px;padding:1.1rem 1.2rem;border:1px solid var(--vc);position:relative;overflow:hidden;}
+    .kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--vp),var(--vs));}
+    .kpi span{display:block;font-size:0.72rem;color:var(--gris);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+    .kpi strong{font-size:2rem;color:var(--vp);line-height:1.2;margin-top:0.25rem;display:block;}
+    .kpi small{font-size:0.78rem;color:var(--gris);font-weight:500;}
+    .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;margin-bottom:1.5rem;}
+    .box{background:#fff;border-radius:14px;padding:1.1rem 1.2rem;border:1px solid var(--vc);margin-bottom:1.5rem;}
+    .box h2{margin:0 0 0.9rem;font-size:0.95rem;color:#374151;font-weight:700;}
+    .bar{display:flex;align-items:center;gap:0.6rem;margin-bottom:0.45rem;font-size:0.82rem;}
+    .bar .n{min-width:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .bar .t{flex:1;background:#dbeafe;height:10px;border-radius:20px;overflow:hidden;}
+    .bar .t i{display:block;height:100%;background:var(--vp);}
+    .bar .c{min-width:36px;text-align:right;font-weight:700;color:var(--vp);}
+    table{width:100%;border-collapse:collapse;font-size:0.82rem;}
+    th,td{padding:0.5rem 0.4rem;text-align:left;border-bottom:1px solid #f3f4f6;}
+    th{color:var(--gris);font-weight:600;font-size:0.75rem;text-transform:uppercase;}
+    .err{color:#dc2626;font-size:0.85rem;margin-top:0.5rem;}
+    #dashView{display:none;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="loginView" class="login-card">
+      <h1>Acceso restringido</h1>
+      <p style="color:var(--gris);font-size:0.9rem;">Dashboard de usabilidad · Despacho de Canales</p>
+      <label style="display:block;margin:1rem 0 0.4rem;font-size:0.82rem;font-weight:600;">Contraseña</label>
+      <input id="pwdInput" type="password" placeholder="Contraseña de administrador">
+      <div class="btn-row">
+        <button class="btn" id="loginBtn" type="button">Entrar</button>
+        <button class="btn secondary" type="button" onclick="location.href='/'">← Volver</button>
+      </div>
+      <p class="err" id="loginErr" style="display:none;"></p>
+    </div>
+
+    <div id="dashView">
+      <div class="header">
+        <div>
+          <h1>📊 Usabilidad del Despacho</h1>
+          <p style="margin:0.3rem 0 0;color:var(--gris);font-size:0.88rem;">Actividad por usuario, módulo y acción</p>
+        </div>
+        <div class="btn-row" style="margin:0;">
+          <select id="daysSelect" style="width:auto;">
+            <option value="7">Últimos 7 días</option>
+            <option value="30" selected>Últimos 30 días</option>
+            <option value="90">Últimos 90 días</option>
+          </select>
+          <button class="btn secondary" type="button" onclick="location.href='/'">← Volver al programa</button>
+        </div>
+      </div>
+      <div class="kpis" id="kpiRow"></div>
+      <div class="grid2">
+        <div class="box"><h2>👤 Usuarios más activos</h2><div id="boxUsuarios"></div></div>
+        <div class="box"><h2>📦 Módulos visitados</h2><div id="boxModulos"></div></div>
+      </div>
+      <div class="grid2">
+        <div class="box"><h2>⚡ Acciones</h2><div id="boxAcciones"></div></div>
+        <div class="box"><h2>📈 Eventos por día</h2><div id="boxDias"></div></div>
+      </div>
+      <div class="box">
+        <h2>🕐 Eventos recientes</h2>
+        <div id="tblRecientes" style="overflow-x:auto;"></div>
+      </div>
+    </div>
+  </div>
+<script>
+var TOKEN_KEY = 'colbeef_usabilidad_token';
+function token(){ return sessionStorage.getItem(TOKEN_KEY) || ''; }
+function setToken(t){ sessionStorage.setItem(TOKEN_KEY, t); }
+function labelAccion(n){
+  var m={session_start:'Inicio sesión',admin_open:'Dashboard admin',module_open:'Abrir módulo',excel_download:'Descargar Excel',event:'Evento'};
+  return m[n]||String(n||'').replace(/_/g,' ');
+}
+function labelModulo(n){
+  var m={main:'Inicio',despachos:'Despachos',opl:'Planilla OPL',planilla:'Planilla de puntos',cavas:'Canales en cava',usabilidad:'Usabilidad'};
+  return m[n]||n||'—';
+}
+function bars(rows, labelFn){
+  if(!rows||!rows.length) return '<p style="color:var(--gris);font-size:0.85rem;">Sin datos</p>';
+  var max=Math.max.apply(null, rows.map(function(r){return r.count;}))||1;
+  return rows.map(function(r){
+    var pct=Math.round((r.count/max)*100);
+    return '<div class="bar"><span class="n">'+(labelFn?labelFn(r.name):r.name)+'</span><span class="t"><i style="width:'+pct+'%"></i></span><span class="c">'+r.count+'</span></div>';
+  }).join('');
+}
+function fmtTs(ts){
+  if(!ts) return '';
+  var d=new Date(ts);
+  return isNaN(d.getTime())?ts:d.toLocaleString('es-CO',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+function authHeaders(){ return {'X-Usability-Admin': token(), 'Content-Type':'application/json'}; }
+function showDash(){ document.getElementById('loginView').style.display='none'; document.getElementById('dashView').style.display='block'; }
+function showLogin(msg){
+  document.getElementById('loginView').style.display='block';
+  document.getElementById('dashView').style.display='none';
+  var e=document.getElementById('loginErr');
+  if(msg){ e.style.display='block'; e.textContent=msg; } else e.style.display='none';
+}
+function render(data){
+  var last=data.lastActivity;
+  document.getElementById('kpiRow').innerHTML=
+    '<div class="kpi"><span>Eventos</span><strong>'+data.totalEvents+'</strong></div>'+
+    '<div class="kpi"><span>Usuarios</span><strong>'+data.uniqueUsers+'</strong></div>'+
+    '<div class="kpi"><span>Sesiones</span><strong>'+data.uniqueSessions+'</strong></div>'+
+    (last
+      ? '<div class="kpi"><span>Última actividad</span><strong style="font-size:1.15rem;">'+last.usuario+'</strong><small>'+labelAccion(last.action)+'</small></div>'
+      : '<div class="kpi"><span>Última actividad</span><strong style="font-size:1rem;color:var(--gris);">—</strong></div>');
+  document.getElementById('boxUsuarios').innerHTML=bars(data.byUsuario);
+  document.getElementById('boxModulos').innerHTML=bars(data.byModule, labelModulo);
+  document.getElementById('boxAcciones').innerHTML=bars(data.byAction, labelAccion);
+  document.getElementById('boxDias').innerHTML=bars((data.byDay||[]).map(function(d){return {name:d.date, count:d.count};}));
+  var rec=data.recent||[];
+  if(!rec.length){ document.getElementById('tblRecientes').innerHTML='<p style="color:var(--gris);">Sin eventos</p>'; return; }
+  var h='<table><thead><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Módulo</th><th>Detalle</th></tr></thead><tbody>';
+  rec.forEach(function(e){
+    h+='<tr><td>'+fmtTs(e.ts)+'</td><td>'+(e.usuario||'')+'</td><td>'+labelAccion(e.action)+'</td><td>'+labelModulo(e.module)+'</td><td>'+(e.detail||'')+'</td></tr>';
+  });
+  document.getElementById('tblRecientes').innerHTML=h+'</tbody></table>';
+}
+function loadStats(){
+  var days=document.getElementById('daysSelect').value||30;
+  fetch('/api/usability/stats?days='+days,{headers:authHeaders()})
+    .then(function(r){ if(r.status===401) throw new Error('auth'); return r.json(); })
+    .then(function(data){ showDash(); render(data); })
+    .catch(function(){ setToken(''); showLogin('Sesión vencida. Ingresa de nuevo.'); });
+}
+function doLogin(){
+  var pwd=document.getElementById('pwdInput').value;
+  fetch('/api/usability/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd})})
+    .then(function(r){return r.json();})
+    .then(function(data){
+      if(!data.success){ showLogin(data.message||'Contraseña incorrecta'); return; }
+      setToken(data.token);
+      loadStats();
+    })
+    .catch(function(){ showLogin('No se pudo verificar la contraseña.'); });
+}
+document.getElementById('loginBtn').onclick=doLogin;
+document.getElementById('pwdInput').addEventListener('keydown', function(e){ if(e.key==='Enter') doLogin(); });
+document.getElementById('daysSelect').addEventListener('change', loadStats);
+if(token()) loadStats();
+</script>
+</body>
+</html>
