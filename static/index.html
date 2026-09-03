@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Colbeef · Gestor de Canales</title>
+  <style>
+    :root{
+      --vp:#1a6fc4;--vh:#2563eb;--vs:#60a5fa;--vc:#bfdbfe;
+      --rojo:#dc2626;--fondo:#f0f6ff;--blanco:#ffffff;--gris:#6b7280;
+      --sombra:0 8px 20px rgba(26,111,196,0.08);--radio:16px;
+    }
+    *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Roboto,system-ui,sans-serif;}
+    body{background:var(--fondo);padding:2rem;min-height:100vh;display:flex;flex-direction:column;align-items:center;}
+    .container{max-width:1400px;width:100%;}
+
+    /* HEADER */
+    .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:2.5rem;flex-wrap:wrap;gap:1rem;}
+    .logo-area{display:flex;align-items:center;gap:1rem;}
+    .logo-icon{font-size:2.5rem;background:var(--vp);color:white;width:60px;height:60px;display:flex;align-items:center;justify-content:center;border-radius:18px;box-shadow:var(--sombra);}
+    .logo-text h1{font-size:1.8rem;font-weight:700;letter-spacing:-0.5px;}
+    .logo-text p{color:var(--gris);font-size:0.9rem;}
+    .header-right{display:flex;align-items:center;gap:0.8rem;flex-wrap:wrap;}
+    .fecha-badge{background:white;padding:0.5rem 1.5rem;border-radius:40px;font-weight:500;color:var(--vp);box-shadow:var(--sombra);border:1px solid var(--vc);}
+    .db-badge{background:#e0f2fe;padding:0.4rem 1rem;border-radius:40px;font-size:0.8rem;font-weight:600;color:#0369a1;border:1px solid #bae6fd;}
+    .db-badge.ok{background:#d1fae5;color:#065f46;border-color:#a7f3d0;}
+    .db-badge.error{background:#fee2e2;color:#991b1b;border-color:#fca5a5;}
+    .btn-refresh{background:var(--vp);color:white;border:none;border-radius:30px;padding:0.5rem 1.2rem;font-weight:600;cursor:pointer;font-size:0.85rem;display:flex;align-items:center;gap:0.4rem;}
+    .btn-refresh:hover{background:var(--vh);}
+    #fechaSelect{padding:0.4rem 0.8rem;border:2px solid var(--vc);border-radius:10px;font-size:0.88rem;background:white;cursor:pointer;}
+    #fechaSelect:focus{outline:none;border-color:var(--vp);}
+
+    /* RESUMEN TARJETAS */
+    .resumen-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1.5rem;margin-bottom:2.5rem;}
+    .tarjeta-resumen{background:var(--blanco);border-radius:var(--radio);padding:1.5rem;box-shadow:var(--sombra);border:1px solid rgba(96,165,250,0.2);transition:transform 0.2s;position:relative;overflow:hidden;}
+    .tarjeta-resumen:hover{transform:translateY(-4px);}
+    .tarjeta-resumen::before{content:'';position:absolute;top:0;left:0;width:100%;height:5px;background:linear-gradient(90deg,var(--vp),var(--vs));}
+    .resumen-label{font-size:0.78rem;text-transform:uppercase;letter-spacing:1px;color:var(--gris);margin-bottom:0.5rem;}
+    .resumen-valor{font-size:2.8rem;font-weight:800;color:var(--vp);line-height:1;}
+    .resumen-sub{font-size:0.78rem;color:var(--gris);margin-top:0.4rem;}
+    .resumen-icon{position:absolute;right:1rem;bottom:1rem;font-size:3rem;opacity:0.1;color:var(--vp);}
+
+    /* PROGRESO GLOBAL */
+    .progreso-card{background:var(--blanco);border-radius:var(--radio);padding:1.8rem;box-shadow:var(--sombra);margin-bottom:2.5rem;border:1px solid rgba(96,165,250,0.2);}
+    .progreso-header{display:flex;justify-content:space-between;margin-bottom:0.8rem;font-weight:600;color:var(--vp);}
+    .barra-exterior{background:#dbeafe;height:14px;border-radius:30px;overflow:hidden;}
+    .barra-interior{height:100%;background:linear-gradient(90deg,var(--vp),var(--vs));border-radius:30px;transition:width 0.7s ease;}
+
+    /* MÓDULOS */
+    .modulos-titulo{font-size:1.3rem;font-weight:600;color:var(--vp);margin-bottom:1.5rem;display:flex;align-items:center;gap:0.5rem;}
+    .modulos-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.8rem;margin-bottom:2rem;}
+    .modulo-card{background:var(--blanco);border-radius:var(--radio);padding:1.8rem;box-shadow:var(--sombra);border:1px solid rgba(96,165,250,0.2);transition:all 0.2s;cursor:pointer;}
+    .modulo-card:hover{transform:scale(1.02);border-color:var(--vh);}
+    .modulo-icono{font-size:2.5rem;margin-bottom:1rem;}
+    .modulo-nombre{font-size:1.4rem;font-weight:700;color:var(--vp);margin-bottom:0.5rem;}
+    .modulo-desc{color:var(--gris);font-size:0.95rem;margin-bottom:1.2rem;line-height:1.4;}
+    .modulo-badge{display:inline-block;background:var(--vc);color:var(--vp);padding:0.3rem 1rem;border-radius:30px;font-size:0.75rem;font-weight:600;text-transform:uppercase;}
+
+    /* VISTAS DETALLE */
+    .view-detail{display:none;background:var(--blanco);border-radius:var(--radio);padding:2rem;box-shadow:var(--sombra);margin-top:1rem;}
+    .view-detail.active{display:block;}
+    .back-btn{background:none;border:none;color:var(--vp);font-size:1rem;font-weight:600;cursor:pointer;margin-bottom:1.5rem;display:flex;align-items:center;gap:0.3rem;}
+
+    /* TABS */
+    .tabs-bar{display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1.5rem;border-bottom:2px solid var(--vc);padding-bottom:0.5rem;}
+    .tab-btn{padding:0.6rem 1.4rem;border-radius:30px 30px 0 0;border:none;font-weight:600;font-size:0.9rem;cursor:pointer;transition:all 0.2s;background:var(--fondo);color:var(--gris);}
+    .tab-btn.active{background:var(--vp);color:white;}
+    .tab-btn:hover:not(.active){background:var(--vc);color:var(--vp);}
+    .tab-panel{display:none;}
+    .tab-panel.active{display:block;}
+
+    /* BOTONES */
+    .btn-row{display:flex;gap:1rem;flex-wrap:wrap;margin:1rem 0;}
+    .btn{padding:0.8rem 1.8rem;border-radius:40px;border:none;font-weight:600;cursor:pointer;transition:all 0.2s;font-size:0.95rem;}
+    .btn-primary{background:var(--vp);color:white;}
+    .btn-primary:hover:not(:disabled){background:var(--vh);transform:translateY(-2px);box-shadow:0 5px 15px rgba(26,111,196,0.3);}
+    .btn-secondary{background:var(--vc);color:var(--vp);}
+    .btn-secondary:hover:not(:disabled){background:#93c5fd;}
+    .btn-danger{background:#fee2e2;color:#991b1b;}
+    .btn-danger:hover:not(:disabled){background:#fca5a5;}
+    .btn:disabled{opacity:0.5;cursor:not-allowed;}
+    .btn-sm{padding:0.4rem 1rem;font-size:0.82rem;border-radius:30px;border:none;font-weight:600;cursor:pointer;}
+    .btn-sm-primary{background:var(--vp);color:white;}
+    .btn-sm-secondary{background:var(--vc);color:var(--vp);}
+    .btn-sm-danger{background:#fee2e2;color:#991b1b;}
+
+    /* STATS */
+    .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1.5rem;}
+    .stat-card{background:var(--fondo);border-radius:12px;padding:1.2rem 1rem;border:1px solid rgba(96,165,250,0.25);text-align:center;position:relative;overflow:hidden;}
+    .stat-card::before{content:'';position:absolute;top:0;left:0;width:100%;height:4px;background:linear-gradient(90deg,var(--vp),var(--vs));}
+    .stat-label{font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;color:var(--gris);margin-bottom:0.3rem;}
+    .stat-valor{font-size:2rem;font-weight:800;color:var(--vp);}
+    .stat-sub{font-size:0.7rem;color:var(--gris);margin-top:0.2rem;}
+
+    /* SELECTOR TURNO */
+    .turno-btns{display:flex;flex-wrap:wrap;gap:0.6rem;margin-bottom:1.5rem;}
+    .turno-btn{display:flex;align-items:center;gap:0.35rem;padding:0.5rem 0.9rem;border-radius:30px;border:2px solid var(--vc);background:white;cursor:pointer;font-size:0.82rem;font-weight:600;transition:all 0.18s;white-space:nowrap;}
+    .turno-btn:hover{border-color:var(--vp);background:#eff6ff;}
+    .turno-btn.selected{border-color:var(--vp);background:var(--vp);color:white;}
+
+    /* TABLAS */
+    .table-wrap{overflow-x:auto;border-radius:12px;border:1px solid var(--vc);margin-top:1rem;}
+    table{width:100%;border-collapse:collapse;font-size:0.88rem;}
+    thead tr{background:var(--vp);color:white;}
+    thead th{padding:0.8rem 1rem;text-align:left;white-space:nowrap;}
+    thead th.num{text-align:center;}
+    tbody tr{border-bottom:1px solid var(--vc);}
+    tbody tr:nth-child(even){background:var(--fondo);}
+    tbody tr.total-row{background:#eff6ff;font-weight:700;border-top:2px solid var(--vp);}
+    tbody tr.clickable:hover{background:#dbeafe;cursor:pointer;}
+    tbody td{padding:0.75rem 1rem;}
+    tbody td.num{text-align:center;}
+    .empty-state{text-align:center;padding:3rem;color:var(--gris);}
+
+    /* BUSCADOR */
+    .search-bar{display:flex;align-items:center;gap:0.5rem;background:white;border:2px solid var(--vc);border-radius:40px;padding:0.45rem 1rem;transition:border-color 0.2s;flex:1;max-width:340px;}
+    .search-bar:focus-within{border-color:var(--vp);}
+    .search-bar input{border:none;outline:none;font-size:0.9rem;width:100%;background:transparent;color:#1f2937;}
+    .search-bar .s-icon{color:var(--gris);font-size:1rem;flex-shrink:0;}
+    tr.hl-match td{background:#fef9c3!important;border-left:3px solid #f59e0b!important;}
+    tr.hl-hidden{display:none;}
+
+    /* OPL TARJETAS */
+    .opl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.2rem;margin-top:1rem;}
+    .opl-card{background:white;border-radius:14px;padding:1.2rem 1.4rem;box-shadow:var(--sombra);border:1px solid rgba(96,165,250,0.2);cursor:pointer;transition:all 0.2s;}
+    .opl-card:hover{transform:translateY(-3px);border-color:var(--vh);}
+    .opl-card-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.8rem;}
+    .opl-nombre{font-weight:700;color:#1f2937;font-size:0.92rem;flex:1;margin-right:0.5rem;}
+    .opl-pct{font-size:0.82rem;font-weight:700;color:white;background:var(--vp);padding:0.2rem 0.6rem;border-radius:20px;}
+    .opl-pct.completo{background:#16a34a;}
+    .opl-pct.critico{background:#dc2626;}
+    .opl-nums{display:grid;grid-template-columns:repeat(4,1fr);gap:0.4rem;margin-bottom:0.8rem;}
+    .opl-num{text-align:center;background:var(--fondo);border-radius:8px;padding:0.4rem 0.2rem;}
+    .opl-num-label{font-size:0.65rem;text-transform:uppercase;color:var(--gris);letter-spacing:0.5px;}
+    .opl-num-val{font-size:1.1rem;font-weight:800;color:var(--vp);}
+    .opl-num-val.pend{color:#dc2626;}
+    .opl-num-val.sal{color:#16a34a;}
+    .opl-barra-ext{background:#dbeafe;height:8px;border-radius:20px;overflow:hidden;}
+    .opl-barra-int{height:100%;border-radius:20px;transition:width 0.6s ease;background:linear-gradient(90deg,var(--vp),#60a5fa);}
+    .opl-barra-int.completo{background:linear-gradient(90deg,#16a34a,#4ade80);}
+    .opl-barra-int.critico{background:linear-gradient(90deg,#dc2626,#f87171);}
+
+    /* MODAL */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);display:none;align-items:center;justify-content:center;z-index:2000;padding:1rem;}
+    .modal-overlay.show{display:flex;}
+    .modal-box{background:white;border-radius:var(--radio);padding:2rem;max-width:960px;width:100%;max-height:86vh;overflow-y:auto;box-shadow:0 24px 60px rgba(0,0,0,0.22);}
+    .modal-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.2rem;gap:1rem;}
+    .modal-title{font-size:1rem;font-weight:700;color:var(--vp);flex:1;word-break:break-word;line-height:1.4;}
+    .modal-close{background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--gris);padding:0 0.3rem;}
+
+    /* BADGES */
+    .badge{display:inline-block;padding:0.18rem 0.55rem;border-radius:20px;font-size:0.72rem;font-weight:700;}
+    .badge-mc1{background:#dbeafe;color:#1e40af;}
+    .badge-mc2{background:#ede9fe;color:#4c1d95;}
+    .badge-canal{background:#d1fae5;color:#065f46;}
+    .badge-pend{background:#fee2e2;color:#991b1b;}
+
+    /* SPINNER */
+    .spinner-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.3);display:none;align-items:center;justify-content:center;z-index:1000;}
+    .spinner-overlay.show{display:flex;}
+    .spinner-box{background:white;padding:2rem 3rem;border-radius:var(--radio);text-align:center;box-shadow:var(--sombra);}
+    .spinner{width:40px;height:40px;border:4px solid var(--vc);border-top-color:var(--vp);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 1rem;}
+    @keyframes spin{to{transform:rotate(360deg);}}
+
+    /* ALERTAS */
+    .alert{padding:1rem 1.2rem;border-radius:12px;margin:1rem 0;display:none;font-size:0.9rem;}
+    .alert.show{display:block;}
+    .alert-warn{background:#fef3c7;color:#92400e;border:1px solid #fde68a;}
+    .alert-error{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;}
+
+    @media(max-width:700px){
+      body{padding:1rem;}
+      .header{flex-direction:column;align-items:start;}
+      .resumen-valor{font-size:2.2rem;}
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="logo-area">
+      <div class="logo-icon">🥩</div>
+      <div class="logo-text">
+        <h1><span style="color:var(--vp)">Col</span><span style="color:var(--rojo)">beef</span> · Gestor de Canales</h1>
+        <p>Control de medias canales · Despachos y OPL en tiempo real</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <input type="date" id="fechaSelect" title="Seleccionar fecha">
+      <span class="db-badge" id="dbBadge">⏳ BD: sirt</span>
+      <button class="btn-refresh" onclick="actualizarTodo()">🔄 Actualizar</button>
+    </div>
+  </div>
+
+  <!-- SPINNER -->
+  <div class="spinner-overlay" id="spinnerOverlay">
+    <div class="spinner-box">
+      <div class="spinner"></div>
+      <div style="color:var(--vp);font-weight:600;">Consultando base de datos...</div>
+    </div>
+  </div>
+
+  <!-- ALERT GLOBAL -->
+  <div class="alert alert-warn" id="alertGlobal"></div>
+
+  <!-- ══════ VISTA PRINCIPAL ══════ -->
+  <div id="viewMain">
+
+    <!-- TARJETAS RESUMEN -->
+    <div class="resumen-grid" id="resumenGrid">
+      <div class="tarjeta-resumen">
+        <div class="resumen-label">Media Canal 1</div>
+        <div class="resumen-valor" id="numMC1">—</div>
+        <div class="resumen-sub">sufijo -1001 (izquierda)</div>
+        <div class="resumen-icon">◀</div>
+      </div>
+      <div class="tarjeta-resumen">
+        <div class="resumen-label">Media Canal 2</div>
+        <div class="resumen-valor" id="numMC2">—</div>
+        <div class="resumen-sub">sufijo -1002 (derecha)</div>
+        <div class="resumen-icon">▶</div>
+      </div>
+      <div class="tarjeta-resumen">
+        <div class="resumen-label">Canales Completas</div>
+        <div class="resumen-valor" id="numCanalesComp">—</div>
+        <div class="resumen-sub">MC1 + MC2 = 1 canal</div>
+        <div class="resumen-icon">🐄</div>
+      </div>
+      <div class="tarjeta-resumen">
+        <div class="resumen-label">Total Partes en Cava</div>
+        <div class="resumen-valor" id="numTotal">—</div>
+        <div class="resumen-sub">medias canales activas</div>
+        <div class="resumen-icon">📦</div>
+      </div>
+      <div class="tarjeta-resumen">
+        <div class="resumen-label">Propietarios (OPL)</div>
+        <div class="resumen-valor" id="numOpl">—</div>
+        <div class="resumen-sub">operadores logísticos</div>
+        <div class="resumen-icon">👷</div>
+      </div>
+    </div>
+
+    <!-- OPL mini resumen (clickable) -->
+    <div class="progreso-card">
+      <div class="progreso-header">
+        <span>📊 Progreso despacho del día</span>
+        <span id="progresoPct">0%</span>
+      </div>
+      <div class="barra-exterior">
+        <div class="barra-interior" id="barraProgreso" style="width:0%"></div>
+      </div>
+      <div style="display:flex;gap:1.5rem;margin-top:0.8rem;flex-wrap:wrap;">
+        <span style="font-size:0.8rem;color:var(--gris)">✅ Despachadas: <strong id="progSal">0</strong> partes</span>
+        <span style="font-size:0.8rem;color:var(--gris)">⏳ Pendientes: <strong id="progPend">0</strong> partes</span>
+        <span style="font-size:0.8rem;color:var(--gris)">🐄 Canales despachadas: <strong id="progCanSal">0.0</strong></span>
+      </div>
+    </div>
+
+    <!-- MÓDULOS -->
+    <div class="modulos-titulo">📂 Módulos del sistema</div>
+    <div class="modulos-grid">
+      <div class="modulo-card" onclick="irModulo('despachos')">
+        <div class="modulo-icono">📋</div>
+        <div class="modulo-nombre">Despachos</div>
+        <div class="modulo-desc">Lista de canales agrupadas por destino con MC1, MC2 y total. Selecciona turno y descarga por cliente.</div>
+        <span class="modulo-badge">Lista de despacho</span>
+      </div>
+      <div class="modulo-card" onclick="irModulo('opl')">
+        <div class="modulo-icono">👷</div>
+        <div class="modulo-nombre">Planilla OPL</div>
+        <div class="modulo-desc">Tablero de operadores logísticos con progreso en tiempo real. Barras de avance por cada OPL y descarga individual.</div>
+        <span class="modulo-badge">Operadores logísticos</span>
+      </div>
+      <div class="modulo-card" onclick="irModulo('cavas')">
+        <div class="modulo-icono">🏭</div>
+        <div class="modulo-nombre">Canales en Cava</div>
+        <div class="modulo-desc">Inventario completo de medias canales en cava: código con sufijo, propietario, cava y riel.</div>
+        <span class="modulo-badge">Inventario</span>
+      </div>
+    </div>
+
+    <!-- CAVAS mini chart -->
+    <div id="cavasResumenDiv" style="display:none;background:white;border-radius:var(--radio);padding:1.5rem;box-shadow:var(--sombra);border:1px solid rgba(96,165,250,0.2);">
+      <div style="font-weight:700;color:var(--vp);margin-bottom:1rem;">🏭 Distribución por cava</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Cava</th><th class="num">MC1</th><th class="num">MC2</th><th class="num">Total</th></tr></thead>
+          <tbody id="cavasResumenBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /viewMain -->
+
+  <!-- ══════ VISTA DESPACHOS ══════ -->
+  <div class="view-detail" id="viewDespachos">
+    <button class="back-btn" onclick="irMain()">← Volver al inicio</button>
+    <h2 style="color:var(--vp);margin-bottom:1.5rem;">📋 Despachos de Canales</h2>
+
+    <!-- Selector turno -->
+    <div class="turno-btns" id="turnoBtns">
+      <button class="turno-btn" data-turno="" onclick="selTurno(this,'')">🔵 Todos</button>
+      <button class="turno-btn" data-turno="DxL" onclick="selTurno(this,'DxL')">DxL</button>
+      <button class="turno-btn" data-turno="LxM" onclick="selTurno(this,'LxM')">LxM</button>
+      <button class="turno-btn" data-turno="MxM" onclick="selTurno(this,'MxM')">MxM</button>
+      <button class="turno-btn" data-turno="MxJ" onclick="selTurno(this,'MxJ')">MxJ</button>
+      <button class="turno-btn" data-turno="JxV" onclick="selTurno(this,'JxV')">JxV</button>
+      <button class="turno-btn" data-turno="VxS" onclick="selTurno(this,'VxS')">VxS</button>
+      <button class="turno-btn" data-turno="SxD" onclick="selTurno(this,'SxD')">SxD</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid" id="despStats"></div>
+
+    <!-- Buscador + botones -->
+    <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
+      <div class="search-bar">
+        <span class="s-icon">🔍</span>
+        <input id="searchDesp" type="text" placeholder="Buscar destino..." oninput="filtrarDespachos()">
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="cargarDespachos()">🔄 Refrescar</button>
+      <button class="btn btn-primary btn-sm" onclick="imprimirTablaDespachos()">🖨️ Imprimir</button>
+    </div>
+
+    <!-- Tabla despachos -->
+    <div class="table-wrap">
+      <table id="tablaDespachos">
+        <thead>
+          <tr>
+            <th>Destino / Cliente</th>
+            <th class="num">MC1</th>
+            <th class="num">MC2</th>
+            <th class="num">Total Partes</th>
+            <th class="num">Canales (0.5 c/u)</th>
+          </tr>
+        </thead>
+        <tbody id="tablaDespachosCuerpo">
+          <tr><td colspan="5" class="empty-state">Selecciona turno y haz clic en Refrescar</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════ VISTA OPL ══════ -->
+  <div class="view-detail" id="viewOpl">
+    <button class="back-btn" onclick="irMain()">← Volver al inicio</button>
+    <h2 style="color:var(--vp);margin-bottom:0.5rem;">👷 Planilla de Operadores Logísticos (OPL)</h2>
+    <p style="color:var(--gris);font-size:0.88rem;margin-bottom:1.5rem;">Progreso en tiempo real — cada media canal vale <strong>0.5</strong>. Las salidas se actualizan al pistolar.</p>
+
+    <!-- Selector turno OPL -->
+    <div class="turno-btns" id="turnoBtnsOpl">
+      <button class="turno-btn selected" data-turno="" onclick="selTurnoOpl(this,'')">🔵 Todos</button>
+      <button class="turno-btn" data-turno="DxL" onclick="selTurnoOpl(this,'DxL')">DxL</button>
+      <button class="turno-btn" data-turno="LxM" onclick="selTurnoOpl(this,'LxM')">LxM</button>
+      <button class="turno-btn" data-turno="MxM" onclick="selTurnoOpl(this,'MxM')">MxM</button>
+      <button class="turno-btn" data-turno="MxJ" onclick="selTurnoOpl(this,'MxJ')">MxJ</button>
+      <button class="turno-btn" data-turno="JxV" onclick="selTurnoOpl(this,'JxV')">JxV</button>
+      <button class="turno-btn" data-turno="VxS" onclick="selTurnoOpl(this,'VxS')">VxS</button>
+      <button class="turno-btn" data-turno="SxD" onclick="selTurnoOpl(this,'SxD')">SxD</button>
+    </div>
+
+    <!-- Totales planilla -->
+    <div class="stats-grid" id="oplStats"></div>
+
+    <div style="display:flex;gap:0.8rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
+      <button class="btn btn-secondary btn-sm" onclick="cargarOpl()">🔄 Refrescar progreso</button>
+      <span style="font-size:0.8rem;color:var(--gris)">Haz clic en una tarjeta de OPL para ver el detalle y descargar</span>
+    </div>
+
+    <!-- Tarjetas OPL -->
+    <div class="opl-grid" id="oplGrid">
+      <div class="empty-state" style="grid-column:1/-1;">Cargando operadores...</div>
+    </div>
+  </div>
+
+  <!-- ══════ VISTA CAVAS ══════ -->
+  <div class="view-detail" id="viewCavas">
+    <button class="back-btn" onclick="irMain()">← Volver al inicio</button>
+    <h2 style="color:var(--vp);margin-bottom:1rem;">🏭 Inventario de Canales en Cava</h2>
+
+    <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
+      <div class="search-bar">
+        <span class="s-icon">🔍</span>
+        <input id="searchCavas" type="text" placeholder="Buscar código, cava, riel..." oninput="filtrarCavas()">
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="cargarCavas()">🔄 Refrescar</button>
+      <button class="btn btn-primary btn-sm" onclick="imprimirCavas()">🖨️ Imprimir</button>
+    </div>
+
+    <div class="table-wrap">
+      <table id="tablaCavas">
+        <thead>
+          <tr>
+            <th>Código con Sufijo</th>
+            <th>Propietario / Cliente</th>
+            <th>Cava</th>
+            <th>Riel</th>
+            <th>Destino</th>
+            <th class="num">Tipo</th>
+            <th>Ingreso Cava</th>
+          </tr>
+        </thead>
+        <tbody id="tablaCavasCuerpo">
+          <tr><td colspan="7" class="empty-state">Cargando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<!-- MODAL DETALLE OPL / DESPACHO -->
+<div class="modal-overlay" id="modalDetalle">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitulo">Detalle</div>
+      <button class="modal-close" onclick="cerrarModal()">✕</button>
+    </div>
+    <div id="modalContenido"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+// ESTADO GLOBAL
+// ═══════════════════════════════════════════════════
+const S = {
+  fecha: new Date().toISOString().slice(0,10),
+  turnoDesp: '',
+  turnoOpl: '',
+  dashData: null,
+  despData: null,
+  oplData: null,
+  cavasData: null,
+  planillaData: null,
+};
+
+// ═══════════════════════════════════════════════════
+// UTILIDADES
+// ═══════════════════════════════════════════════════
+const API = (path) => `/api${path}`;
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString('es-CO'));
+const fmtD = (n) => (n == null ? '—' : Number(n).toFixed(1));
+const fmtPct = (n) => `${Math.round(n || 0)}%`;
+
+function showSpinner() { $('spinnerOverlay').classList.add('show'); }
+function hideSpinner() { $('spinnerOverlay').classList.remove('show'); }
+function alertWarn(msg){ const a=$('alertGlobal'); a.textContent=msg; a.className='alert alert-warn show'; setTimeout(()=>a.classList.remove('show'),6000); }
+function alertErr(msg) { const a=$('alertGlobal'); a.textContent=msg; a.className='alert alert-error show'; setTimeout(()=>a.classList.remove('show'),8000); }
+
+async function apiFetch(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+function getFecha() {
+  return $('fechaSelect').value || S.fecha;
+}
+
+// ═══════════════════════════════════════════════════
+// NAVEGACIÓN
+// ═══════════════════════════════════════════════════
+function showView(id) {
+  ['viewMain','viewDespachos','viewOpl','viewCavas'].forEach(v => {
+    const el = $(v);
+    if (el) el.classList.remove('active');
+  });
+  $('viewMain').style.display = 'none';
+  const views = ['viewDespachos','viewOpl','viewCavas'];
+  views.forEach(v => { const el=$(v); if(el) el.classList.remove('active'); });
+  if (id === 'main') {
+    $('viewMain').style.display = '';
+  } else {
+    $('viewMain').style.display = 'none';
+    $(id).classList.add('active');
+  }
+}
+
+function irMain() {
+  showView('main');
+  actualizarDashboard();
+}
+
+function irModulo(m) {
+  if (m === 'despachos') { showView('viewDespachos'); cargarDespachos(); }
+  else if (m === 'opl')  { showView('viewOpl');       cargarOpl(); }
+  else if (m === 'cavas'){ showView('viewCavas');     cargarCavas(); }
+}
+
+// ═══════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  const hoy = new Date().toISOString().slice(0,10);
+  $('fechaSelect').value = hoy;
+  S.fecha = hoy;
+  $('viewMain').style.display = '';
+  pingBD();
+  actualizarDashboard();
+});
+
+async function pingBD() {
+  try {
+    const r = await apiFetch(API('/ping'));
+    const b = $('dbBadge');
+    if (r.ok) {
+      b.textContent = `✅ BD: ${r.db}`;
+      b.className = 'db-badge ok';
+    } else {
+      b.textContent = '❌ BD offline';
+      b.className = 'db-badge error';
+    }
+  } catch(e) {
+    $('dbBadge').textContent = '❌ Sin conexión';
+    $('dbBadge').className = 'db-badge error';
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// ACTUALIZAR TODO
+// ═══════════════════════════════════════════════════
+async function actualizarTodo() {
+  S.fecha = getFecha();
+  pingBD();
+  await actualizarDashboard();
+}
+
+// ═══════════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════════
+async function actualizarDashboard() {
+  const fecha = getFecha();
+  try {
+    showSpinner();
+    const [dash, planilla] = await Promise.all([
+      apiFetch(API(`/dashboard?fecha=${fecha}`)),
+      apiFetch(API(`/planilla_opl?fecha=${fecha}`)),
+    ]);
+    S.dashData = dash;
+    S.planillaData = planilla;
+
+    $('numMC1').textContent = fmt(dash.mc1);
+    $('numMC2').textContent = fmt(dash.mc2);
+    $('numCanalesComp').textContent = fmtD(dash.canales_completas);
+    $('numTotal').textContent = fmt(dash.total_partes);
+    $('numOpl').textContent = fmt(planilla.data.length);
+
+    // Progreso global
+    const tot = planilla.totales;
+    const pct = tot.progreso_global || 0;
+    $('progresoPct').textContent = fmtPct(pct);
+    $('barraProgreso').style.width = pct + '%';
+    $('progSal').textContent = fmt(tot.sal_total);
+    $('progPend').textContent = fmt(tot.pend_total);
+    $('progCanSal').textContent = fmtD(tot.canales_sal);
+
+    // Cavas mini
+    if (dash.cavas && dash.cavas.length) {
+      $('cavasResumenDiv').style.display = '';
+      const tbody = $('cavasResumenBody');
+      let html = '';
+      let totMC1=0, totMC2=0, totT=0;
+      dash.cavas.forEach(c => {
+        const mc1 = c.mc1||0, mc2=c.mc2||0, t=c.total||0;
+        totMC1+=mc1; totMC2+=mc2; totT+=t;
+        html += `<tr>
+          <td>${c.cava||'Sin cava'}</td>
+          <td class="num"><span class="badge badge-mc1">${fmt(mc1)}</span></td>
+          <td class="num"><span class="badge badge-mc2">${fmt(mc2)}</span></td>
+          <td class="num"><strong>${fmt(t)}</strong></td>
+        </tr>`;
+      });
+      html += `<tr class="total-row">
+        <td>TOTAL</td>
+        <td class="num">${fmt(totMC1)}</td>
+        <td class="num">${fmt(totMC2)}</td>
+        <td class="num">${fmt(totT)}</td>
+      </tr>`;
+      tbody.innerHTML = html;
+    }
+  } catch(e) {
+    alertErr('Error al cargar dashboard: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// MÓDULO DESPACHOS
+// ═══════════════════════════════════════════════════
+let turnoDesp = '';
+
+function selTurno(btn, turno) {
+  turnoDesp = turno;
+  document.querySelectorAll('#turnoBtns .turno-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  cargarDespachos();
+}
+
+async function cargarDespachos() {
+  const fecha = getFecha();
+  try {
+    showSpinner();
+    const url = turnoDesp
+      ? API(`/despachos?fecha=${fecha}&turno=${turnoDesp}`)
+      : API(`/despachos?fecha=${fecha}`);
+    const data = await apiFetch(url);
+    S.despData = data;
+    renderDespachos(data);
+  } catch(e) {
+    alertErr('Error al cargar despachos: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
+}
+
+function renderDespachos(data) {
+  const tot = data.totales || {};
+  $('despStats').innerHTML = `
+    <div class="stat-card"><div class="stat-label">MC1</div><div class="stat-valor">${fmt(tot.mc1)}</div><div class="stat-sub">Media Canal 1</div></div>
+    <div class="stat-card"><div class="stat-label">MC2</div><div class="stat-valor">${fmt(tot.mc2)}</div><div class="stat-sub">Media Canal 2</div></div>
+    <div class="stat-card"><div class="stat-label">Total partes</div><div class="stat-valor">${fmt(tot.total_partes)}</div><div class="stat-sub">pendientes despacho</div></div>
+    <div class="stat-card"><div class="stat-label">Canales completas</div><div class="stat-valor">${fmtD(tot.total_canales)}</div><div class="stat-sub">equivalente (×0.5)</div></div>
+    <div class="stat-card"><div class="stat-label">Puestos</div><div class="stat-valor">${fmt(tot.puestos)}</div><div class="stat-sub">destinos activos</div></div>
+  `;
+
+  const rows = data.data || [];
+  if (!rows.length) {
+    $('tablaDespachosCuerpo').innerHTML = '<tr><td colspan="5" class="empty-state">Sin canales para este turno/fecha</td></tr>';
+    return;
+  }
+  let html = '';
+  rows.forEach(r => {
+    const mc1=r.mc1||0, mc2=r.mc2||0, tp=r.total_partes||0, tc=parseFloat(r.total_canales||0);
+    html += `<tr class="clickable" onclick="abrirDetalleDespacho('${escHtml(r.destino)}')">
+      <td>${escHtml(r.destino||'—')}</td>
+      <td class="num"><span class="badge badge-mc1">${fmt(mc1)}</span></td>
+      <td class="num"><span class="badge badge-mc2">${fmt(mc2)}</span></td>
+      <td class="num">${fmt(tp)}</td>
+      <td class="num"><strong>${tc.toFixed(1)}</strong></td>
+    </tr>`;
+  });
+  // Fila total
+  html += `<tr class="total-row">
+    <td>TOTAL (${rows.length} destinos)</td>
+    <td class="num">${fmt(tot.mc1)}</td>
+    <td class="num">${fmt(tot.mc2)}</td>
+    <td class="num">${fmt(tot.total_partes)}</td>
+    <td class="num">${fmtD(tot.total_canales)}</td>
+  </tr>`;
+  $('tablaDespachosCuerpo').innerHTML = html;
+}
+
+function filtrarDespachos() {
+  const q = $('searchDesp').value.toLowerCase().trim();
+  document.querySelectorAll('#tablaDespachosCuerpo tr:not(.total-row)').forEach(tr => {
+    const txt = tr.textContent.toLowerCase();
+    if (!q) { tr.classList.remove('hl-match','hl-hidden'); return; }
+    if (txt.includes(q)) { tr.classList.add('hl-match'); tr.classList.remove('hl-hidden'); }
+    else { tr.classList.remove('hl-match'); tr.classList.add('hl-hidden'); }
+  });
+}
+
+async function abrirDetalleDespacho(destino) {
+  const fecha = getFecha();
+  try {
+    showSpinner();
+    const data = await apiFetch(API(`/despachos/detalle?destino=${encodeURIComponent(destino)}&fecha=${fecha}`));
+    renderModalDetalleDespacho(destino, data);
+  } catch(e) {
+    alertErr('Error al cargar detalle: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
+}
+
+function renderModalDetalleDespacho(destino, data) {
+  $('modalTitulo').textContent = `📋 Detalle · ${destino} · ${data.total} medias canales`;
+  const rows = data.data || [];
+  let mc1=0, mc2=0;
+  rows.forEach(r => { if(r.id_tipo === ID_MC1_JS) mc1++; else mc2++; });
+  let html = `
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
+      <span class="badge badge-mc1">MC1: ${mc1}</span>
+      <span class="badge badge-mc2">MC2: ${mc2}</span>
+      <span class="badge badge-canal">Canales: ${((mc1+mc2)*0.5).toFixed(1)}</span>
+    </div>
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+      <button class="btn btn-primary btn-sm" onclick="imprimirDetalleDespacho('${escHtml(destino)}')">🖨️ Imprimir</button>
+      <button class="btn btn-secondary btn-sm" onclick="descargarCSVDespacho('${escHtml(destino)}')">📥 Descargar CSV</button>
+    </div>
+    <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Código con Sufijo</th>
+        <th>Propietario / Cliente</th>
+        <th>Cava</th>
+        <th>Riel</th>
+        <th>Tipo</th>
+      </tr></thead>
+      <tbody>`;
+  if (!rows.length) {
+    html += '<tr><td colspan="5" class="empty-state">Sin registros</td></tr>';
+  } else {
+    rows.forEach(r => {
+      const badge = r.sufijo === 'MC1' ? 'badge-mc1' : 'badge-mc2';
+      html += `<tr>
+        <td><code>${escHtml(r.codigo_sufijo||r.codigo||'—')}</code></td>
+        <td>${escHtml(r.propietario||'—')}</td>
+        <td>${escHtml(r.cava||'—')}</td>
+        <td>${escHtml(r.riel||'—')}</td>
+        <td><span class="badge ${badge}">${escHtml(r.sufijo||'—')}</span></td>
+      </tr>`;
+    });
+  }
+  html += '</tbody></table></div>';
+  $('modalContenido').innerHTML = html;
+  $('modalDetalle').classList.add('show');
+  window._modalDetalleData = data;
+  window._modalDestino = destino;
+}
+
+// Placeholder IDs de MC1/MC2 para el modal (se leen del backend)
+let ID_MC1_JS = 1;
+let ID_MC2_JS = 2;
+
+// ═══════════════════════════════════════════════════
+// MÓDULO OPL
+// ═══════════════════════════════════════════════════
+let turnoOpl = '';
+
+function selTurnoOpl(btn, turno) {
+  turnoOpl = turno;
+  document.querySelectorAll('#turnoBtnsOpl .turno-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  cargarOpl();
+}
+
+async function cargarOpl() {
+  const fecha = getFecha();
+  try {
+    showSpinner();
+    const url = turnoOpl
+      ? API(`/planilla_opl?fecha=${fecha}&turno=${turnoOpl}`)
+      : API(`/planilla_opl?fecha=${fecha}`);
+    const data = await apiFetch(url);
+    S.planillaData = data;
+    renderOpl(data);
+  } catch(e) {
+    alertErr('Error al cargar OPL: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
+}
+
+function renderOpl(data) {
+  const tot = data.totales || {};
+  $('oplStats').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Pendientes MC1</div><div class="stat-valor">${fmt(tot.mc1_pend)}</div></div>
+    <div class="stat-card"><div class="stat-label">Pendientes MC2</div><div class="stat-valor">${fmt(tot.mc2_pend)}</div></div>
+    <div class="stat-card"><div class="stat-label">Despachadas</div><div class="stat-valor" style="color:#16a34a">${fmt(tot.sal_total)}</div></div>
+    <div class="stat-card"><div class="stat-label">Canales pendientes</div><div class="stat-valor">${fmtD(tot.canales_pend)}</div></div>
+    <div class="stat-card"><div class="stat-label">Canales despachadas</div><div class="stat-valor" style="color:#16a34a">${fmtD(tot.canales_sal)}</div></div>
+    <div class="stat-card"><div class="stat-label">Progreso global</div><div class="stat-valor">${fmtPct(tot.progreso_global)}</div></div>
+  `;
+
+  const lista = data.data || [];
+  if (!lista.length) {
+    $('oplGrid').innerHTML = '<div class="empty-state" style="grid-column:1/-1;">Sin operadores logísticos para esta fecha/turno</div>';
+    return;
+  }
+
+  let html = '';
+  lista.forEach(opl => {
+    const pct = opl.progreso_pct || 0;
+    let pctClass = pct >= 100 ? 'completo' : pct < 30 ? 'critico' : '';
+    let barClass = pctClass;
+    html += `
+      <div class="opl-card" onclick="abrirDetalleOpl('${escHtml(opl.propietario)}')">
+        <div class="opl-card-header">
+          <div class="opl-nombre">${escHtml(opl.propietario||'SIN PROPIETARIO')}</div>
+          <span class="opl-pct ${pctClass}">${fmtPct(pct)}</span>
+        </div>
+        <div class="opl-nums">
+          <div class="opl-num"><div class="opl-num-label">MC1 pend</div><div class="opl-num-val pend">${fmt(opl.mc1_pendiente)}</div></div>
+          <div class="opl-num"><div class="opl-num-label">MC2 pend</div><div class="opl-num-val pend">${fmt(opl.mc2_pendiente)}</div></div>
+          <div class="opl-num"><div class="opl-num-label">Despachadas</div><div class="opl-num-val sal">${fmt(opl.total_despachado)}</div></div>
+          <div class="opl-num"><div class="opl-num-label">Canales</div><div class="opl-num-val">${fmtD(opl.canales_pendiente)}</div></div>
+        </div>
+        <div class="opl-barra-ext"><div class="opl-barra-int ${barClass}" style="width:${pct}%"></div></div>
+        <div style="display:flex;justify-content:space-between;margin-top:0.4rem;font-size:0.75rem;color:var(--gris);">
+          <span>⏳ ${fmt(opl.total_pendiente)} pendientes</span>
+          <span>✅ ${fmt(opl.total_despachado)} despachadas</span>
+        </div>
+      </div>`;
+  });
+  $('oplGrid').innerHTML = html;
+}
+
+async function abrirDetalleOpl(propietario) {
+  const fecha = getFecha();
+  try {
+    showSpinner();
+    const data = await apiFetch(API(`/opl/detalle?propietario=${encodeURIComponent(propietario)}&fecha=${fecha}`));
+    renderModalOpl(propietario, data);
+  } catch(e) {
+    alertErr('Error al cargar detalle OPL: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
+}
+
+function renderModalOpl(propietario, data) {
+  $('modalTitulo').textContent = `👷 ${propietario} · ${data.total_partes} medias canales`;
+  const rows = data.data || [];
+  let html = `
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
+      <span class="badge badge-mc1">MC1: ${data.mc1}</span>
+      <span class="badge badge-mc2">MC2: ${data.mc2}</span>
+      <span class="badge badge-canal">Canales equiv: ${(data.total_canales||0).toFixed(1)}</span>
+    </div>
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+      <button class="btn btn-primary btn-sm" onclick="imprimirDetalleOpl('${escHtml(propietario)}')">🖨️ Imprimir planilla</button>
+      <button class="btn btn-secondary btn-sm" onclick="descargarCSVOpl('${escHtml(propietario)}')">📥 Descargar CSV</button>
+    </div>
+    <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Código con Sufijo</th>
+        <th>Cliente / Propietario</th>
+        <th>Cava</th>
+        <th>Riel</th>
+        <th>Tipo</th>
+        <th>Destino</th>
+        <th>Ingreso Cava</th>
+      </tr></thead>
+      <tbody>`;
+  if (!rows.length) {
+    html += '<tr><td colspan="7" class="empty-state">Sin registros en cava</td></tr>';
+  } else {
+    rows.forEach(r => {
+      const badge = r.sufijo === 'MC1' ? 'badge-mc1' : 'badge-mc2';
+      html += `<tr>
+        <td><code>${escHtml(r.codigo_sufijo||r.codigo||'—')}</code></td>
+        <td>${escHtml(r.propietario||'—')}</td>
+        <td>${escHtml(r.cava||'—')}</td>
+        <td>${escHtml(r.riel||'—')}</td>
+        <td><span class="badge ${badge}">${escHtml(r.sufijo||'—')}</span></td>
+        <td>${escHtml(r.destino||'—')}</td>
+        <td style="font-size:0.8rem;color:var(--gris)">${escHtml(r.fecha_ingreso||'—')}</td>
+      </tr>`;
+    });
+  }
+  html += '</tbody></table></div>';
+  $('modalContenido').innerHTML = html;
+  $('modalDetalle').classList.add('show');
+  window._modalOplData = data;
+  window._modalOplNombre = propietario;
+}
+
+// ═══════════════════════════════════════════════════
+// MÓDULO CAVAS
+// ═══════════════════════════════════════════════════
+async function cargarCavas() {
+  const fecha = getFecha();
+  try {
+    showSpinner();
+    const data = await apiFetch(API(`/cavas?fecha=${fecha}`));
+    S.cavasData = data;
+    renderCavas(data);
+  } catch(e) {
+    alertErr('Error al cargar cavas: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
+}
+
+function renderCavas(data) {
+  const rows = data.data || [];
+  if (!rows.length) {
+    $('tablaCavasCuerpo').innerHTML = '<tr><td colspan="7" class="empty-state">Sin canales en cava para esta fecha</td></tr>';
+    return;
+  }
+  let html = '';
+  rows.forEach(r => {
+    const badge = r.sufijo === 'MC1' ? 'badge-mc1' : 'badge-mc2';
+    html += `<tr>
+      <td><code style="font-weight:600">${escHtml(r.codigo_sufijo||r.codigo||'—')}</code></td>
+      <td>${escHtml(r.propietario||'—')}</td>
+      <td>${escHtml(r.cava||'—')}</td>
+      <td>${escHtml(r.riel||'—')}</td>
+      <td>${escHtml(r.destino||r.destino_real||'—')}</td>
+      <td class="num"><span class="badge ${badge}">${escHtml(r.sufijo||'—')}</span></td>
+      <td style="font-size:0.8rem;color:var(--gris)">${(r.fecha_ingreso_cava||'—').slice(0,16)}</td>
+    </tr>`;
+  });
+  $('tablaCavasCuerpo').innerHTML = html;
+}
+
+function filtrarCavas() {
+  const q = $('searchCavas').value.toLowerCase().trim();
+  document.querySelectorAll('#tablaCavasCuerpo tr').forEach(tr => {
+    const txt = tr.textContent.toLowerCase();
+    if (!q) { tr.classList.remove('hl-match','hl-hidden'); return; }
+    if (txt.includes(q)) { tr.classList.add('hl-match'); tr.classList.remove('hl-hidden'); }
+    else { tr.classList.remove('hl-match'); tr.classList.add('hl-hidden'); }
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// MODAL
+// ═══════════════════════════════════════════════════
+function cerrarModal() {
+  $('modalDetalle').classList.remove('show');
+}
+$('modalDetalle').addEventListener('click', (e) => {
+  if (e.target === $('modalDetalle')) cerrarModal();
+});
+
+// ═══════════════════════════════════════════════════
+// IMPRESIÓN / DESCARGA
+// ═══════════════════════════════════════════════════
+function imprimirTablaDespachos() {
+  const tabla = document.getElementById('tablaDespachos').outerHTML;
+  const turnoLabel = turnoDesp ? ` · Turno ${turnoDesp}` : '';
+  abrirVentanaImpresion(`Despachos de Canales${turnoLabel}`, tabla);
+}
+
+function imprimirCavas() {
+  const tabla = document.getElementById('tablaCavas').outerHTML;
+  abrirVentanaImpresion('Inventario Canales en Cava', tabla);
+}
+
+function imprimirDetalleDespacho(destino) {
+  const data = window._modalDetalleData;
+  if (!data) return;
+  const tabla = buildTablaDetalleDespacho(data);
+  abrirVentanaImpresion(`Despacho · ${destino}`, tabla);
+}
+
+function imprimirDetalleOpl(nombre) {
+  const data = window._modalOplData;
+  if (!data) return;
+  const tabla = buildTablaDetalleOpl(data);
+  abrirVentanaImpresion(`Planilla OPL · ${nombre}`, tabla);
+}
+
+function abrirVentanaImpresion(titulo, contenido) {
+  const w = window.open('', '_blank');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${titulo}</title>
+  <style>body{font-family:Arial,sans-serif;padding:20px}h1{color:#1a6fc4;font-size:16px;margin-bottom:8px}
+  table{border-collapse:collapse;width:100%;font-size:11px}
+  th{background:#1a6fc4;color:white;padding:6px 8px;text-align:left}
+  td{border:1px solid #ddd;padding:5px 8px}
+  tr:nth-child(even){background:#f0f6ff}
+  .total-row{background:#dbeafe;font-weight:bold}
+  @media print{button{display:none}}
+  </style></head><body>
+  <h1>${titulo} — ${getFecha()}</h1>
+  ${contenido}
+  <p style="margin-top:12px;font-size:10px;color:#888">Generado: ${new Date().toLocaleString('es-CO')} · Colbeef Gestor de Canales</p>
+  <button onclick="window.print()" style="margin-top:10px;padding:8px 16px;background:#1a6fc4;color:white;border:none;border-radius:6px;cursor:pointer">Imprimir</button>
+  </body></html>`);
+  w.document.close();
+}
+
+function buildTablaDetalleDespacho(data) {
+  const rows = data.data || [];
+  let html = '<table><thead><tr><th>Código con Sufijo</th><th>Propietario</th><th>Cava</th><th>Riel</th><th>Tipo</th></tr></thead><tbody>';
+  rows.forEach(r => {
+    html += `<tr><td>${escHtml(r.codigo_sufijo||r.codigo||'')}</td><td>${escHtml(r.propietario||'')}</td><td>${escHtml(r.cava||'')}</td><td>${escHtml(r.riel||'')}</td><td>${escHtml(r.sufijo||'')}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+function buildTablaDetalleOpl(data) {
+  const rows = data.data || [];
+  let html = '<table><thead><tr><th>Código con Sufijo</th><th>Cliente/Propietario</th><th>Cava</th><th>Riel</th><th>Tipo</th><th>Destino</th><th>Ingreso Cava</th></tr></thead><tbody>';
+  rows.forEach(r => {
+    html += `<tr><td>${escHtml(r.codigo_sufijo||r.codigo||'')}</td><td>${escHtml(r.propietario||'')}</td><td>${escHtml(r.cava||'')}</td><td>${escHtml(r.riel||'')}</td><td>${escHtml(r.sufijo||'')}</td><td>${escHtml(r.destino||'')}</td><td>${(r.fecha_ingreso||'').slice(0,16)}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+function descargarCSVDespacho(destino) {
+  const data = window._modalDetalleData;
+  if (!data) return;
+  const rows = data.data || [];
+  let csv = 'Código con Sufijo,Propietario,Cava,Riel,Tipo,Destino\n';
+  rows.forEach(r => {
+    csv += [r.codigo_sufijo||r.codigo, r.propietario, r.cava, r.riel, r.sufijo, r.destino].map(csvQ).join(',') + '\n';
+  });
+  descargarArchivo(csv, `despacho_${destino.replace(/[^a-zA-Z0-9]/g,'_')}_${getFecha()}.csv`, 'text/csv');
+}
+
+function descargarCSVOpl(nombre) {
+  const data = window._modalOplData;
+  if (!data) return;
+  const rows = data.data || [];
+  let csv = 'Código con Sufijo,Cliente/Propietario,Cava,Riel,Tipo,Destino,Ingreso Cava\n';
+  rows.forEach(r => {
+    csv += [r.codigo_sufijo||r.codigo, r.propietario, r.cava, r.riel, r.sufijo, r.destino, (r.fecha_ingreso||'').slice(0,16)].map(csvQ).join(',') + '\n';
+  });
+  descargarArchivo(csv, `opl_${nombre.replace(/[^a-zA-Z0-9]/g,'_')}_${getFecha()}.csv`, 'text/csv');
+}
+
+function csvQ(v) {
+  const s = (v == null ? '' : String(v)).replace(/"/g, '""');
+  return `"${s}"`;
+}
+
+function descargarArchivo(contenido, nombre, tipo) {
+  const blob = new Blob(['\uFEFF'+contenido], {type: tipo+';charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nombre;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════════════════════════════════
+// HELPER
+// ═══════════════════════════════════════════════════
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Auto-refresh cada 3 minutos si la vista principal está activa
+setInterval(() => {
+  if ($('viewMain').style.display !== 'none') {
+    actualizarDashboard();
+  }
+}, 3 * 60 * 1000);
+
+</script>
+</body>
+</html>
