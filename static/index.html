@@ -831,7 +831,7 @@ function renderDespachos(data) {
   if (info) {
     const nom = NOMBRE_TURNO[turno] || '';
     info.innerHTML = turno
-      ? `Solo canales de <strong>salida ${escHtml(data.fecha || getFecha())}</strong> · turno <strong>${escHtml(turno)}</strong>${nom ? ' ('+escHtml(nom)+')' : ''}. Destino con ese turno y aún en cava.`
+      ? `Turno <strong>${escHtml(turno)}</strong>${nom ? ' ('+escHtml(nom)+')' : ''} · fecha ${escHtml(data.fecha || getFecha())}. Canales en cava con destino (si el destino no trae otro turno).`
       : `Mostrando todos los turnos · fecha ${escHtml(data.fecha || getFecha())}.`;
   }
   $('despStats').innerHTML = `

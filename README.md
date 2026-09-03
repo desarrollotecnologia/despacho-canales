@@ -16,7 +16,8 @@ Control de medias canales: despachos y operadores logísticos (OPL) en tiempo re
 ### URLs
 
 - En este PC: http://localhost:8000
-- Desde la red: http://IP-DE-ESTE-PC:8000
+- Servidor de planta (205): http://192.168.20.205:8012/
+- Desde la red (otro puerto): http://IP-DE-ESTE-PC:PUERTO
 
 Log del servidor: `logs/server.log`
 

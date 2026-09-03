@@ -54,9 +54,24 @@ def resolver_turno(fecha_str: Optional[str], turno: Optional[str]) -> Optional[s
     return t
 
 
+TURNOS_CODIGO = ("DxL", "LxM", "MxM", "MxJ", "JxV", "VxS", "SxD")
+
+
 def patron_turno(turno: Optional[str]) -> Optional[str]:
-    """Patrón ILIKE para el código de turno dentro de con_destino (ej. /JxV/)."""
+    """Patrón ILIKE si el destino trae el código (ej. /JxV/). None = sin filtro de turno."""
     return f"%{turno}%" if turno else None
+
+
+def sql_filtro_turno(col: str = "pp.con_destino") -> str:
+    """
+    Canales: con_destino suele ser solo 'S' (sin JxV/LxM).
+    - Sin turno (param NULL): no filtra.
+    - Con turno: incluye si el texto trae ese turno O si no trae ningún código de turno.
+      Excluye solo piezas marcadas explícitamente con otro turno (como Vísceras).
+    Usa 2 placeholders %s: (patron_turno, patron_turno).
+    """
+    sin_ninguno = " AND ".join(f"{col} NOT ILIKE '%%{t}%%'" for t in TURNOS_CODIGO)
+    return f"(%s::text IS NULL OR {col} ILIKE %s::text OR ({sin_ninguno}))"
 
 app.add_middleware(
     CORSMiddleware,
@@ -243,7 +258,7 @@ def consultar_canales_planilla(fecha_filtro: str, turno_filtro):
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
           AND pp.con_destino IS NOT NULL
-          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
+          AND """ + sql_filtro_turno() + """
         ORDER BY e3.nombre NULLS LAST, c.orden NULLS LAST, r.nombre, pp.id_producto
     """
     rows = safe_query(sql, (IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "planilla_puntos")
@@ -454,7 +469,7 @@ def get_cavas(fecha: Optional[str] = None, turno: Optional[str] = None):
             pp.id_tipo_parte_producto IN %s
             AND ppcr.fecha_salida IS NULL
             AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
-            AND (%s::text IS NULL OR (pp.con_destino IS NOT NULL AND pp.con_destino ILIKE %s::text))
+            AND """ + sql_filtro_turno() + """
         ORDER BY
             c.orden NULLS LAST,
             r.nombre,
@@ -491,7 +506,7 @@ def get_dashboard(fecha: Optional[str] = None, turno: Optional[str] = None):
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
           AND pp.con_destino IS NOT NULL
-          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
+          AND """ + sql_filtro_turno() + """
     """
     sql_cavas = """
         SELECT c.nombre AS cava,
@@ -505,7 +520,7 @@ def get_dashboard(fecha: Optional[str] = None, turno: Optional[str] = None):
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
           AND pp.con_destino IS NOT NULL
-          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
+          AND """ + sql_filtro_turno() + """
         GROUP BY c.id, c.nombre, c.orden ORDER BY c.orden NULLS LAST
     """
     sql_destinos = """
@@ -516,7 +531,7 @@ def get_dashboard(fecha: Optional[str] = None, turno: Optional[str] = None):
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
           AND pp.con_destino IS NOT NULL
-          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
+          AND """ + sql_filtro_turno() + """
         GROUP BY pp.con_destino ORDER BY total DESC LIMIT 10
     """
 
@@ -585,7 +600,7 @@ def get_despachos(fecha: Optional[str] = None, turno: Optional[str] = None):
             AND ppcr.fecha_salida IS NULL
             AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
             AND pp.con_destino IS NOT NULL
-            AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
+            AND """ + sql_filtro_turno() + """
         GROUP BY COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario')
         HAVING COUNT(pp.id) > 0
         ORDER BY 1
@@ -650,7 +665,7 @@ def get_despacho_detalle(
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
           AND pp.con_destino IS NOT NULL
           AND COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') = %s
-          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
+          AND """ + sql_filtro_turno() + """
         ORDER BY c.orden NULLS LAST, r.nombre, pp.id_producto
     """
     rows = safe_query(sql, (IDS_CANAL, fecha_filtro, cliente, turno_filtro, turno_filtro), "despacho_detalle")
@@ -685,7 +700,7 @@ def get_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
-          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
+          AND """ + sql_filtro_turno() + """
         GROUP BY e3.nombre, pp.con_destino
         ORDER BY e3.nombre NULLS LAST, pp.con_destino
     """
@@ -795,7 +810,7 @@ def get_salidas(fecha: Optional[str] = None, dias: int = 1, turno: Optional[str]
           AND ppcr.fecha_salida IS NOT NULL
           AND ppcr.fecha_salida >= (%s::date - (%s * INTERVAL '1 day'))
           AND ppcr.fecha_salida < (%s::date + INTERVAL '1 day')
-          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
+          AND """ + sql_filtro_turno() + """
         ORDER BY ppcr.fecha_salida DESC, pp.id_producto
     """
     rows = safe_query(sql, (IDS_CANAL, fecha_fin, dias, fecha_fin, turno_filtro, turno_filtro), "salidas")
@@ -846,7 +861,7 @@ def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
-          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
+          AND """ + sql_filtro_turno() + """
         GROUP BY e3.nombre ORDER BY total_pend DESC
     """
     sql_salidas = """
@@ -862,7 +877,7 @@ def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NOT NULL
           AND DATE(ppcr.fecha_salida) = %s::date
-          AND (%s::text IS NULL OR pp.con_destino ILIKE %s::text)
+          AND """ + sql_filtro_turno() + """
         GROUP BY e3.nombre
     """
 
