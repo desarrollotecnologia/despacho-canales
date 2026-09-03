@@ -187,6 +187,7 @@
     .alert.show{display:block;}
     .alert-warn{background:#fef3c7;color:#92400e;border:1px solid #fde68a;}
     .alert-error{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;}
+    .alert-success{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;}
 
     @media(max-width:700px){
       body{padding:1rem;}
@@ -298,7 +299,7 @@
       <div class="modulo-card" onclick="irModulo('planilla')">
         <div class="modulo-icono">📌</div>
         <div class="modulo-nombre">Planilla de Puntos</div>
-        <div class="modulo-desc">Lista por OPL para ubicar medias canales en cava y riel. Descarga Excel por operador (código, cliente, cava, riel).</div>
+        <div class="modulo-desc">Distribución de puestos por zona y OPL, igual que Gestor Vísceras. Vista por puesto o por zona.</div>
         <span class="modulo-badge">Logística</span>
       </div>
       <div class="modulo-card" onclick="irModulo('cavas')">
@@ -349,11 +350,11 @@
     <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
       <div class="search-bar">
         <span class="s-icon">🔍</span>
-        <input id="searchDesp" type="text" placeholder="Buscar propietario o código..." oninput="filtrarDespachos()">
+        <input id="searchDesp" type="text" placeholder="Buscar puesto, zona o código..." oninput="filtrarDespachos()">
       </div>
       <button class="btn btn-secondary btn-sm" onclick="cargarDespachos()">🔄 Refrescar</button>
       <button class="btn btn-primary btn-sm" onclick="imprimirTablaDespachos()">🖨️ Imprimir</button>
-      <span style="font-size:0.78rem;color:var(--gris)">Doble clic en un cliente con más de una canal para desglosar. Total partes: 2 medias = 1.</span>
+      <span style="font-size:0.78rem;color:var(--gris)">Agrupado por puesto/zona (ej. 9404 · Floridablanca). Doble clic para desglosar.</span>
     </div>
 
     <!-- Tabla despachos -->
@@ -361,15 +362,17 @@
       <table id="tablaDespachos">
         <thead>
           <tr>
+            <th>Puesto</th>
+            <th>Zona / Destino</th>
             <th>Código</th>
-            <th>Propietario / Cliente</th>
+            <th>Propietario</th>
             <th class="num">MC1</th>
             <th class="num">MC2</th>
             <th class="num">Total partes</th>
           </tr>
         </thead>
         <tbody id="tablaDespachosCuerpo">
-          <tr><td colspan="5" class="empty-state">Selecciona turno y haz clic en Refrescar</td></tr>
+          <tr><td colspan="7" class="empty-state">Selecciona turno y haz clic en Refrescar</td></tr>
         </tbody>
       </table>
     </div>
@@ -442,15 +445,18 @@
     </div>
   </div>
 
-  <!-- ══════ VISTA PLANILLA DE PUNTOS ══════ -->
+  <!-- ══════ VISTA PLANILLA DE PUNTOS (estilo Gestor Vísceras) ══════ -->
   <div class="view-detail" id="viewPlanilla">
     <button class="back-btn" onclick="irMain()">← Volver al inicio</button>
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem;margin-bottom:1.2rem;">
       <div>
         <h2 style="color:var(--vp);margin-bottom:0.2rem;">📋 Planilla de Puntos por OPL</h2>
-        <p style="color:var(--gris);font-size:0.84rem;">Medias canales pendientes: código, propietario/cliente, cava y riel para localizar y despachar.</p>
+        <p style="color:var(--gris);font-size:0.84rem;">Medias canales: vista por <strong>puesto</strong> o por <strong>zona</strong> (destino), igual que Gestor Vísceras</p>
       </div>
-      <button class="btn btn-primary" id="btnExcelOpl" onclick="descargarExcelOplActivo()" style="padding:0.5rem 1.1rem;font-size:0.85rem;">📥 Exportar Excel</button>
+      <div style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-secondary" id="btnProcesarPlanilla" onclick="procesarPlanilla()" style="padding:0.5rem 1.1rem;font-size:0.85rem;">⚙️ Procesar Planilla</button>
+        <button class="btn btn-primary" id="btnExcelOpl" onclick="descargarExcelOplActivo()" style="padding:0.5rem 1.1rem;font-size:0.85rem;">📥 Exportar Excel</button>
+      </div>
     </div>
     <div class="alert" id="planillaAlert"></div>
 
@@ -469,42 +475,29 @@
     <div style="background:var(--blanco);border-radius:var(--radio);padding:1rem 1.2rem;box-shadow:var(--sombra);border:1px solid rgba(96,165,250,0.2);margin-bottom:1.2rem;">
       <div style="font-weight:600;color:var(--vp);font-size:0.85rem;margin-bottom:0.5rem;">Operador Logístico</div>
       <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;" id="planillaOplBtns">
-        <span style="color:var(--gris);font-size:0.82rem;">Cargando OPLs...</span>
+        <span style="color:var(--gris);font-size:0.82rem;">Procesa la planilla para ver los OPLs.</span>
       </div>
       <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:2px dashed var(--vc);display:flex;justify-content:center;">
         <button class="btn btn-secondary" onclick="mostrarResumenGeneralPlanilla()">📊 Ver resumen general</button>
       </div>
     </div>
 
-    <div class="resumen-bar" id="planillaResumenBar">Selecciona un OPL para ver sus medias canales.</div>
+    <div style="display:flex;justify-content:center;gap:0.5rem;margin-bottom:0.75rem;flex-wrap:wrap;">
+      <button type="button" class="btn btn-primary" id="btnPlanillaVistaPuestos" style="padding:0.4rem 1rem;font-size:0.82rem;" onclick="setPlanillaVista('puestos')">📍 Por puesto</button>
+      <button type="button" class="btn btn-secondary" id="btnPlanillaVistaZonas" style="padding:0.4rem 1rem;font-size:0.82rem;" onclick="setPlanillaVista('zonas')">🗺️ Por zona</button>
+    </div>
+
     <div style="text-align:center;margin-bottom:1rem;">
-      <h3 id="planillaTitulo" style="font-size:1.15rem;font-weight:700;color:var(--vp);">LISTA DE MEDIAS CANALES — SALIDA DE CAVA</h3>
+      <h3 id="planillaTitulo" style="font-size:1.15rem;font-weight:700;color:var(--vp);">LISTA DE PUESTOS: CANALES DE SALIDA DE CAVA</h3>
       <div id="planillaSubtitulo" style="font-size:0.8rem;color:var(--gris);margin-top:3px;"></div>
     </div>
 
-    <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
-      <div class="search-bar">
-        <span class="s-icon">🔍</span>
-        <input id="searchPlanilla" type="text" placeholder="Buscar código, cliente, cava, riel..." oninput="filtrarPlanillaPuntos()">
+    <div id="planillaGrid" class="planilla-zonas-grid" style="display:flex;flex-wrap:wrap;gap:0.65rem;justify-content:center;align-items:flex-start;margin-bottom:1.5rem;">
+      <div style="width:100%;text-align:center;padding:3rem;color:var(--gris);font-size:0.9rem;">
+        Presiona <strong>⚙️ Procesar Planilla</strong> para generar la distribución.
       </div>
-      <button class="btn btn-secondary btn-sm" onclick="cargarPlanillaPuntos()">🔄 Refrescar</button>
     </div>
-
-    <div class="table-wrap">
-      <table id="tablaPlanilla">
-        <thead>
-          <tr>
-            <th>Código</th>
-            <th>Propietario / Cliente</th>
-            <th>Cava</th>
-            <th>Riel</th>
-          </tr>
-        </thead>
-        <tbody id="tablaPlanillaCuerpo">
-          <tr><td colspan="4" class="empty-state">Selecciona un OPL para ver la lista.</td></tr>
-        </tbody>
-      </table>
-    </div>
+    <div id="planillaResumen" style="display:flex;justify-content:center;"></div>
   </div>
 
 </div><!-- /container -->
@@ -831,19 +824,19 @@ function renderDespachos(data) {
   if (info) {
     const nom = NOMBRE_TURNO[turno] || '';
     info.innerHTML = turno
-      ? `Turno <strong>${escHtml(turno)}</strong>${nom ? ' ('+escHtml(nom)+')' : ''} · fecha ${escHtml(data.fecha || getFecha())}. Canales en cava con destino (si el destino no trae otro turno).`
+      ? `Turno <strong>${escHtml(turno)}</strong>${nom ? ' ('+escHtml(nom)+')' : ''} · fecha ${escHtml(data.fecha || getFecha())}. Ruta tipo <code>09404/Floridablanca/.../${escHtml(turno)}/</code> (puesto · zona).`
       : `Mostrando todos los turnos · fecha ${escHtml(data.fecha || getFecha())}.`;
   }
   $('despStats').innerHTML = `
     <div class="stat-card"><div class="stat-label">MC1</div><div class="stat-valor">${fmt(tot.mc1)}</div><div class="stat-sub">Media Canal 1</div></div>
     <div class="stat-card"><div class="stat-label">MC2</div><div class="stat-valor">${fmt(tot.mc2)}</div><div class="stat-sub">Media Canal 2</div></div>
     <div class="stat-card"><div class="stat-label">Total partes</div><div class="stat-valor">${fmtD(totalPartes)}</div><div class="stat-sub">cada media = 0.5</div></div>
-    <div class="stat-card"><div class="stat-label">Clientes</div><div class="stat-valor">${fmt(tot.clientes != null ? tot.clientes : tot.puestos)}</div><div class="stat-sub">propietarios activos</div></div>
+    <div class="stat-card"><div class="stat-label">Puestos</div><div class="stat-valor">${fmt(tot.puestos != null ? tot.puestos : tot.clientes)}</div><div class="stat-sub">zona / destino</div></div>
   `;
 
   const rows = data.data || [];
   if (!rows.length) {
-    $('tablaDespachosCuerpo').innerHTML = '<tr><td colspan="5" class="empty-state">Sin canales para este turno/fecha</td></tr>';
+    $('tablaDespachosCuerpo').innerHTML = '<tr><td colspan="7" class="empty-state">Sin canales para este turno/fecha</td></tr>';
     return;
   }
   let html = '';
@@ -853,8 +846,10 @@ function renderDespachos(data) {
     const n = r.total_medias || (mc1 + mc2);
     const codigo = r.codigo || r.codigo_completo || '—';
     const extra = n > 1 ? ` <span class="badge badge-canal">+${n - 1}</span>` : '';
-    const hint = n > 1 ? ' title="Doble clic para desglosar las canales de este cliente"' : '';
+    const hint = n > 1 ? ' title="Doble clic para desglosar este puesto"' : '';
     html += `<tr class="clickable desp-row${n > 1 ? ' expandible' : ''}" data-idx="${i}" data-n="${n}"${hint} ondblclick="toggleDesgloseDespacho(${i})">
+      <td><strong>${escHtml(r.puesto || '—')}</strong></td>
+      <td>${escHtml(r.zona || r.destino || '—')}${r.direccion ? `<div style="font-size:0.72rem;color:var(--gris)">${escHtml(r.direccion)}</div>` : ''}</td>
       <td><code>${escHtml(codigo)}</code>${extra}</td>
       <td>${escHtml(r.propietario || '—')}</td>
       <td class="num"><span class="badge badge-mc1">${fmt(mc1)}</span></td>
@@ -863,7 +858,7 @@ function renderDespachos(data) {
     </tr>`;
   });
   html += `<tr class="total-row">
-    <td colspan="2">TOTAL (${rows.length} clientes)</td>
+    <td colspan="4">TOTAL (${rows.length} puestos)</td>
     <td class="num">${fmt(tot.mc1)}</td>
     <td class="num">${fmt(tot.mc2)}</td>
     <td class="num">${fmtD(totalPartes)}</td>
@@ -906,14 +901,19 @@ async function toggleDesgloseDespacho(idx) {
   const turnoQ = turnoDesp ? `&turno=${encodeURIComponent(turnoDesp)}` : '';
   try {
     showSpinner();
-    const data = await apiFetch(API(`/despachos/detalle?propietario=${encodeURIComponent(r.propietario || '')}&fecha=${fecha}${turnoQ}`));
+    const qs = r.clave
+      ? `clave=${encodeURIComponent(r.clave)}`
+      : `puesto=${encodeURIComponent(r.puesto || '')}&zona=${encodeURIComponent(r.zona || '')}`;
+    const data = await apiFetch(API(`/despachos/detalle?${qs}&fecha=${fecha}${turnoQ}`));
     const items = data.data || [];
     let html = '';
     items.forEach(item => {
       const esMc1 = item.id_tipo === ID_MC1_JS;
       html += `<tr class="desp-child" data-parent="${idx}">
+        <td></td>
+        <td style="font-size:0.78rem;color:var(--gris)">${escHtml(item.cava || '—')} · ${escHtml(item.riel || '—')}</td>
         <td>↳ <code>${escHtml(item.codigo || item.codigo_completo || '—')}</code></td>
-        <td>${escHtml(item.propietario || '—')} · ${escHtml(item.cava || '—')} · ${escHtml(item.riel || '—')}</td>
+        <td>${escHtml(item.propietario || '—')}</td>
         <td class="num">${esMc1 ? '<span class="badge badge-mc1">1</span>' : '—'}</td>
         <td class="num">${esMc1 ? '—' : '<span class="badge badge-mc2">1</span>'}</td>
         <td class="num">0.5</td>
@@ -1201,17 +1201,18 @@ function imprimirCavas() {
 }
 
 // ═══════════════════════════════════════════════════
-// PLANILLA DE PUNTOS POR OPL
+// PLANILLA DE PUNTOS POR OPL (estilo Gestor Vísceras)
 // ═══════════════════════════════════════════════════
 let turnoPlanilla = '';
 let _planillaOplActivo = '';
 let _planillaData = null;
+let _planillaVista = 'puestos';
 
 function selTurnoPlanilla(btn, turno) {
   turnoPlanilla = turno;
   document.querySelectorAll('#turnoBtnsPlanilla .turno-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
-  cargarPlanillaPuntos();
+  procesarPlanilla();
 }
 
 function planillaTurnoQ() {
@@ -1220,20 +1221,39 @@ function planillaTurnoQ() {
     : 'turno=Todos';
 }
 
-async function cargarPlanillaPuntos() {
+async function procesarPlanilla() {
+  const btn = $('btnProcesarPlanilla');
   const fecha = getFecha();
-  const oplQ = _planillaOplActivo ? `&opl=${encodeURIComponent(_planillaOplActivo)}` : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Procesando...'; }
   try {
     showSpinner();
-    const data = await apiFetch(API(`/planilla_puntos?fecha=${fecha}&${planillaTurnoQ()}${oplQ}`));
+    const data = await apiFetch(API(`/planilla_puntos?fecha=${fecha}&${planillaTurnoQ()}`));
     _planillaData = data;
     renderOplChipsPlanilla(data);
-    renderTablaPlanillaPuntos(data);
-  } catch(e) {
-    alertErr('Error al cargar planilla: ' + e.message);
+    const alert = $('planillaAlert');
+    if (alert) {
+      alert.className = 'alert alert-success show';
+      alert.textContent = `✅ ${fmtD(data.totalGlobal != null ? data.totalGlobal : data.total_partes)} canales · turno ${data.turno || '—'} · ${data.fecha || fecha}`;
+      setTimeout(() => alert.classList.remove('show'), 4000);
+    }
+    const chips = document.querySelectorAll('#planillaOplBtns .opl-chip');
+    if (chips.length && !_planillaOplActivo) {
+      chips[0].click();
+    } else if (_planillaOplActivo) {
+      await cargarDatosPlanilla(_planillaOplActivo);
+    } else {
+      renderPlanilla(data);
+    }
+  } catch (e) {
+    alertErr('Error al procesar planilla: ' + e.message);
   } finally {
     hideSpinner();
+    if (btn) { btn.disabled = false; btn.textContent = '⚙️ Procesar Planilla'; }
   }
+}
+
+async function cargarPlanillaPuntos() {
+  await procesarPlanilla();
 }
 
 function renderOplChipsPlanilla(data) {
@@ -1241,60 +1261,49 @@ function renderOplChipsPlanilla(data) {
   const opls = data.opls || [];
   const resumen = data.resumen || [];
   const countBy = {};
-  resumen.forEach(r => { countBy[r.opl] = r.total_medias; });
+  resumen.forEach(r => { countBy[r.opl] = r.total_partes != null ? r.total_partes : (r.total_medias || 0) * 0.5; });
   if (!opls.length) {
     cont.innerHTML = '<span style="color:var(--gris);font-size:0.82rem;">No hay OPLs para este turno.</span>';
     return;
   }
   cont.innerHTML = opls.map(opl => {
-    const n = countBy[opl] || 0;
+    const n = countBy[opl] != null ? countBy[opl] : 0;
     const sel = opl === _planillaOplActivo ? ' selected' : '';
     return `<button class="opl-chip${sel}" data-opl="${escHtml(opl)}" onclick="seleccionarOPLPlanilla(this)">
-      ${escHtml(opl)} <span style="opacity:.75;font-weight:600;">${n}</span>
-      <span class="chip-dl" title="Descargar Excel de este OPL" onclick="event.stopPropagation();descargarExcelOpl('${escHtml(opl)}')">📥</span>
+      ${escHtml(opl)} <span style="opacity:.75;font-weight:600;">${fmtD(n)}</span>
     </button>`;
   }).join('');
 }
 
-function seleccionarOPLPlanilla(btn) {
+async function seleccionarOPLPlanilla(btn) {
+  document.querySelectorAll('#planillaOplBtns .opl-chip').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
   _planillaOplActivo = btn.getAttribute('data-opl') || '';
-  cargarPlanillaPuntos();
+  await cargarDatosPlanilla(_planillaOplActivo);
 }
 
-function renderTablaPlanillaPuntos(data) {
-  restaurarTheadPlanilla();
-  const opl = data.opl || _planillaOplActivo;
-  const rows = data.data || [];
-  const turno = data.turno || '—';
-  const total = data.total || 0;
-  const partes = (data.total_partes != null) ? data.total_partes : total * 0.5;
-
-  if (!opl) {
-    $('planillaResumenBar').textContent = `${fmt(sumResumenPlanilla(data))} medias · turno ${turno} · ${data.fecha || getFecha()} — selecciona un OPL`;
-    $('planillaTitulo').textContent = 'LISTA DE MEDIAS CANALES — SALIDA DE CAVA';
-    $('planillaSubtitulo').textContent = 'Elige un operador logístico para ver códigos, cava y riel.';
-    $('tablaPlanillaCuerpo').innerHTML = '<tr><td colspan="4" class="empty-state">Selecciona un OPL para ver la lista y descargar el Excel.</td></tr>';
-    return;
+async function cargarDatosPlanilla(opl) {
+  const fecha = getFecha();
+  const grid = $('planillaGrid');
+  if (grid) grid.innerHTML = '<div style="width:100%;text-align:center;padding:2rem;color:var(--gris);">⏳ Cargando...</div>';
+  try {
+    const data = await apiFetch(API(`/planilla_puntos?fecha=${fecha}&${planillaTurnoQ()}&opl=${encodeURIComponent(opl)}`));
+    _planillaData = data;
+    renderPlanilla(data);
+  } catch (e) {
+    alertErr('Error cargando OPL: ' + e.message);
   }
-
-  $('planillaResumenBar').textContent = `${fmt(total)} medias · ${fmtD(partes)} canales · turno ${turno} · ${data.fecha || getFecha()}`;
-  $('planillaTitulo').textContent = `LISTA DE MEDIAS CANALES: SALIDA DE CAVA — ${fmtFechaTitulo(data.fecha)}`;
-  $('planillaSubtitulo').textContent = `OPL: ${opl} | Total: ${fmt(total)} medias (${fmtD(partes)} canales) · turno ${turno}`;
-
-  if (!rows.length) {
-    $('tablaPlanillaCuerpo').innerHTML = `<tr><td colspan="4" class="empty-state">Sin medias canales pendientes para ${escHtml(opl)}</td></tr>`;
-    return;
-  }
-  $('tablaPlanillaCuerpo').innerHTML = rows.map(r => `<tr>
-    <td><code>${escHtml(r.codigo || '—')}</code></td>
-    <td>${escHtml(r.propietario || '—')}</td>
-    <td>${escHtml(r.cava || '—')}</td>
-    <td>${escHtml(r.riel || '—')}</td>
-  </tr>`).join('');
 }
 
-function sumResumenPlanilla(data) {
-  return (data.resumen || []).reduce((a, r) => a + (r.total_medias || 0), 0);
+function setPlanillaVista(modo) {
+  _planillaVista = modo === 'zonas' ? 'zonas' : 'puestos';
+  const bp = $('btnPlanillaVistaPuestos');
+  const bz = $('btnPlanillaVistaZonas');
+  if (bp) bp.className = _planillaVista === 'puestos' ? 'btn btn-primary' : 'btn btn-secondary';
+  if (bz) bz.className = _planillaVista === 'zonas' ? 'btn btn-primary' : 'btn btn-secondary';
+  if (bp) bp.style.cssText = 'padding:0.4rem 1rem;font-size:0.82rem;';
+  if (bz) bz.style.cssText = 'padding:0.4rem 1rem;font-size:0.82rem;';
+  if (_planillaData) renderPlanilla(_planillaData);
 }
 
 function fmtFechaTitulo(fechaStr) {
@@ -1304,18 +1313,78 @@ function fmtFechaTitulo(fechaStr) {
   return s;
 }
 
-function filtrarPlanillaPuntos() {
-  const q = ($('searchPlanilla').value || '').toLowerCase().trim();
-  document.querySelectorAll('#tablaPlanillaCuerpo tr').forEach(tr => {
-    const txt = tr.textContent.toLowerCase();
-    if (!q) { tr.classList.remove('hl-match','hl-hidden'); return; }
-    if (txt.includes(q)) { tr.classList.add('hl-match'); tr.classList.remove('hl-hidden'); }
-    else { tr.classList.remove('hl-match'); tr.classList.add('hl-hidden'); }
-  });
+function renderPlanilla(res) {
+  _planillaData = res;
+  const fecha = fmtFechaTitulo(res.fecha);
+  const opl = res.opl || _planillaOplActivo || 'TODOS';
+  $('planillaTitulo').textContent = 'LISTA DE PUESTOS: CANALES DE SALIDA DE CAVA — ' + fecha;
+  $('planillaSubtitulo').textContent =
+    'OPL: ' + opl +
+    ' | Total: ' + (res.totalOPL != null ? res.totalOPL : res.total_partes || 0) +
+    ' canales | ' + (res.porcentaje || '0') + '% del total' +
+    (res.turno ? ' · turno ' + res.turno : '');
+
+  const grid = $('planillaGrid');
+  const resumenBox = $('planillaResumen');
+  if (resumenBox) {
+    resumenBox.innerHTML = `<div class="stat-card" style="min-width:180px;"><div class="stat-label">Total OPL</div><div class="stat-valor">${fmtD(res.totalOPL)}</div><div class="stat-sub">${escHtml(opl)}</div></div>`;
+  }
+
+  if (_planillaVista === 'puestos' && res.puestos && res.puestos.length) {
+    const filas = res.puestos.map(p => `
+      <tr style="border-bottom:1px solid #dbeafe;">
+        <td style="padding:6px 10px;font-weight:600;">${escHtml(p.sucursal || p.etiqueta || p.puesto || '—')}</td>
+        <td style="padding:6px 10px;font-size:0.78rem;">${escHtml(p.zona || '—')}</td>
+        <td class="num" style="padding:6px 10px;font-weight:700;color:var(--vp);">${p.cantidad}</td>
+      </tr>`).join('');
+    grid.innerHTML = `
+      <div style="width:100%;max-width:720px;margin:0 auto;background:white;border-radius:12px;border:1px solid #bfdbfe;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+          <thead><tr style="background:var(--vp);color:white;">
+            <th style="padding:8px 10px;text-align:left;">Sucursal (puesto)</th>
+            <th style="padding:8px 10px;text-align:left;">Zona (destino)</th>
+            <th style="padding:8px 10px;text-align:center;">Canales</th>
+          </tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>`;
+    return;
+  }
+
+  if (!res.zonas || !res.zonas.length) {
+    grid.innerHTML = '<div style="width:100%;text-align:center;padding:3rem;color:var(--gris);">Sin datos para este OPL. Procesa la planilla.</div>';
+    return;
+  }
+
+  grid.innerHTML = res.zonas.map(z => {
+    const filas = (z.puestos || []).map(p => `
+      <tr style="border-bottom:1px solid #dbeafe;">
+        <td style="padding:4px 8px;text-align:left;font-weight:500;font-size:0.8rem;">${escHtml(p.puesto)}</td>
+        <td style="padding:4px 8px;text-align:center;font-weight:700;color:var(--vp);font-size:0.82rem;">${p.cantidad}</td>
+      </tr>`).join('');
+    return `
+      <div style="background:white;border-radius:10px;box-shadow:0 2px 8px rgba(26,111,196,0.08);border:1px solid #bfdbfe;overflow:hidden;min-width:170px;max-width:220px;">
+        <div style="background:var(--vp);color:white;font-weight:700;padding:6px 10px;text-align:center;font-size:0.88rem;white-space:nowrap;">
+          ${escHtml(z.nombre)}
+          <span style="background:rgba(255,255,255,0.2);padding:1px 8px;border-radius:20px;">${z.total}</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr>
+            <th style="background:#eff6ff;padding:4px 8px;text-align:left;font-size:0.75rem;color:#374151;">Sucursal</th>
+            <th style="background:#eff6ff;padding:4px 8px;text-align:center;font-size:0.75rem;color:#374151;">Cant</th>
+          </tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>`;
+  }).join('');
+}
+
+function sumResumenPlanilla(data) {
+  return (data.resumen || []).reduce((a, r) => a + (r.total_medias || 0), 0);
 }
 
 function descargarExcelOplActivo() {
-  if (!_planillaOplActivo) {
+  if (!_planillaOplActivo || _planillaOplActivo === 'TODOS') {
     alertWarn('Selecciona un OPL primero para descargar su Excel.');
     return;
   }
@@ -1333,36 +1402,44 @@ function descargarExcelOpl(opl) {
   a.remove();
 }
 
-function mostrarResumenGeneralPlanilla() {
+async function mostrarResumenGeneralPlanilla() {
   _planillaOplActivo = '';
-  const data = _planillaData;
-  if (!data) { cargarPlanillaPuntos(); return; }
   document.querySelectorAll('#planillaOplBtns .opl-chip').forEach(b => b.classList.remove('selected'));
-  const resumen = data.resumen || [];
-  const totMed = sumResumenPlanilla(data);
-  $('planillaResumenBar').textContent = `${fmt(totMed)} medias · turno ${data.turno || '—'} · ${data.fecha || getFecha()}`;
-  $('planillaTitulo').textContent = 'RESUMEN DESPACHO POR OPERADOR LOGÍSTICO';
-  $('planillaSubtitulo').textContent = fmtFechaTitulo(data.fecha);
-  if (!resumen.length) {
-    $('tablaPlanillaCuerpo').innerHTML = '<tr><td colspan="4" class="empty-state">Sin datos</td></tr>';
-    return;
+  const fecha = getFecha();
+  try {
+    showSpinner();
+    const data = await apiFetch(API(`/planilla_puntos?fecha=${fecha}&${planillaTurnoQ()}`));
+    _planillaData = data;
+    _planillaVista = 'zonas';
+    setPlanillaVista('zonas');
+    $('planillaTitulo').textContent = 'RESUMEN GENERAL — CANALES DE SALIDA DE CAVA — ' + fmtFechaTitulo(data.fecha);
+    $('planillaSubtitulo').textContent = `Todos los OPL · ${fmtD(data.totalGlobal)} canales · turno ${data.turno || '—'}`;
+    // Mostrar resumen por OPL encima del grid de zonas
+    const resumen = data.resumen || [];
+    const grid = $('planillaGrid');
+    let extra = '';
+    if (resumen.length) {
+      extra = `<div style="width:100%;max-width:720px;margin:0 auto 1rem;background:white;border-radius:12px;border:1px solid #bfdbfe;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+          <thead><tr style="background:var(--vp);color:white;">
+            <th style="padding:8px 10px;text-align:left;">Operador Logístico</th>
+            <th style="padding:8px 10px;text-align:center;">Canales</th>
+            <th style="padding:8px 10px;"></th>
+          </tr></thead>
+          <tbody>${resumen.map(r => `<tr style="border-bottom:1px solid #dbeafe;">
+            <td style="padding:6px 10px;"><strong>${escHtml(r.opl)}</strong></td>
+            <td style="padding:6px 10px;text-align:center;font-weight:700;color:var(--vp);">${fmtD(r.total_partes)}</td>
+            <td style="padding:6px 10px;text-align:right;"><button class="btn btn-primary btn-sm" onclick="descargarExcelOpl('${escHtml(r.opl)}')">📥 Excel</button></td>
+          </tr>`).join('')}</tbody>
+        </table></div>`;
+    }
+    renderPlanilla({ ...data, opl: 'TODOS' });
+    if (extra) grid.insertAdjacentHTML('afterbegin', extra);
+  } catch (e) {
+    alertErr(e.message);
+  } finally {
+    hideSpinner();
   }
-  const thead = `<tr><th>Operador Logístico</th><th class="num">Medias</th><th class="num">Canales (×0.5)</th><th></th></tr>`;
-  document.querySelector('#tablaPlanilla thead').innerHTML = thead;
-  let html = resumen.map(r => `<tr>
-    <td><strong>${escHtml(r.opl)}</strong></td>
-    <td class="num">${fmt(r.total_medias)}</td>
-    <td class="num">${fmtD(r.total_partes)}</td>
-    <td class="num"><button class="btn btn-primary btn-sm" onclick="descargarExcelOpl('${escHtml(r.opl)}')">📥 Excel</button></td>
-  </tr>`).join('');
-  html += `<tr class="total-row"><td>TOTAL</td><td class="num">${fmt(totMed)}</td><td class="num">${fmtD(totMed * 0.5)}</td><td></td></tr>`;
-  $('tablaPlanillaCuerpo').innerHTML = html;
-}
-
-function restaurarTheadPlanilla() {
-  document.querySelector('#tablaPlanilla thead').innerHTML = `<tr>
-    <th>Código</th><th>Propietario / Cliente</th><th>Cava</th><th>Riel</th>
-  </tr>`;
 }
 
 function imprimirDetalleDespacho(destino) {

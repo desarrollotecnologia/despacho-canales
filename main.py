@@ -56,22 +56,174 @@ def resolver_turno(fecha_str: Optional[str], turno: Optional[str]) -> Optional[s
 
 TURNOS_CODIGO = ("DxL", "LxM", "MxM", "MxJ", "JxV", "VxS", "SxD")
 
+# Destinos/puestos de stock interno (no despacho a plaza), igual idea que Gestor Vísceras
+PUESTOS_EXCLUIDOS = {
+    "01305", "03105", "05200", "12157", "379P",
+    "CAVA AJR", "CAVA FORTUNATO", "CAVA MIREYA", "CAVA.", "CAVA",
+    "CCARNES CAVA", "OLIMPICA", "RH32", "DRA CAVA", "CAVA WO",
+    "CAVAYERSON", "CAVA JUDITH", "CAVA CV", "CAVA EMERGENCIA",
+}
+
+SQL_JOINS_LOGISTICA = """
+        LEFT JOIN trazabilidad_proceso.producto_empresa pe
+            ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
+        LEFT JOIN organizaciones.empresa e3
+            ON e3.id = pe.id_empresa
+        LEFT JOIN trazabilidad_proceso.parte_producto_empresa ppe
+            ON ppe.id_producto::text = pp.id_producto::text AND ppe.id_parte_producto = pp.id
+        LEFT JOIN trazabilidad_proceso.parte_producto_empresa_local ppel
+            ON ppel.id_parte_producto_empresa = ppe.id
+        LEFT JOIN organizaciones.sucursal s
+            ON s.id = ppel.id_local
+        LEFT JOIN trazabilidad_proceso.destino de
+            ON de.id = s.id_destino
+"""
+
 
 def patron_turno(turno: Optional[str]) -> Optional[str]:
-    """Patrón ILIKE si el destino trae el código (ej. /JxV/). None = sin filtro de turno."""
+    """Patrón ILIKE si el texto trae el código (ej. /JxV/). None = sin filtro."""
     return f"%{turno}%" if turno else None
 
 
+def formatear_codigo_sucursal(codigo) -> str:
+    """09404 → 9404 (como Gestor Vísceras)."""
+    raw = str(codigo or "").strip()
+    if not raw:
+        return ""
+    if raw.isdigit():
+        try:
+            return str(int(raw))
+        except ValueError:
+            return raw
+    return raw
+
+
+def parse_puesto_operacion(puesto_full: str) -> dict:
+    """
+    Descompone ruta SIRT:
+    09404/Floridablanca/PLAZA DE MERCADO... /JxV/
+    → puesto 9404, zona Floridablanca, dirección, turno JxV
+    """
+    raw = str(puesto_full or "").strip()
+    parts = [p.strip() for p in raw.split("/") if p.strip()]
+    sin_turno = [p for p in parts if p not in TURNOS_CODIGO]
+    codigo = formatear_codigo_sucursal(sin_turno[0] if sin_turno else "")
+    zona = sin_turno[1].strip() if len(sin_turno) > 1 else ""
+    direccion = sin_turno[2] if len(sin_turno) > 2 else ""
+    turno = next((p for p in parts if p in TURNOS_CODIGO), "")
+    etiqueta = f"{codigo} · {zona}" if codigo and zona else (codigo or zona or raw[:96])
+    zona_key = zona.upper()
+    if codigo and zona_key:
+        clave = f"{str(codigo).upper()}|{zona_key}"
+    elif codigo:
+        clave = str(codigo).upper()
+    else:
+        clave = " ".join(raw.split()).upper()
+    return {
+        "codigo": codigo,
+        "zona": zona,
+        "direccion": direccion,
+        "turno": turno,
+        "etiqueta": etiqueta,
+        "ruta": " / ".join(sin_turno),
+        "ruta_completa": raw,
+        "clave": clave,
+    }
+
+
+def construir_ruta(puesto: str, zona: str, direccion: str = "", turno: str = "") -> str:
+    bits = [str(puesto or "").strip(), str(zona or "").strip(), str(direccion or "").strip()]
+    bits = [b for b in bits if b]
+    base = "/".join(bits)
+    if turno:
+        base = f"{base}/{turno}" if base else str(turno)
+    return f"{base}/" if base else ""
+
+
+def _ruta_cruda_desde_campos(con_destino: str, observaciones: str) -> str:
+    """Prioriza con_destino u observaciones si ya traen la ruta con / (estilo Vísceras)."""
+    for cand in (con_destino, observaciones):
+        t = str(cand or "").strip()
+        if not t or t.upper() in ("S", "N", "SI", "NO"):
+            continue
+        if "/" in t:
+            return t
+    return ""
+
+
+def resolver_logistica_pieza(row: dict, turno_calendario: Optional[str] = None) -> dict:
+    """Arma puesto/zona/turno como el Gestor de Vísceras."""
+    con_dest = str(row.get("destino") or row.get("con_destino") or "").strip()
+    obs = str(row.get("observaciones") or "").strip()
+    suc = str(row.get("sucursal_origen") or row.get("sucursal") or "").strip()
+    zona_db = str(row.get("destino_real") or row.get("zona") or "").strip()
+    dir_db = str(row.get("direccion_entrega") or row.get("direccion") or "").strip()
+
+    ruta_cruda = _ruta_cruda_desde_campos(con_dest, obs)
+    if ruta_cruda:
+        po = parse_puesto_operacion(ruta_cruda)
+        puesto = po["codigo"] or formatear_codigo_sucursal(suc)
+        zona = po["zona"] or zona_db
+        direccion = po["direccion"] or dir_db
+        turno = po["turno"] or (turno_calendario or "")
+    else:
+        puesto = formatear_codigo_sucursal(suc) or suc
+        zona = zona_db
+        direccion = dir_db
+        turno = turno_calendario or ""
+
+    ruta = construir_ruta(puesto, zona, direccion, turno)
+    po2 = parse_puesto_operacion(ruta)
+    return {
+        "puesto": puesto,
+        "zona": zona,
+        "direccion": direccion,
+        "turno_ruta": turno,
+        "ruta": ruta,
+        "etiqueta": po2["etiqueta"] or (f"{puesto} · {zona}" if puesto or zona else "Sin ruta"),
+        "clave": po2["clave"] or "SIN RUTA",
+    }
+
+
+def es_destino_despacho(log: dict) -> bool:
+    """Excluye stock de cava / puestos internos."""
+    zona = str(log.get("zona") or "").strip().upper()
+    puesto = str(log.get("puesto") or "").strip().upper()
+    if not zona and not puesto:
+        return False
+    if zona in ("CAVA", "PLANTA"):
+        return False
+    if puesto.startswith("CAVA") or puesto in {p.upper() for p in PUESTOS_EXCLUIDOS}:
+        return False
+    return True
+
+
+def pasa_filtro_turno(log: dict, turno: Optional[str]) -> bool:
+    if not turno:
+        return True
+    return str(log.get("turno_ruta") or "").upper() == str(turno).upper()
+
+
+def enriquecer_logistica(rows: List[dict], fecha_filtro: str, turno: Optional[str], solo_despacho: bool = True) -> List[dict]:
+    """Aplica parseo de ruta + filtro de turno (calendario si la ruta no trae código)."""
+    cal = turno or turno_de_fecha(fecha_filtro)
+    out = []
+    for r in rows:
+        log = resolver_logistica_pieza(r, cal)
+        if solo_despacho and not es_destino_despacho(log):
+            continue
+        if not pasa_filtro_turno(log, turno):
+            continue
+        r.update(log)
+        # Destino visible = zona (Floridablanca), no la bandera "S"
+        r["destino"] = log["zona"] or log["ruta"] or r.get("destino")
+        out.append(r)
+    return out
+
+
 def sql_filtro_turno(col: str = "pp.con_destino") -> str:
-    """
-    Canales: con_destino suele ser solo 'S' (sin JxV/LxM).
-    - Sin turno (param NULL): no filtra.
-    - Con turno: incluye si el texto trae ese turno O si no trae ningún código de turno.
-      Excluye solo piezas marcadas explícitamente con otro turno (como Vísceras).
-    Usa 2 placeholders %s: (patron_turno, patron_turno).
-    """
-    sin_ninguno = " AND ".join(f"{col} NOT ILIKE '%%{t}%%'" for t in TURNOS_CODIGO)
-    return f"(%s::text IS NULL OR {col} ILIKE %s::text OR ({sin_ninguno}))"
+    """Filtro SQL legacy (ILIKE). Preferir enriquecer_logistica en despacho/planilla."""
+    return f"(%s::text IS NULL OR {col} ILIKE %s::text)"
 
 app.add_middleware(
     CORSMiddleware,
@@ -237,35 +389,47 @@ def resolver_opl_de_propietario(propietario: str) -> str:
     return apps_script_local._resolver_opl(prop, mapa)
 
 
-def consultar_canales_planilla(fecha_filtro: str, turno_filtro):
-    sql = """
+def consultar_canales_planilla(fecha_filtro: str, turno: Optional[str]):
+    """
+    Medias canales en cava con ruta logística (puesto/zona/turno),
+    igual criterio que Gestor Vísceras: 09404/Floridablanca/.../JxV/
+    """
+    sql = f"""
         SELECT
             pp.id_producto                          AS codigo,
             tpp.id                                  AS id_tipo,
             COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') AS propietario,
             c.nombre                                AS cava,
             r.nombre                                AS riel,
-            pp.con_destino                          AS destino
+            pp.con_destino                          AS con_destino,
+            pp.observaciones                        AS observaciones,
+            s.nombre                                AS sucursal_origen,
+            s.direccion                             AS direccion_entrega,
+            de.nombre                               AS destino_real
         FROM trazabilidad_proceso.parte_producto pp
         JOIN trazabilidad_proceso.tipo_parte_producto tpp ON tpp.id = pp.id_tipo_parte_producto
         JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
         LEFT JOIN trazabilidad_proceso.cava c ON c.id = ppcr.id_cava
         LEFT JOIN trazabilidad_proceso.riel r ON r.id = ppcr.id_riel
-        LEFT JOIN trazabilidad_proceso.producto_empresa pe
-            ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
-        LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
+        {SQL_JOINS_LOGISTICA}
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
           AND pp.con_destino IS NOT NULL
-          AND """ + sql_filtro_turno() + """
         ORDER BY e3.nombre NULLS LAST, c.orden NULLS LAST, r.nombre, pp.id_producto
     """
-    rows = safe_query(sql, (IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "planilla_puntos")
-    data = serializable(rows)
+    rows = safe_query(sql, (IDS_CANAL, fecha_filtro), "planilla_puntos")
+    data = enriquecer_logistica(serializable(rows), fecha_filtro, turno, solo_despacho=True)
     for r in data:
         enriquecer_codigo(r)
         r["opl"] = resolver_opl_de_propietario(r.get("propietario") or "")
+        r["destino"] = r.get("zona") or ""
+    data.sort(key=lambda x: (
+        str(x.get("zona") or "").upper(),
+        str(x.get("puesto") or ""),
+        str(x.get("propietario") or ""),
+        str(x.get("codigo") or ""),
+    ))
     return data
 
 
@@ -313,23 +477,23 @@ def construir_excel_opl(opl: str, fecha: str, turno, filas: List[dict]) -> Bytes
         bottom=Side(style="thin", color="C8E6C9"),
     )
 
-    ws.merge_cells("A1:D1")
+    ws.merge_cells("A1:F1")
     ws["A1"] = f"OPL {opl}"
     ws["A1"].font = titulo
     ws["A1"].fill = verde
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
-    for col in range(2, 5):
+    for col in range(2, 7):
         ws.cell(1, col).fill = verde
     ws.row_dimensions[1].height = 28
 
     turno_txt = turno or "Todos"
-    ws.merge_cells("A2:D2")
+    ws.merge_cells("A2:F2")
     ws["A2"] = f"Medias canales pendientes · {fecha} · turno {turno_txt} · {len(filas)} registros"
     ws["A2"].font = Font(name="Calibri", size=10, italic=True, color="374151")
     ws["A2"].alignment = Alignment(horizontal="center")
     ws.row_dimensions[2].height = 18
 
-    headers = ["Código", "Propietario/Cliente", "Cava", "Riel"]
+    headers = ["Código", "Propietario/Cliente", "Zona / Destino", "Puesto", "Cava", "Riel"]
     for i, h in enumerate(headers, 1):
         cell = ws.cell(3, i, h)
         cell.font = blanco
@@ -341,6 +505,8 @@ def construir_excel_opl(opl: str, fecha: str, turno, filas: List[dict]) -> Bytes
         vals = [
             r.get("codigo") or "",
             r.get("propietario") or "",
+            r.get("zona") or r.get("destino") or "",
+            r.get("puesto") or "",
             r.get("cava") or "",
             r.get("riel") or "",
         ]
@@ -351,12 +517,14 @@ def construir_excel_opl(opl: str, fecha: str, turno, filas: List[dict]) -> Bytes
             if idx % 2 == 0:
                 cell.fill = verde_claro
 
-    ws.column_dimensions["A"].width = 24
-    ws.column_dimensions["B"].width = 42
-    ws.column_dimensions["C"].width = 16
-    ws.column_dimensions["D"].width = 14
+    ws.column_dimensions["A"].width = 22
+    ws.column_dimensions["B"].width = 36
+    ws.column_dimensions["C"].width = 22
+    ws.column_dimensions["D"].width = 12
+    ws.column_dimensions["E"].width = 16
+    ws.column_dimensions["F"].width = 14
     ws.freeze_panes = "A4"
-    ws.auto_filter.ref = f"A3:D{max(3, 3 + len(filas))}"
+    ws.auto_filter.ref = f"A3:F{max(3, 3 + len(filas))}"
     ws.page_setup.orientation = "landscape"
     ws.page_setup.fitToPage = True
     ws.page_setup.fitToWidth = 1
@@ -420,7 +588,7 @@ def get_tipos_canal():
 def get_cavas(fecha: Optional[str] = None, turno: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = patron_turno(turno)
+    turno_filtro = None  # turno se aplica en logística (despachos/planilla); cavas = stock en cava
     sql = """
         SELECT
             pp.id                               AS id_parte_producto,
@@ -489,7 +657,7 @@ def get_cavas(fecha: Optional[str] = None, turno: Optional[str] = None):
 def get_dashboard(fecha: Optional[str] = None, turno: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = patron_turno(turno)
+    turno_filtro = None  # turno se aplica en logística (despachos/planilla); cavas = stock en cava
     ck = ("dashboard", fecha_filtro, turno)
     hit = cache_get(ck)
     if hit is not None:
@@ -566,51 +734,88 @@ def get_dashboard(fecha: Optional[str] = None, turno: Optional[str] = None):
 
 
 # ═══════════════════════════════════════════════════════
-# DESPACHOS — agrupado por propietario/cliente
-# Lista: un código visible; total partes = medias × 0.5
+# DESPACHOS — agrupado por puesto/zona (como Gestor Vísceras)
+# Ruta: 09404/Floridablanca/.../JxV/  → puesto 9404, zona Floridablanca
 # ═══════════════════════════════════════════════════════
 @app.get("/api/despachos")
 def get_despachos(fecha: Optional[str] = None, turno: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = patron_turno(turno)
-    ck = ("despachos", fecha_filtro, turno)
+    ck = ("despachos", fecha_filtro, turno, "ruta_v2")
     hit = cache_get(ck)
     if hit is not None:
         return hit
 
-    sql = """
+    sql = f"""
         SELECT
+            pp.id_producto AS codigo,
+            pp.id_tipo_parte_producto AS id_tipo,
             COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') AS propietario,
-            (ARRAY_AGG(pp.id_producto ORDER BY pp.id_producto))[1] AS codigo,
-            (ARRAY_AGG(pp.id_tipo_parte_producto ORDER BY pp.id_producto))[1] AS id_tipo,
-            COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1,
-            COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2,
-            COUNT(pp.id) AS total_medias,
-            COUNT(pp.id) * 0.5 AS total_partes
+            pp.con_destino AS con_destino,
+            pp.observaciones AS observaciones,
+            s.nombre AS sucursal_origen,
+            s.direccion AS direccion_entrega,
+            de.nombre AS destino_real
         FROM trazabilidad_proceso.parte_producto pp
         JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr
             ON ppcr.id_parte_producto = pp.id
-        LEFT JOIN trazabilidad_proceso.producto_empresa pe
-            ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
-        LEFT JOIN organizaciones.empresa e3
-            ON e3.id = pe.id_empresa
+        {SQL_JOINS_LOGISTICA}
         WHERE
             pp.id_tipo_parte_producto IN %s
             AND ppcr.fecha_salida IS NULL
             AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
             AND pp.con_destino IS NOT NULL
-            AND """ + sql_filtro_turno() + """
-        GROUP BY COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario')
-        HAVING COUNT(pp.id) > 0
-        ORDER BY 1
     """
-    rows = safe_query(sql, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "despachos")
-    data = serializable(rows)
-    for r in data:
-        enriquecer_codigo(r)
-        r["total_canales"] = float(r.get("total_partes") or 0)
-        r["mas_de_una"] = int(r.get("total_medias") or 0) > 1
+    rows = safe_query(sql, (IDS_CANAL, fecha_filtro), "despachos")
+    piezas = enriquecer_logistica(serializable(rows), fecha_filtro, turno, solo_despacho=True)
+
+    grupos = {}
+    for r in piezas:
+        clave = r.get("clave") or "SIN RUTA"
+        g = grupos.get(clave)
+        if not g:
+            g = {
+                "clave": clave,
+                "puesto": r.get("puesto") or "",
+                "zona": r.get("zona") or "",
+                "direccion": r.get("direccion") or "",
+                "ruta": r.get("ruta") or "",
+                "etiqueta": r.get("etiqueta") or "",
+                "destino": r.get("zona") or r.get("ruta") or "",
+                "propietario": r.get("propietario") or "Sin propietario",
+                "codigo": r.get("codigo"),
+                "id_tipo": r.get("id_tipo"),
+                "mc1": 0,
+                "mc2": 0,
+                "total_medias": 0,
+                "props": {},
+            }
+            grupos[clave] = g
+        if r.get("id_tipo") == ID_MC1:
+            g["mc1"] += 1
+        elif r.get("id_tipo") == ID_MC2:
+            g["mc2"] += 1
+        g["total_medias"] += 1
+        prop = r.get("propietario") or "Sin propietario"
+        g["props"][prop] = g["props"].get(prop, 0) + 1
+        if not g.get("codigo"):
+            g["codigo"] = r.get("codigo")
+            g["id_tipo"] = r.get("id_tipo")
+
+    data = []
+    for g in grupos.values():
+        # Propietario más frecuente en el puesto
+        if g["props"]:
+            g["propietario"] = max(g["props"].items(), key=lambda kv: kv[1])[0]
+        g["total_partes"] = g["total_medias"] * 0.5
+        g["total_canales"] = g["total_partes"]
+        g["mas_de_una"] = g["total_medias"] > 1
+        g["clientes"] = len(g["props"])
+        enriquecer_codigo(g)
+        del g["props"]
+        data.append(g)
+
+    data.sort(key=lambda x: (str(x.get("zona") or "").upper(), str(x.get("puesto") or "")))
     total_partes = sum(float(r.get("total_partes") or 0) for r in data)
     totales = {
         "mc1":           sum(r.get("mc1", 0) or 0 for r in data),
@@ -626,54 +831,82 @@ def get_despachos(fecha: Optional[str] = None, turno: Optional[str] = None):
 
 
 # ═══════════════════════════════════════════════════════
-# DETALLE DESPACHO — lista individual por propietario/cliente
+# DETALLE DESPACHO — por puesto/zona (clave) o propietario
 # ═══════════════════════════════════════════════════════
 @app.get("/api/despachos/detalle")
 def get_despacho_detalle(
     propietario: Optional[str] = None,
     destino: Optional[str] = None,
+    puesto: Optional[str] = None,
+    zona: Optional[str] = None,
+    clave: Optional[str] = None,
     fecha: Optional[str] = None,
     turno: Optional[str] = None,
 ):
     fecha_filtro = fecha or date.today().isoformat()
-    cliente = (propietario or destino or "").strip()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = patron_turno(turno)
-    sql = """
+    sql = f"""
         SELECT
             pp.id_producto                          AS codigo,
             tpp.id                                  AS id_tipo,
             tpp.nombre                              AS descripcion,
             tpp.abreviatura                         AS abrev,
-            pp.con_destino                          AS destino,
+            pp.con_destino                          AS con_destino,
             pp.observaciones,
             COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') AS propietario,
             c.nombre                                AS cava,
             r.nombre                                AS riel,
             ppcr.fecha_ingreso                      AS fecha_ingreso,
-            ppcr.fecha_salida                       AS fecha_salida
+            ppcr.fecha_salida                       AS fecha_salida,
+            s.nombre                                AS sucursal_origen,
+            s.direccion                             AS direccion_entrega,
+            de.nombre                               AS destino_real
         FROM trazabilidad_proceso.parte_producto pp
         JOIN trazabilidad_proceso.tipo_parte_producto tpp ON tpp.id = pp.id_tipo_parte_producto
         JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
         LEFT JOIN trazabilidad_proceso.cava c ON c.id = ppcr.id_cava
         LEFT JOIN trazabilidad_proceso.riel r ON r.id = ppcr.id_riel
-        LEFT JOIN trazabilidad_proceso.producto p ON p.id::text = pp.id_producto::text
-        LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = p.id::text AND pe.activo = true
-        LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
+        {SQL_JOINS_LOGISTICA}
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
           AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
           AND pp.con_destino IS NOT NULL
-          AND COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') = %s
-          AND """ + sql_filtro_turno() + """
         ORDER BY c.orden NULLS LAST, r.nombre, pp.id_producto
     """
-    rows = safe_query(sql, (IDS_CANAL, fecha_filtro, cliente, turno_filtro, turno_filtro), "despacho_detalle")
-    data = serializable(rows)
+    rows = safe_query(sql, (IDS_CANAL, fecha_filtro), "despacho_detalle")
+    data = enriquecer_logistica(serializable(rows), fecha_filtro, turno, solo_despacho=True)
+
+    clave_q = (clave or "").strip()
+    puesto_q = formatear_codigo_sucursal(puesto or "")
+    zona_q = (zona or destino or "").strip().upper()
+    prop_q = (propietario or "").strip()
+
+    filtradas = []
     for r in data:
+        if clave_q and r.get("clave") != clave_q:
+            continue
+        if puesto_q and formatear_codigo_sucursal(r.get("puesto")) != puesto_q:
+            continue
+        if zona_q and str(r.get("zona") or "").strip().upper() != zona_q:
+            continue
+        if prop_q and not clave_q and not puesto_q and str(r.get("propietario") or "").strip() != prop_q:
+            continue
         enriquecer_codigo(r)
+        r["destino"] = r.get("zona") or r.get("ruta") or ""
         r["total_partes"] = 0.5
-    return {"fecha": fecha_filtro, "propietario": cliente, "destino": cliente, "total": len(data), "data": data}
+        filtradas.append(r)
+
+    etiqueta = filtradas[0]["etiqueta"] if filtradas else (clave_q or prop_q or zona_q or "—")
+    return {
+        "fecha": fecha_filtro,
+        "turno": turno,
+        "propietario": prop_q or (filtradas[0].get("propietario") if filtradas else ""),
+        "puesto": puesto_q or (filtradas[0].get("puesto") if filtradas else ""),
+        "zona": zona_q or (filtradas[0].get("zona") if filtradas else ""),
+        "destino": etiqueta,
+        "total": len(filtradas),
+        "data": filtradas,
+    }
 
 
 # ═══════════════════════════════════════════════════════
@@ -684,7 +917,7 @@ def get_despacho_detalle(
 def get_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = patron_turno(turno)
+    turno_filtro = None  # turno se aplica en logística (despachos/planilla); cavas = stock en cava
     sql = """
         SELECT
             e3.nombre                           AS propietario,
@@ -782,7 +1015,7 @@ def get_opl_detalle(propietario: str, fecha: Optional[str] = None):
 def get_salidas(fecha: Optional[str] = None, dias: int = 1, turno: Optional[str] = None):
     fecha_fin = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_fin, turno)
-    turno_filtro = patron_turno(turno)
+    turno_filtro = None  # turno se aplica en logística (despachos/planilla); cavas = stock en cava
     sql = """
         SELECT
             pp.id_producto          AS codigo,
@@ -842,7 +1075,7 @@ def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
     """
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = patron_turno(turno)
+    turno_filtro = None  # turno se aplica en logística (despachos/planilla); cavas = stock en cava
     ck = ("planilla_opl", fecha_filtro, turno)
     hit = cache_get(ck)
     if hit is not None:
@@ -949,6 +1182,94 @@ def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
 # ═══════════════════════════════════════════════════════
 # PLANILLA DE PUNTOS — lista por OPL para logística
 # ═══════════════════════════════════════════════════════
+def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fecha: str, turno: Optional[str]) -> dict:
+    """
+    Misma estructura que Gestor Vísceras generarPlanillaPuntos:
+    zonas[{nombre, total, puestos[{puesto, cantidad}]}] + lista plana puestos.
+    Cantidad = medias × 0.5 (equivalente canal).
+    """
+    opl_sel = (opl_sel or "").strip()
+    total_global = round(len(items) * 0.5, 2)
+    zonas_map = {}
+    puestos_flat = []
+    total_opl = 0.0
+
+    for r in items:
+        opl_reg = r.get("opl") or apps_script_local.OPL_DEFAULT
+        if opl_sel and opl_sel.upper() != "TODOS" and opl_reg != opl_sel:
+            continue
+        cantidad = 0.5
+        total_opl += cantidad
+        zona = (r.get("zona") or "SIN ZONA").strip() or "SIN ZONA"
+        puesto = formatear_codigo_sucursal(r.get("puesto") or "") or "—"
+        clave = r.get("clave") or f"{puesto}|{zona.upper()}"
+        if zona not in zonas_map:
+            zonas_map[zona] = {"total": 0.0, "puestos_map": {}}
+        zonas_map[zona]["total"] += cantidad
+        pm = zonas_map[zona]["puestos_map"]
+        if clave not in pm:
+            pm[clave] = {"puesto": puesto, "cantidad": 0.0}
+        pm[clave]["cantidad"] += cantidad
+        puestos_flat.append({
+            "puesto": r.get("ruta") or construir_ruta(puesto, zona, r.get("direccion") or "", turno or ""),
+            "etiqueta": r.get("etiqueta") or (f"{puesto} · {zona}" if puesto and zona else puesto or zona),
+            "sucursal": puesto,
+            "zona": zona,
+            "cantidad": cantidad,
+            "opl": opl_reg,
+            "codigo": r.get("codigo"),
+            "propietario": r.get("propietario"),
+        })
+
+    # Consolidar flat por puesto+zona
+    flat_agg = {}
+    for p in puestos_flat:
+        k = f"{p['sucursal']}|{str(p['zona']).upper()}"
+        if k not in flat_agg:
+            flat_agg[k] = {
+                "puesto": p["puesto"],
+                "etiqueta": p["etiqueta"],
+                "sucursal": p["sucursal"],
+                "zona": p["zona"],
+                "cantidad": 0.0,
+                "opl": p["opl"],
+            }
+        flat_agg[k]["cantidad"] += p["cantidad"]
+    puestos_lista = sorted(
+        ({**v, "cantidad": round(v["cantidad"], 2)} for v in flat_agg.values()),
+        key=lambda x: (str(x.get("zona") or ""), str(x.get("sucursal") or "")),
+    )
+
+    zonas_array = []
+    for zona, bucket in zonas_map.items():
+        puestos_arr = sorted(
+            [
+                {"puesto": v["puesto"], "cantidad": round(v["cantidad"], 2)}
+                for v in bucket["puestos_map"].values()
+            ],
+            key=lambda x: str(x["puesto"]),
+        )
+        zonas_array.append({
+            "nombre": zona,
+            "total": round(bucket["total"], 2),
+            "puestos": puestos_arr,
+        })
+    zonas_array.sort(key=lambda z: (-z["total"], z["nombre"]))
+
+    pct = f"{(total_opl / total_global * 100):.1f}" if total_global > 0 else "0.0"
+    return {
+        "success": True,
+        "opl": opl_sel or "TODOS",
+        "zonas": zonas_array,
+        "puestos": puestos_lista,
+        "totalOPL": round(total_opl, 2),
+        "totalGlobal": total_global,
+        "porcentaje": pct,
+        "turno": turno or "Todos",
+        "fecha": fecha,
+    }
+
+
 @app.get("/api/planilla_puntos")
 def get_planilla_puntos(
     fecha: Optional[str] = None,
@@ -957,26 +1278,24 @@ def get_planilla_puntos(
 ):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = patron_turno(turno)
-    items = consultar_canales_planilla(fecha_filtro, turno_filtro)
+    items = consultar_canales_planilla(fecha_filtro, turno)
     resumen = resumen_planilla_puntos(items)
-    opl_sel = (opl or "").strip()
-    if opl_sel:
-        items = [r for r in items if (r.get("opl") or "") == opl_sel]
     cfg = apps_script_local.getOplConfig()
     opls_cfg = cfg.get("opls") or []
     opls_data = [r["opl"] for r in resumen]
     opls = sorted(set(opls_cfg) | set(opls_data))
-    return {
-        "fecha": fecha_filtro,
-        "turno": turno or "Todos",
-        "opl": opl_sel or None,
-        "opls": opls,
-        "resumen": resumen,
-        "total": len(items),
-        "total_partes": len(items) * 0.5,
-        "data": items,
-    }
+    pack = armar_planilla_estilo_visceras(items, opl, fecha_filtro, turno)
+    pack["opls"] = opls
+    pack["resumen"] = resumen
+    # Detalle pieza a pieza (Excel / apoyo)
+    opl_sel = (opl or "").strip()
+    detalle = items if not opl_sel or opl_sel.upper() == "TODOS" else [
+        r for r in items if (r.get("opl") or "") == opl_sel
+    ]
+    pack["data"] = detalle
+    pack["total"] = len(detalle)
+    pack["total_partes"] = round(len(detalle) * 0.5, 2)
+    return pack
 
 
 @app.get("/api/planilla_puntos/excel")
@@ -990,9 +1309,8 @@ def excel_planilla_puntos(
         raise HTTPException(status_code=400, detail="Indica el OPL")
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = patron_turno(turno)
     items = [
-        r for r in consultar_canales_planilla(fecha_filtro, turno_filtro)
+        r for r in consultar_canales_planilla(fecha_filtro, turno)
         if (r.get("opl") or "") == opl
     ]
     buf = construir_excel_opl(opl, fecha_filtro, turno, items)
