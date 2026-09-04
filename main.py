@@ -1216,6 +1216,7 @@ def get_planilla_opl(
             "canales_despachado": total_sal  * 0.5,
             "total_inicial":     total_ini,
             "progreso_pct":      pct,
+            "opl":               resolver_opl_de_propietario(prop),
         })
 
     lista.sort(key=lambda x: x["total_pendiente"], reverse=True)
