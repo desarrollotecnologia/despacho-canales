@@ -465,8 +465,17 @@
         <span id="progSal" style="display:none">0</span>
         <span id="progPend" style="display:none">0</span>
         <span id="progCanSal" style="display:none">0.0</span>
-        <div id="barraProgreso" style="display:none"></div>
       </div>
+    </div>
+
+    <!-- Barra de avance global (igual que Vísceras) -->
+    <div class="progreso-card">
+      <div class="progreso-header">
+        <span>Progreso de la operación</span>
+        <span id="progresoPorcentaje">0%</span>
+      </div>
+      <div class="barra-exterior"><div class="barra-interior" id="progresoBarra" style="width:0%"></div></div>
+      <p style="margin-top:0.9rem;color:#4b5563;font-size:0.9rem;" id="progresoMeta">Cargando…</p>
     </div>
 
     <!-- MÓDULOS — solo Despachos, Planilla de Puntos y Canales en Cava -->
@@ -964,6 +973,30 @@ async function actualizarTodo() {
   await actualizarDashboard();
 }
 
+/** Actualiza barra global + % en tarjeta OPL (misma métrica que Vísceras). */
+function actualizarBarraProgreso(tot, operacionFinalizada) {
+  tot = tot || {};
+  const pct = tot.progreso_global || 0;
+  if ($('progresoPct')) $('progresoPct').textContent = fmtPct(pct);
+  if ($('progresoPorcentaje')) $('progresoPorcentaje').textContent = fmtPct(pct);
+  if ($('progresoBarra')) $('progresoBarra').style.width = pct + '%';
+  if ($('progresoMeta')) {
+    if (operacionFinalizada) {
+      $('progresoMeta').textContent = '✅ Operación finalizada — todas las canales programadas fueron pistoleadas';
+    } else {
+      const sal = tot.canales_sal || 0;
+      const pend = tot.canales_pend || 0;
+      const total = sal + pend;
+      if (!total) {
+        $('progresoMeta').textContent = 'Sin canales programadas / despachadas para esta fecha';
+      } else {
+        $('progresoMeta').textContent =
+          `${fmtD(sal)} despachadas de ${fmtD(total)} canales — ${fmtD(pend)} pendientes`;
+      }
+    }
+  }
+}
+
 // ═══════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════
@@ -990,9 +1023,7 @@ async function actualizarDashboard(silent, forceRefresh) {
 
     // Progreso global + ficha OPL
     const tot = planilla.totales || {};
-    const pct = tot.progreso_global || 0;
-    if ($('progresoPct')) $('progresoPct').textContent = fmtPct(pct);
-    if ($('barraProgreso')) $('barraProgreso').style.width = pct + '%';
+    actualizarBarraProgreso(tot, planilla.operacionFinalizada);
     if ($('progSal')) $('progSal').textContent = fmt(tot.sal_total);
     if ($('progPend')) $('progPend').textContent = fmt(tot.pend_total);
     if ($('progCanSal')) $('progCanSal').textContent = fmtD(tot.canales_sal);
@@ -1173,7 +1204,7 @@ async function recalcularOPLModal(silent) {
     S.planillaData = data;
     renderProgresoOplHome(data);
     const tot = data.totales || {};
-    if ($('progresoPct')) $('progresoPct').textContent = fmtPct(tot.progreso_global || 0);
+    actualizarBarraProgreso(tot, data.operacionFinalizada);
     if (fechaEl) {
       const t = data.turno || turnoDeFecha(fecha);
       fechaEl.textContent = `Fecha ${data.fecha || fecha} · turno ${t} · avance por pistoleo (fecha_salida)`;
