@@ -64,19 +64,61 @@ PUESTOS_EXCLUIDOS = {
     "CAVAYERSON", "CAVA JUDITH", "CAVA CV", "CAVA EMERGENCIA",
 }
 
+# Joins de ruta (puesto/zona). Sin filtrar por fecha de programación.
+# Importante: en SIRT pp.id NO es único (MC1=4, MC2=5); siempre cruzar también id_producto.
 SQL_JOINS_LOGISTICA = """
         LEFT JOIN trazabilidad_proceso.producto_empresa pe
             ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
         LEFT JOIN organizaciones.empresa e3
             ON e3.id = pe.id_empresa
         LEFT JOIN trazabilidad_proceso.parte_producto_empresa ppe
-            ON ppe.id_producto::text = pp.id_producto::text AND ppe.id_parte_producto = pp.id
+            ON ppe.id_producto::text = pp.id_producto::text
+           AND ppe.id_parte_producto = pp.id
         LEFT JOIN trazabilidad_proceso.parte_producto_empresa_local ppel
             ON ppel.id_parte_producto_empresa = ppe.id
         LEFT JOIN organizaciones.sucursal s
             ON s.id = ppel.id_local
         LEFT JOIN trazabilidad_proceso.destino de
             ON de.id = s.id_destino
+"""
+
+# Solo piezas con fecha_programacion_despacho del día (dato real de despacho).
+# El %s del JOIN es la fecha seleccionada.
+SQL_JOINS_PROGRAMADO = """
+        LEFT JOIN trazabilidad_proceso.producto_empresa pe
+            ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
+        LEFT JOIN organizaciones.empresa e3
+            ON e3.id = pe.id_empresa
+        JOIN trazabilidad_proceso.parte_producto_empresa ppe
+            ON ppe.id_producto::text = pp.id_producto::text
+           AND ppe.id_parte_producto = pp.id
+        JOIN trazabilidad_proceso.parte_producto_empresa_local ppel
+            ON ppel.id_parte_producto_empresa = ppe.id
+           AND ppel.fecha_programacion_despacho IS NOT NULL
+           AND ppel.fecha_programacion_despacho::date = %s::date
+        LEFT JOIN organizaciones.sucursal s
+            ON s.id = ppel.id_local
+        LEFT JOIN trazabilidad_proceso.destino de
+            ON de.id = s.id_destino
+"""
+
+SQL_PPCR_JOIN = """
+        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr
+            ON ppcr.id_parte_producto = pp.id
+           AND ppcr.id_producto::text = pp.id_producto::text
+"""
+
+SQL_EXISTS_PROGRAMADO = """
+          AND EXISTS (
+            SELECT 1
+            FROM trazabilidad_proceso.parte_producto_empresa ppe_p
+            JOIN trazabilidad_proceso.parte_producto_empresa_local ppel_p
+              ON ppel_p.id_parte_producto_empresa = ppe_p.id
+            WHERE ppe_p.id_parte_producto = pp.id
+              AND ppe_p.id_producto::text = pp.id_producto::text
+              AND ppel_p.fecha_programacion_despacho IS NOT NULL
+              AND ppel_p.fecha_programacion_despacho::date = %s::date
+          )
 """
 
 
@@ -391,11 +433,11 @@ def resolver_opl_de_propietario(propietario: str) -> str:
 
 def consultar_canales_planilla(fecha_filtro: str, turno: Optional[str]):
     """
-    Medias canales en cava con ruta logística (puesto/zona/turno),
-    igual criterio que Gestor Vísceras: 09404/Floridablanca/.../JxV/
+    Medias en cava programadas para la fecha (fecha_programacion_despacho),
+    con ruta puesto/zona como Gestor Vísceras.
     """
     sql = f"""
-        SELECT
+        SELECT DISTINCT ON (pp.id_producto, pp.id)
             pp.id_producto                          AS codigo,
             tpp.id                                  AS id_tipo,
             COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') AS propietario,
@@ -408,17 +450,16 @@ def consultar_canales_planilla(fecha_filtro: str, turno: Optional[str]):
             de.nombre                               AS destino_real
         FROM trazabilidad_proceso.parte_producto pp
         JOIN trazabilidad_proceso.tipo_parte_producto tpp ON tpp.id = pp.id_tipo_parte_producto
-        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
+        {SQL_PPCR_JOIN}
         LEFT JOIN trazabilidad_proceso.cava c ON c.id = ppcr.id_cava
         LEFT JOIN trazabilidad_proceso.riel r ON r.id = ppcr.id_riel
-        {SQL_JOINS_LOGISTICA}
+        {SQL_JOINS_PROGRAMADO}
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
-          AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
-          AND pp.con_destino IS NOT NULL
-        ORDER BY e3.nombre NULLS LAST, c.orden NULLS LAST, r.nombre, pp.id_producto
+        ORDER BY pp.id_producto, pp.id, e3.nombre NULLS LAST, c.orden NULLS LAST, r.nombre
     """
-    rows = safe_query(sql, (IDS_CANAL, fecha_filtro), "planilla_puntos")
+    # JOIN programado consume fecha_filtro primero; luego IDS_CANAL
+    rows = safe_query(sql, (fecha_filtro, IDS_CANAL), "planilla_puntos")
     data = enriquecer_logistica(serializable(rows), fecha_filtro, turno, solo_despacho=True)
     for r in data:
         enriquecer_codigo(r)
@@ -663,56 +704,56 @@ def get_cavas(fecha: Optional[str] = None, turno: Optional[str] = None):
 def get_dashboard(fecha: Optional[str] = None, turno: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = None  # turno se aplica en logística (despachos/planilla); cavas = stock en cava
-    ck = ("dashboard", fecha_filtro, turno)
+    ck = ("dashboard", fecha_filtro, turno, "prog_v1")
     hit = cache_get(ck)
     if hit is not None:
         return hit
-    sql_totales = """
+    sql_totales = f"""
         SELECT
-            COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1,
-            COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2,
-            COUNT(pp.id) AS total_partes,
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1,
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2,
+            COUNT(*) AS total_partes,
             COUNT(DISTINCT SPLIT_PART(pp.id_producto, '-', 1)||'-'||SPLIT_PART(pp.id_producto, '-', 2)) AS animales
         FROM trazabilidad_proceso.parte_producto pp
-        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
+        {SQL_PPCR_JOIN}
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
-          AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
-          AND pp.con_destino IS NOT NULL
-          AND """ + sql_filtro_turno() + """
+          {SQL_EXISTS_PROGRAMADO}
     """
-    sql_cavas = """
+    sql_cavas = f"""
         SELECT c.nombre AS cava,
-               COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1,
-               COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2,
-               COUNT(pp.id) AS total
+               COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1,
+               COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2,
+               COUNT(*) AS total
         FROM trazabilidad_proceso.parte_producto pp
-        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
+        {SQL_PPCR_JOIN}
         JOIN trazabilidad_proceso.cava c ON c.id = ppcr.id_cava
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
-          AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
-          AND pp.con_destino IS NOT NULL
-          AND """ + sql_filtro_turno() + """
+          {SQL_EXISTS_PROGRAMADO}
         GROUP BY c.id, c.nombre, c.orden ORDER BY c.orden NULLS LAST
     """
-    sql_destinos = """
-        SELECT pp.con_destino AS destino, COUNT(pp.id) AS total
+    sql_destinos = f"""
+        SELECT COALESCE(NULLIF(TRIM(de.nombre), ''), NULLIF(TRIM(s.nombre), ''), 'Sin zona') AS destino,
+               COUNT(*) AS total
         FROM trazabilidad_proceso.parte_producto pp
-        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
+        {SQL_PPCR_JOIN}
+        JOIN trazabilidad_proceso.parte_producto_empresa ppe
+            ON ppe.id_producto::text = pp.id_producto::text AND ppe.id_parte_producto = pp.id
+        JOIN trazabilidad_proceso.parte_producto_empresa_local ppel
+            ON ppel.id_parte_producto_empresa = ppe.id
+           AND ppel.fecha_programacion_despacho::date = %s::date
+        LEFT JOIN organizaciones.sucursal s ON s.id = ppel.id_local
+        LEFT JOIN trazabilidad_proceso.destino de ON de.id = s.id_destino
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
-          AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
-          AND pp.con_destino IS NOT NULL
-          AND """ + sql_filtro_turno() + """
-        GROUP BY pp.con_destino ORDER BY total DESC LIMIT 10
+        GROUP BY 1 ORDER BY total DESC LIMIT 10
     """
 
     results = safe_query_many([
-        ("totales", sql_totales, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "dashboard.totales"),
-        ("cavas",   sql_cavas,   (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "dashboard.cavas"),
-        ("destinos",sql_destinos,(IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro),                 "dashboard.destinos"),
+        ("totales", sql_totales, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro), "dashboard.totales"),
+        ("cavas",   sql_cavas,   (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro), "dashboard.cavas"),
+        ("destinos",sql_destinos,(fecha_filtro, IDS_CANAL),                 "dashboard.destinos"),
     ])
     t  = results.get("totales", [{}])
     cv = results.get("cavas", [])
@@ -747,13 +788,13 @@ def get_dashboard(fecha: Optional[str] = None, turno: Optional[str] = None):
 def get_despachos(fecha: Optional[str] = None, turno: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    ck = ("despachos", fecha_filtro, turno, "ruta_v2")
+    ck = ("despachos", fecha_filtro, turno, "prog_v1")
     hit = cache_get(ck)
     if hit is not None:
         return hit
 
     sql = f"""
-        SELECT
+        SELECT DISTINCT ON (pp.id_producto, pp.id)
             pp.id_producto AS codigo,
             pp.id_tipo_parte_producto AS id_tipo,
             COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') AS propietario,
@@ -763,16 +804,14 @@ def get_despachos(fecha: Optional[str] = None, turno: Optional[str] = None):
             s.direccion AS direccion_entrega,
             de.nombre AS destino_real
         FROM trazabilidad_proceso.parte_producto pp
-        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr
-            ON ppcr.id_parte_producto = pp.id
-        {SQL_JOINS_LOGISTICA}
+        {SQL_PPCR_JOIN}
+        {SQL_JOINS_PROGRAMADO}
         WHERE
             pp.id_tipo_parte_producto IN %s
             AND ppcr.fecha_salida IS NULL
-            AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
-            AND pp.con_destino IS NOT NULL
+        ORDER BY pp.id_producto, pp.id
     """
-    rows = safe_query(sql, (IDS_CANAL, fecha_filtro), "despachos")
+    rows = safe_query(sql, (fecha_filtro, IDS_CANAL), "despachos")
     piezas = enriquecer_logistica(serializable(rows), fecha_filtro, turno, solo_despacho=True)
 
     grupos = {}
@@ -852,7 +891,7 @@ def get_despacho_detalle(
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
     sql = f"""
-        SELECT
+        SELECT DISTINCT ON (pp.id_producto, pp.id)
             pp.id_producto                          AS codigo,
             tpp.id                                  AS id_tipo,
             tpp.nombre                              AS descripcion,
@@ -869,17 +908,15 @@ def get_despacho_detalle(
             de.nombre                               AS destino_real
         FROM trazabilidad_proceso.parte_producto pp
         JOIN trazabilidad_proceso.tipo_parte_producto tpp ON tpp.id = pp.id_tipo_parte_producto
-        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
+        {SQL_PPCR_JOIN}
         LEFT JOIN trazabilidad_proceso.cava c ON c.id = ppcr.id_cava
         LEFT JOIN trazabilidad_proceso.riel r ON r.id = ppcr.id_riel
-        {SQL_JOINS_LOGISTICA}
+        {SQL_JOINS_PROGRAMADO}
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
-          AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
-          AND pp.con_destino IS NOT NULL
-        ORDER BY c.orden NULLS LAST, r.nombre, pp.id_producto
+        ORDER BY pp.id_producto, pp.id, c.orden NULLS LAST, r.nombre
     """
-    rows = safe_query(sql, (IDS_CANAL, fecha_filtro), "despacho_detalle")
+    rows = safe_query(sql, (fecha_filtro, IDS_CANAL), "despacho_detalle")
     data = enriquecer_logistica(serializable(rows), fecha_filtro, turno, solo_despacho=True)
 
     clave_q = (clave or "").strip()
@@ -923,27 +960,31 @@ def get_despacho_detalle(
 def get_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = None  # turno se aplica en logística (despachos/planilla); cavas = stock en cava
-    sql = """
+    sql = f"""
         SELECT
             e3.nombre                           AS propietario,
-            pp.con_destino                      AS destino,
-            COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1,
-            COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2,
-            COUNT(pp.id) AS total_partes,
-            COUNT(pp.id) * 0.5                  AS total_canales
+            COALESCE(NULLIF(TRIM(de.nombre), ''), NULLIF(TRIM(s.nombre), ''), 'Sin zona') AS destino,
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1,
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2,
+            COUNT(*) AS total_partes,
+            COUNT(*) * 0.5                  AS total_canales
         FROM trazabilidad_proceso.parte_producto pp
-        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
+        {SQL_PPCR_JOIN}
         LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
         LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
+        JOIN trazabilidad_proceso.parte_producto_empresa ppe
+            ON ppe.id_producto::text = pp.id_producto::text AND ppe.id_parte_producto = pp.id
+        JOIN trazabilidad_proceso.parte_producto_empresa_local ppel
+            ON ppel.id_parte_producto_empresa = ppe.id
+           AND ppel.fecha_programacion_despacho::date = %s::date
+        LEFT JOIN organizaciones.sucursal s ON s.id = ppel.id_local
+        LEFT JOIN trazabilidad_proceso.destino de ON de.id = s.id_destino
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
-          AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
-          AND """ + sql_filtro_turno() + """
-        GROUP BY e3.nombre, pp.con_destino
-        ORDER BY e3.nombre NULLS LAST, pp.con_destino
+        GROUP BY e3.nombre, 2
+        ORDER BY e3.nombre NULLS LAST, 2
     """
-    rows = safe_query(sql, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "opl")
+    rows = safe_query(sql, (ID_MC1, ID_MC2, fecha_filtro, IDS_CANAL), "opl")
     data = serializable(rows)
     # Agrupar por propietario
     opls = {}
@@ -968,8 +1009,8 @@ def get_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
 @app.get("/api/opl/detalle")
 def get_opl_detalle(propietario: str, fecha: Optional[str] = None):
     fecha_filtro = fecha or date.today().isoformat()
-    sql = """
-        SELECT
+    sql = f"""
+        SELECT DISTINCT ON (pp.id_producto, pp.id)
             pp.id_producto                          AS codigo,
             tpp.id                                  AS id_tipo,
             tpp.nombre                              AS descripcion,
@@ -983,21 +1024,18 @@ def get_opl_detalle(propietario: str, fecha: Optional[str] = None):
             EXTRACT(EPOCH FROM (NOW() - ppcr.fecha_ingreso))/3600 AS horas_en_cava
         FROM trazabilidad_proceso.parte_producto pp
         JOIN trazabilidad_proceso.tipo_parte_producto tpp ON tpp.id = pp.id_tipo_parte_producto
-        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
+        {SQL_PPCR_JOIN}
         LEFT JOIN trazabilidad_proceso.cava c ON c.id = ppcr.id_cava
         LEFT JOIN trazabilidad_proceso.riel r ON r.id = ppcr.id_riel
-        LEFT JOIN trazabilidad_proceso.producto p ON p.id::text = pp.id_producto::text
-        LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = p.id::text AND pe.activo = true
+        LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
         LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
-        LEFT JOIN trazabilidad_proceso.parte_producto_empresa ppe ON ppe.id_producto::text = pp.id_producto::text AND ppe.id_parte_producto = pp.id
-        LEFT JOIN trazabilidad_proceso.parte_producto_empresa_local ppel ON ppel.id_parte_producto_empresa = ppe.id
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
-          AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
           AND e3.nombre = %s
-        ORDER BY c.orden NULLS LAST, r.nombre, pp.id_producto
+          {SQL_EXISTS_PROGRAMADO}
+        ORDER BY pp.id_producto, pp.id, c.orden NULLS LAST, r.nombre
     """
-    rows = safe_query(sql, (IDS_CANAL, fecha_filtro, propietario), "opl_detalle")
+    rows = safe_query(sql, (IDS_CANAL, propietario, fecha_filtro), "opl_detalle")
     data = serializable(rows)
     for r in data:
         enriquecer_codigo(r)
@@ -1074,55 +1112,52 @@ def get_salidas(fecha: Optional[str] = None, dias: int = 1, turno: Optional[str]
 @app.get("/api/planilla_opl")
 def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
     """
-    Progreso OPL del turno de la fecha:
-    - Pendientes: canales aún en cava cuyo destino trae el turno (DxL, JxV, etc.)
-    - Despachadas: canales con fecha_salida del día Y destino del mismo turno
-    Así solo entra lo pistoleado de ese turno, no salidas de otros.
+    Progreso OPL del día programado:
+    - Pendientes: en cava con fecha_programacion_despacho = fecha
+    - Despachadas: salida del día con esa misma programación
     """
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    turno_filtro = None  # turno se aplica en logística (despachos/planilla); cavas = stock en cava
-    ck = ("planilla_opl", fecha_filtro, turno)
+    ck = ("planilla_opl", fecha_filtro, turno, "prog_v1")
     hit = cache_get(ck)
     if hit is not None:
         return hit
 
-    sql_en_cava = """
+    sql_en_cava = f"""
         SELECT
             e3.nombre                           AS propietario,
-            COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1_pend,
-            COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2_pend,
-            COUNT(pp.id)                        AS total_pend
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1_pend,
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2_pend,
+            COUNT(*)                        AS total_pend
         FROM trazabilidad_proceso.parte_producto pp
-        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
+        {SQL_PPCR_JOIN}
         LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
         LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NULL
-          AND ppcr.fecha_ingreso < (%s::date + INTERVAL '1 day')
-          AND """ + sql_filtro_turno() + """
+          {SQL_EXISTS_PROGRAMADO}
         GROUP BY e3.nombre ORDER BY total_pend DESC
     """
-    sql_salidas = """
+    sql_salidas = f"""
         SELECT
             e3.nombre                           AS propietario,
-            COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1_sal,
-            COUNT(pp.id) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2_sal,
-            COUNT(pp.id)                        AS total_sal
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1_sal,
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2_sal,
+            COUNT(*)                        AS total_sal
         FROM trazabilidad_proceso.parte_producto pp
-        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
+        {SQL_PPCR_JOIN}
         LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
         LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
         WHERE pp.id_tipo_parte_producto IN %s
           AND ppcr.fecha_salida IS NOT NULL
           AND DATE(ppcr.fecha_salida) = %s::date
-          AND """ + sql_filtro_turno() + """
+          {SQL_EXISTS_PROGRAMADO}
         GROUP BY e3.nombre
     """
 
     results = safe_query_many([
-        ("en_cava", sql_en_cava, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "planilla.cava"),
-        ("salidas",  sql_salidas, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, turno_filtro, turno_filtro), "planilla.salidas"),
+        ("en_cava", sql_en_cava, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro), "planilla.cava"),
+        ("salidas",  sql_salidas, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, fecha_filtro), "planilla.salidas"),
     ])
 
     idx_cava = {
