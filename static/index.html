@@ -200,6 +200,11 @@
     }
     .poc-more:hover{text-decoration:underline;}
     .poc-empty{color:var(--gris);font-size:0.82rem;padding:0.5rem 0;}
+    .badge-opl{display:inline-block;background:#dbeafe;color:var(--vp);padding:0.15rem 0.55rem;border-radius:20px;font-size:0.72rem;font-weight:700;}
+    .badge-opl.default{background:#e0f2fe;color:#0369a1;}
+    .opl-select{padding:0.3rem 0.45rem;border:1.5px solid var(--vc);border-radius:8px;font-size:0.8rem;background:white;max-width:140px;}
+    .opl-modal-row{margin-bottom:0.7rem;padding-bottom:0.55rem;border-bottom:1px solid #f1f5f9;}
+    .opl-modal-row:last-child{border-bottom:none;}
     @media(max-width:700px){
       .home-top-row .resumen-panel,
       .progreso-opl-card{max-width:100%;}
@@ -434,18 +439,18 @@
         </div>
       </div>
 
-      <div class="progreso-opl-card" id="progresoOplCard">
+      <div class="progreso-opl-card" id="progresoOplCard" onclick="abrirModalOPL()" title="Ver progreso y configuración OPL" style="cursor:pointer;">
         <div class="poc-head">
           <div class="poc-title">
             <span>🚚</span> Progreso OPL
             <span class="poc-pct" id="progresoPct">0%</span>
           </div>
-          <button type="button" class="poc-detalle" onclick="irModulo('planilla')" title="Ver planilla">Ver detalle</button>
+          <button type="button" class="poc-detalle" onclick="event.stopPropagation();abrirModalOPL()" title="Ver detalle">Ver detalle</button>
         </div>
         <div class="poc-body" id="progresoOplLista">
           <div class="poc-empty">Cargando progreso…</div>
         </div>
-        <div class="poc-more" id="progresoOplMas" style="display:none;" onclick="irModulo('planilla')"></div>
+        <div class="poc-more" id="progresoOplMas" style="display:none;" onclick="event.stopPropagation();abrirModalOPL()"></div>
         <!-- ids legacy para totales (ocultos) -->
         <span id="progSal" style="display:none">0</span>
         <span id="progPend" style="display:none">0</span>
@@ -680,6 +685,55 @@
       <button class="modal-close" onclick="cerrarModal()">✕</button>
     </div>
     <div id="modalContenido"></div>
+  </div>
+</div>
+
+<!-- MODAL PROGRESO / CONFIG OPL -->
+<div class="modal-overlay" id="modalOPL">
+  <div class="modal-box" style="max-width:640px;">
+    <div class="modal-header">
+      <div class="modal-title">🚚 Progreso por Operador Logístico</div>
+      <button class="modal-close" onclick="cerrarModalOPL()" aria-label="Cerrar">✕</button>
+    </div>
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem;border-bottom:2px solid var(--vc);padding-bottom:0.5rem;">
+      <button class="tab-btn active" id="oplModalTab1" onclick="switchOplTab('oplModalProgreso',this)">📊 Progreso</button>
+      <button class="tab-btn" id="oplModalTab2" onclick="switchOplTab('oplModalConfig',this);cargarConfigOPLModal()">⚙️ Configuración</button>
+    </div>
+    <div id="oplModalProgreso">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.9rem;flex-wrap:wrap;gap:0.5rem;">
+        <span style="font-size:0.82rem;color:var(--gris);" id="oplModalFecha"></span>
+        <button class="btn btn-primary btn-sm" type="button" onclick="recalcularOPLModal()">🔄 Recalcular ahora</button>
+      </div>
+      <div class="alert" id="oplModalAlert"></div>
+      <div id="oplModalProgresoContainer"><p class="empty-state" style="padding:1rem;">Cargando...</p></div>
+    </div>
+    <div id="oplModalConfig" style="display:none;">
+      <div class="alert" id="oplModalConfigAlert"></div>
+      <p style="font-size:0.8rem;color:var(--gris);margin-bottom:0.6rem;">Asigna cada propietario a un OPL. El avance de barras usa pistoleo (<code>fecha_salida</code>).</p>
+      <div class="table-wrap" style="margin-top:0;max-height:280px;overflow-y:auto;">
+        <table style="font-size:0.85rem;">
+          <thead><tr>
+            <th>Propietario</th>
+            <th class="num">Canales</th>
+            <th>OPL actual</th>
+            <th>Cambiar a</th>
+          </tr></thead>
+          <tbody id="oplModalPropBody">
+            <tr><td colspan="4" class="empty-state">Abra esta pestaña para cargar…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--vc);">
+        <p style="font-size:0.82rem;font-weight:600;color:var(--vp);margin-bottom:0.6rem;">➕ Agregar / actualizar asignación manual</p>
+        <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+          <input type="text" id="oplModalNewProp" placeholder="Propietario" style="flex:2;min-width:160px;padding:0.45rem 0.7rem;border:2px solid var(--vc);border-radius:8px;">
+          <input type="text" id="oplModalNewOpl" list="oplModalOplList" placeholder="OPL (ej: TRANSCARNES)" style="flex:1;min-width:120px;padding:0.45rem 0.7rem;border:2px solid var(--vc);border-radius:8px;">
+          <datalist id="oplModalOplList"></datalist>
+          <button class="btn btn-primary btn-sm" type="button" onclick="guardarOPLModal()">💾 Guardar</button>
+        </div>
+        <p style="font-size:0.75rem;color:var(--gris);margin-top:0.4rem;">Sin asignación → <strong>TRANSCARNES</strong></p>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -926,48 +980,55 @@ function renderProgresoOplHome(planilla) {
   const box = $('progresoOplLista');
   const mas = $('progresoOplMas');
   if (!box) return;
-  const lista = (planilla && planilla.data) || [];
-  if (!lista.length) {
+
+  if (planilla && planilla.operacionFinalizada) {
+    box.innerHTML = `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;">
+      <span style="font-size:1.5rem;">✅</span>
+      <div><div style="font-size:0.85rem;font-weight:800;color:#16a34a;">Operación finalizada</div>
+      <div style="font-size:0.72rem;color:var(--gris);">Todos los OPL despachados (pistoleo)</div></div>
+    </div>`;
+    if (mas) mas.style.display = 'none';
+    return;
+  }
+
+  let sorted = (planilla && planilla.todosOPL) || [];
+  if (!sorted.length) {
+    // Fallback: agrupar desde data por propietario
+    const lista = (planilla && planilla.data) || [];
+    const byOpl = {};
+    lista.forEach(r => {
+      const key = (r.opl || r.propietario || 'SIN OPL').trim() || 'SIN OPL';
+      const b = byOpl[key] || { opl: key, pendientes: 0, despachados: 0, progreso: 0, pend: 0, sal: 0 };
+      b.pend = (b.pend || 0) + Number(r.total_pendiente || 0);
+      b.sal = (b.sal || 0) + Number(r.total_despachado || 0);
+      byOpl[key] = b;
+    });
+    sorted = Object.values(byOpl).map(b => {
+      const total = b.pend + b.sal;
+      let pct = total ? Math.round((b.sal / total) * 100) : 0;
+      if (b.pend > 0) pct = Math.min(99, pct);
+      else if (total > 0) pct = 100;
+      return { opl: b.opl, pendientes: b.pend * 0.5, despachados: b.sal * 0.5, progreso: pct, _pendMedias: b.pend };
+    }).sort((a, b) => b.pendientes - a.pendientes);
+  } else {
+    sorted = sorted.slice().sort((a, b) => (b.pendientes || 0) - (a.pendientes || 0));
+  }
+
+  if (!sorted.length) {
     box.innerHTML = '<div class="poc-empty">Sin despachos en curso para esta fecha</div>';
     if (mas) mas.style.display = 'none';
     return;
   }
 
-  // Agrupar por OPL (varias empresas → un operador)
-  const byOpl = {};
-  lista.forEach(r => {
-    const key = (r.opl || r.propietario || 'SIN OPL').trim() || 'SIN OPL';
-    const b = byOpl[key] || {
-      opl: key,
-      pend: 0,
-      sal: 0,
-      canales_pend: 0,
-      canales_sal: 0,
-    };
-    b.pend += Number(r.total_pendiente || 0);
-    b.sal += Number(r.total_despachado || 0);
-    b.canales_pend += Number(r.canales_pendiente || 0);
-    b.canales_sal += Number(r.canales_despachado || 0);
-    byOpl[key] = b;
-  });
-
-  const sorted = Object.values(byOpl).map(b => {
-    const ini = b.pend + b.sal;
-    return {
-      ...b,
-      pct: ini ? Math.round((b.sal / ini) * 100) : 0,
-    };
-  }).sort((a, b) => b.pend - a.pend || b.pct - a.pct);
-
   const mostrar = sorted.slice(0, 5);
   const extra = sorted.length > 5 ? sorted.length - 5 : 0;
   let html = '';
   mostrar.forEach(p => {
-    const pct = Math.min(100, p.pct || 0);
+    const pct = Math.min(100, p.progreso != null ? p.progreso : (p.pct || 0));
     const barColor = pct >= 100 ? '#16a34a' : (pct < 30 ? '#dc2626' : '#2563eb');
-    const pendCan = Number(p.canales_pend || 0).toFixed(1);
-    const pendHtml = p.pend > 0
-      ? `<span class="poc-pend">${pendCan} c. pend.</span>`
+    const pendCan = Number(p.pendientes || 0);
+    const pendHtml = pendCan > 0
+      ? `<span class="poc-pend">${pendCan % 1 ? pendCan.toFixed(1) : pendCan} c. pend.</span>`
       : `<span class="poc-pend ok">✅ listo</span>`;
     html += `<div class="poc-row">
       <div class="poc-row-top">
@@ -991,19 +1052,202 @@ function renderProgresoOplHome(planilla) {
   }
 }
 
-// Alias por si quedó alguna referencia antigua
 function renderDashOplMini(planilla) { renderProgresoOplHome(planilla); }
 
-// Auto-refresh del progreso en home (~25 s) mientras se despacha
 let _homePoll = null;
+let _oplModalTimer = null;
+window._oplModalPropList = [];
+
 function iniciarPollHome() {
   if (_homePoll) return;
   _homePoll = setInterval(() => {
     const main = $('viewMain');
     if (!main || main.style.display === 'none') return;
+    if ($('modalOPL') && $('modalOPL').classList.contains('show')) return;
     actualizarDashboard(true, true);
   }, 25000);
 }
+
+function abrirModalOPL() {
+  const m = $('modalOPL');
+  if (!m) return;
+  m.classList.add('show');
+  switchOplTab('oplModalProgreso', $('oplModalTab1'));
+  recalcularOPLModal();
+  clearInterval(_oplModalTimer);
+  _oplModalTimer = setInterval(() => {
+    if (m.classList.contains('show')) recalcularOPLModal(true);
+  }, 20000);
+}
+
+function cerrarModalOPL() {
+  const m = $('modalOPL');
+  if (m) m.classList.remove('show');
+  clearInterval(_oplModalTimer);
+  _oplModalTimer = null;
+}
+
+function switchOplTab(panelId, btn) {
+  ['oplModalProgreso', 'oplModalConfig'].forEach(id => {
+    const el = $(id);
+    if (el) el.style.display = 'none';
+  });
+  ['oplModalTab1', 'oplModalTab2'].forEach(id => {
+    const el = $(id);
+    if (el) el.classList.remove('active');
+  });
+  const panel = $(panelId);
+  if (panel) panel.style.display = 'block';
+  if (btn) btn.classList.add('active');
+}
+
+function showOplModalAlert(id, type, msg) {
+  const el = $(id);
+  if (!el) return;
+  el.className = 'alert alert-' + type + ' show';
+  el.textContent = msg;
+  if (type !== 'error') setTimeout(() => el.classList.remove('show'), 5000);
+}
+
+async function recalcularOPLModal(silent) {
+  const fecha = getFecha();
+  const cont = $('oplModalProgresoContainer');
+  const fechaEl = $('oplModalFecha');
+  try {
+    if (!silent && cont) cont.innerHTML = '<p class="empty-state" style="padding:1rem;">Recalculando…</p>';
+    await invalidarCache();
+    const data = await apiFetch(API(`/planilla_opl?fecha=${fecha}&turno=${encodeURIComponent(turnoDeFecha(fecha))}`));
+    S.planillaData = data;
+    renderProgresoOplHome(data);
+    const tot = data.totales || {};
+    if ($('progresoPct')) $('progresoPct').textContent = fmtPct(tot.progreso_global || 0);
+    if (fechaEl) {
+      const t = data.turno || turnoDeFecha(fecha);
+      fechaEl.textContent = `Fecha ${data.fecha || fecha} · turno ${t} · avance por pistoleo (fecha_salida)`;
+    }
+    renderModalProgresoOPL(data);
+  } catch (e) {
+    if (cont) cont.innerHTML = `<p class="empty-state" style="color:#991b1b;">Error: ${escHtml(e.message)}</p>`;
+  }
+}
+
+function renderModalProgresoOPL(data) {
+  const cont = $('oplModalProgresoContainer');
+  if (!cont) return;
+  const lista = (data.todosOPL && data.todosOPL.length) ? data.todosOPL : (data.progreso || []);
+  if (data.operacionFinalizada) {
+    cont.innerHTML = `<div style="text-align:center;padding:1.5rem;">
+      <div style="font-size:2rem;">✅</div>
+      <div style="font-weight:800;color:#16a34a;margin-top:0.4rem;">Operación finalizada</div>
+      <div style="font-size:0.85rem;color:var(--gris);">Todas las canales programadas fueron pistoleadas</div>
+    </div>`;
+    return;
+  }
+  if (!lista.length) {
+    cont.innerHTML = '<p class="empty-state" style="padding:1rem;">Sin canales programadas / despachadas para esta fecha.</p>';
+    return;
+  }
+  let html = '';
+  lista.forEach(p => {
+    const pct = Math.min(100, p.progreso || 0);
+    const barColor = pct >= 100 ? '#16a34a' : (pct < 30 ? '#dc2626' : 'var(--vp)');
+    const pend = Number(p.pendientes || 0);
+    const desp = Number(p.despachados || 0);
+    const total = Number(p.total || 0);
+    const pendTxt = pend > 0
+      ? `<span style="color:#dc2626;font-weight:700;">${pend % 1 ? pend.toFixed(1) : pend} c. pend.</span>`
+      : '<span style="color:#16a34a;font-weight:700;">✅ completo</span>';
+    html += `<div class="opl-modal-row">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;margin-bottom:0.25rem;">
+        <strong style="color:#1e3a5f;font-size:0.9rem;">${escHtml(p.opl)}</strong>
+        <span style="font-size:0.8rem;color:var(--gris);">${pct}%</span>
+        ${pendTxt}
+      </div>
+      <div style="font-size:0.75rem;color:var(--gris);margin-bottom:0.3rem;">
+        Despachadas ${desp % 1 ? desp.toFixed(1) : desp} / ${total % 1 ? total.toFixed(1) : total} canales
+      </div>
+      <div class="poc-bar"><div style="width:${Math.max(pct, pct > 0 ? 4 : 0)}%;background:${barColor};"></div></div>
+    </div>`;
+  });
+  cont.innerHTML = html;
+}
+
+async function cargarConfigOPLModal() {
+  const fecha = getFecha();
+  const tbody = $('oplModalPropBody');
+  try {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Cargando…</td></tr>';
+    const res = await apiFetch(API(`/opl/propietarios?fecha=${fecha}&turno=${encodeURIComponent(turnoDeFecha(fecha))}`));
+    const opls = res.opls || ['TRANSCARNES'];
+    const dl = $('oplModalOplList');
+    if (dl) dl.innerHTML = opls.map(o => `<option value="${escHtml(o)}">`).join('');
+    window._oplModalPropList = res.resultado || [];
+    if (!window._oplModalPropList.length) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Sin propietarios para esta fecha.</td></tr>';
+      return;
+    }
+    if (tbody) {
+      tbody.innerHTML = window._oplModalPropList.map((r, i) => {
+        const opts = opls.map(o =>
+          `<option value="${escHtml(o)}"${o === r.opl ? ' selected' : ''}>${escHtml(o)}</option>`
+        ).join('');
+        const can = Number(r.canales || 0);
+        return `<tr>
+          <td style="font-size:0.82rem;font-weight:600;">${escHtml(r.propietario)}</td>
+          <td class="num" style="font-size:0.82rem;">${can % 1 ? can.toFixed(1) : can}</td>
+          <td><span class="badge-opl${r.opl === 'TRANSCARNES' ? ' default' : ''}">${escHtml(r.opl)}</span></td>
+          <td><select class="opl-select" data-prop-idx="${i}" onchange="cambiarOPLModalDesdeSelect(this)">${opts}</select></td>
+        </tr>`;
+      }).join('');
+    }
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="empty-state" style="color:#991b1b;">${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+async function cambiarOPLModalDesdeSelect(sel) {
+  const idx = Number(sel.getAttribute('data-prop-idx'));
+  const row = window._oplModalPropList && window._oplModalPropList[idx];
+  if (!row) return;
+  await cambiarOPLModal(row.propietario, sel.value);
+}
+
+async function cambiarOPLModal(prop, opl) {
+  try {
+    const r = await fetch(API(`/opl/asignar?propietario=${encodeURIComponent(prop)}&opl=${encodeURIComponent(opl)}`), { method: 'POST' });
+    const res = await r.json();
+    if (!res.success) { showOplModalAlert('oplModalConfigAlert', 'error', res.message || 'Error al guardar'); return; }
+    showOplModalAlert('oplModalConfigAlert', 'success', `✓ ${prop} → ${opl}`);
+    await recalcularOPLModal(true);
+    await cargarConfigOPLModal();
+  } catch (e) {
+    showOplModalAlert('oplModalConfigAlert', 'error', e.message);
+  }
+}
+
+async function guardarOPLModal() {
+  const prop = ($('oplModalNewProp') && $('oplModalNewProp').value || '').trim();
+  const opl = ($('oplModalNewOpl') && $('oplModalNewOpl').value || '').trim();
+  if (!prop || !opl) { showOplModalAlert('oplModalConfigAlert', 'warn', 'Completa los dos campos.'); return; }
+  try {
+    const r = await fetch(API(`/opl/asignar?propietario=${encodeURIComponent(prop)}&opl=${encodeURIComponent(opl)}`), { method: 'POST' });
+    const res = await r.json();
+    if (!res.success) { showOplModalAlert('oplModalConfigAlert', 'error', res.message || 'Error'); return; }
+    showOplModalAlert('oplModalConfigAlert', 'success', `✓ Guardado: ${prop} → ${opl}`);
+    if ($('oplModalNewProp')) $('oplModalNewProp').value = '';
+    if ($('oplModalNewOpl')) $('oplModalNewOpl').value = '';
+    await cargarConfigOPLModal();
+    await recalcularOPLModal(true);
+  } catch (e) {
+    showOplModalAlert('oplModalConfigAlert', 'error', e.message);
+  }
+}
+
+// Cerrar modal OPL con clic fuera
+document.addEventListener('click', (e) => {
+  const m = $('modalOPL');
+  if (m && e.target === m) cerrarModalOPL();
+});
 
 // ═══════════════════════════════════════════════════
 // MÓDULO DESPACHOS

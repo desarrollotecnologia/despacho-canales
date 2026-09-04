@@ -1203,7 +1203,12 @@ def get_planilla_opl(
         total_pend = mc1_pend + mc2_pend
         total_sal  = mc1_sal  + mc2_sal
         total_ini  = total_pend + total_sal
+        # Despachado = pistoleo real (fecha_salida del día)
         pct = round((total_sal / total_ini) * 100) if total_ini else 0
+        if total_pend > 0:
+            pct = min(99, pct)
+        elif total_ini > 0:
+            pct = 100
         lista.append({
             "propietario": prop,
             "mc1_pendiente":  mc1_pend,
@@ -1221,6 +1226,34 @@ def get_planilla_opl(
 
     lista.sort(key=lambda x: x["total_pendiente"], reverse=True)
 
+    by_opl = {}
+    for r in lista:
+        opl = r.get("opl") or apps_script_local.OPL_DEFAULT
+        b = by_opl.setdefault(opl, {"opl": opl, "pend": 0, "sal": 0})
+        b["pend"] += int(r["total_pendiente"] or 0)
+        b["sal"] += int(r["total_despachado"] or 0)
+    todos_opl = []
+    for opl, b in by_opl.items():
+        pend, sal = b["pend"], b["sal"]
+        total = pend + sal
+        pct = round((sal / total) * 100) if total else 0
+        if pend > 0:
+            pct = min(99, pct)
+        elif total > 0:
+            pct = 100
+        todos_opl.append({
+            "opl": opl,
+            "total": total * 0.5,
+            "despachados": sal * 0.5,
+            "pendientes": pend * 0.5,
+            "progreso": pct,
+            "total_medias": total,
+            "pendientes_medias": pend,
+            "despachados_medias": sal,
+        })
+    todos_opl.sort(key=lambda x: (-x["pendientes"], -x["total"], x["opl"]))
+    progreso_activos = [x for x in todos_opl if x["pendientes"] > 0]
+
     totales = {
         "mc1_pend":  sum(r["mc1_pendiente"]   for r in lista),
         "mc2_pend":  sum(r["mc2_pendiente"]   for r in lista),
@@ -1233,12 +1266,21 @@ def get_planilla_opl(
     }
     t_ini = totales["pend_total"] + totales["sal_total"]
     totales["progreso_global"] = round((totales["sal_total"] / t_ini) * 100) if t_ini else 0
+    if totales["pend_total"] > 0:
+        totales["progreso_global"] = min(99, totales["progreso_global"])
+    elif t_ini > 0:
+        totales["progreso_global"] = 100
 
     payload = {
         "fecha": fecha_filtro,
         "turno": turno or turno_de_fecha(fecha_filtro),
         "totales": totales,
         "data": lista,
+        "todosOPL": todos_opl,
+        "progreso": progreso_activos,
+        "operacionFinalizada": bool(todos_opl) and not progreso_activos,
+        "unidad": "canales",
+        "success": True,
     }
     cache_set(ck, payload)
     return payload
@@ -1466,10 +1508,51 @@ def usabilidad_page():
     return FileResponse("static/usabilidad.html")
 
 
+@app.get("/api/opl/propietarios")
+def get_opl_propietarios(fecha: Optional[str] = None, turno: Optional[str] = None):
+    """Propietarios del día con canales y OPL actual (para Configuración)."""
+    fecha_filtro = fecha or date.today().isoformat()
+    turno = resolver_turno(fecha_filtro, turno)
+    planilla = get_planilla_opl(fecha=fecha_filtro, turno=turno or "Todos")
+    cfg = apps_script_local.getOplConfig()
+    opls = cfg.get("opls") or [apps_script_local.OPL_DEFAULT]
+    por_prop = {}
+    for r in planilla.get("data") or []:
+        prop = (r.get("propietario") or "SIN PROPIETARIO").strip()
+        b = por_prop.setdefault(prop, {
+            "propietario": prop,
+            "canales": 0.0,
+            "medias": 0,
+            "opl": r.get("opl") or apps_script_local.OPL_DEFAULT,
+        })
+        b["medias"] += int(r.get("total_inicial") or 0)
+        b["canales"] = b["medias"] * 0.5
+        b["opl"] = r.get("opl") or b["opl"]
+    resultado = sorted(por_prop.values(), key=lambda x: (-x["canales"], x["propietario"]))
+    return {
+        "success": True,
+        "fecha": fecha_filtro,
+        "turno": planilla.get("turno"),
+        "opls": opls,
+        "resultado": resultado,
+    }
+
+
+@app.post("/api/opl/asignar")
+def post_opl_asignar(propietario: str, opl: str):
+    """Asigna propietario → OPL e invalida caché de progreso."""
+    res = apps_script_local.upsertOpl(propietario, opl)
+    cache_invalidate_fecha(None)
+    return res
+
+
 @app.post("/api/apps-script/{function_name}")
 def run_apps_script_function(function_name: str, payload: AppsScriptRequest):
     try:
-        return apps_script_local.dispatch(function_name, payload.args)
+        out = apps_script_local.dispatch(function_name, payload.args)
+        if function_name in ("upsertOpl", "eliminarOpl", "guardarProgresoOpl"):
+            cache_invalidate_fecha(None)
+        return out
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
