@@ -288,7 +288,8 @@ _POOL = None
 _POOL_LOCK = Lock()
 _CACHE = {}
 _CACHE_LOCK = Lock()
-CACHE_TTL_SEG = 12
+# Equilibrio velocidad / frescura: máx. ~1 min; Refrescar invalida de inmediato
+CACHE_TTL_SEG = 60
 
 
 def get_pool():
@@ -337,6 +338,23 @@ def cache_get(key):
 def cache_set(key, value):
     with _CACHE_LOCK:
         _CACHE[key] = (time.time(), value)
+
+
+def cache_invalidate_fecha(fecha: Optional[str] = None):
+    """Borra caché de una fecha (o toda si fecha es None)."""
+    with _CACHE_LOCK:
+        if not fecha:
+            _CACHE.clear()
+            return 0
+        drop = [k for k in _CACHE if isinstance(k, tuple) and fecha in k]
+        for k in drop:
+            del _CACHE[k]
+        return len(drop)
+
+
+def es_refresh(refresh: Optional[str] = None) -> bool:
+    return str(refresh or "").strip().lower() in ("1", "true", "yes", "si", "sí")
+
 
 
 def safe_query(sql: str, params=None, label: str = "consulta"):
@@ -472,6 +490,79 @@ def consultar_canales_planilla(fecha_filtro: str, turno: Optional[str]):
         str(x.get("codigo") or ""),
     ))
     return data
+
+
+def obtener_piezas_programadas(fecha_filtro: str, turno: Optional[str]) -> List[dict]:
+    """
+    Listado único de medias programadas (fecha + turno), compartido por
+    despachos / planilla / detalle. TTL = CACHE_TTL_SEG.
+    """
+    ck = ("programados", fecha_filtro, turno, "v1")
+    hit = cache_get(ck)
+    if hit is not None:
+        return hit
+    data = consultar_canales_planilla(fecha_filtro, turno)
+    cache_set(ck, data)
+    return data
+
+
+def agrupar_despachos_por_puesto(piezas: List[dict]) -> tuple:
+    grupos = {}
+    for r in piezas:
+        clave = r.get("clave") or "SIN RUTA"
+        g = grupos.get(clave)
+        if not g:
+            g = {
+                "clave": clave,
+                "puesto": r.get("puesto") or "",
+                "zona": r.get("zona") or "",
+                "direccion": r.get("direccion") or "",
+                "ruta": r.get("ruta") or "",
+                "etiqueta": r.get("etiqueta") or "",
+                "destino": r.get("zona") or r.get("ruta") or "",
+                "propietario": r.get("propietario") or "Sin propietario",
+                "codigo": r.get("codigo"),
+                "id_tipo": r.get("id_tipo"),
+                "mc1": 0,
+                "mc2": 0,
+                "total_medias": 0,
+                "props": {},
+            }
+            grupos[clave] = g
+        if r.get("id_tipo") == ID_MC1:
+            g["mc1"] += 1
+        elif r.get("id_tipo") == ID_MC2:
+            g["mc2"] += 1
+        g["total_medias"] += 1
+        prop = r.get("propietario") or "Sin propietario"
+        g["props"][prop] = g["props"].get(prop, 0) + 1
+        if not g.get("codigo"):
+            g["codigo"] = r.get("codigo")
+            g["id_tipo"] = r.get("id_tipo")
+
+    data = []
+    for g in grupos.values():
+        if g["props"]:
+            g["propietario"] = max(g["props"].items(), key=lambda kv: kv[1])[0]
+        g["total_partes"] = g["total_medias"] * 0.5
+        g["total_canales"] = g["total_partes"]
+        g["mas_de_una"] = g["total_medias"] > 1
+        g["clientes"] = len(g["props"])
+        enriquecer_codigo(g)
+        del g["props"]
+        data.append(g)
+
+    data.sort(key=lambda x: (str(x.get("zona") or "").upper(), str(x.get("puesto") or "")))
+    total_partes = sum(float(r.get("total_partes") or 0) for r in data)
+    totales = {
+        "mc1": sum(r.get("mc1", 0) or 0 for r in data),
+        "mc2": sum(r.get("mc2", 0) or 0 for r in data),
+        "total_partes": total_partes,
+        "total_canales": total_partes,
+        "clientes": len(data),
+        "puestos": len(data),
+    }
+    return data, totales
 
 
 def resumen_planilla_puntos(items: List[dict]):
@@ -632,9 +723,19 @@ def get_tipos_canal():
 # CAVAS — canales en cava a una fecha dada
 # ═══════════════════════════════════════════════════════
 @app.get("/api/cavas")
-def get_cavas(fecha: Optional[str] = None, turno: Optional[str] = None):
+def get_cavas(
+    fecha: Optional[str] = None,
+    turno: Optional[str] = None,
+    refresh: Optional[str] = None,
+):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
+    if es_refresh(refresh):
+        cache_invalidate_fecha(fecha_filtro)
+    ck = ("cavas", fecha_filtro, turno, "v1")
+    hit = cache_get(ck)
+    if hit is not None:
+        return hit
     turno_filtro = None  # turno se aplica en logística (despachos/planilla); cavas = stock en cava
     sql = """
         SELECT
@@ -694,16 +795,24 @@ def get_cavas(fecha: Optional[str] = None, turno: Optional[str] = None):
     data = serializable(rows)
     for r in data:
         enriquecer_codigo(r)
-    return {"fecha": fecha_filtro, "turno": turno, "total": len(data), "data": data}
+    payload = {"fecha": fecha_filtro, "turno": turno, "total": len(data), "data": data}
+    cache_set(ck, payload)
+    return payload
 
 
 # ═══════════════════════════════════════════════════════
 # DASHBOARD — resumen ejecutivo de canales en cava
 # ═══════════════════════════════════════════════════════
 @app.get("/api/dashboard")
-def get_dashboard(fecha: Optional[str] = None, turno: Optional[str] = None):
+def get_dashboard(
+    fecha: Optional[str] = None,
+    turno: Optional[str] = None,
+    refresh: Optional[str] = None,
+):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
+    if es_refresh(refresh):
+        cache_invalidate_fecha(fecha_filtro)
     ck = ("dashboard", fecha_filtro, turno, "prog_v1")
     hit = cache_get(ck)
     if hit is not None:
@@ -785,91 +894,22 @@ def get_dashboard(fecha: Optional[str] = None, turno: Optional[str] = None):
 # Ruta: 09404/Floridablanca/.../JxV/  → puesto 9404, zona Floridablanca
 # ═══════════════════════════════════════════════════════
 @app.get("/api/despachos")
-def get_despachos(fecha: Optional[str] = None, turno: Optional[str] = None):
+def get_despachos(
+    fecha: Optional[str] = None,
+    turno: Optional[str] = None,
+    refresh: Optional[str] = None,
+):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
+    if es_refresh(refresh):
+        cache_invalidate_fecha(fecha_filtro)
     ck = ("despachos", fecha_filtro, turno, "prog_v1")
     hit = cache_get(ck)
     if hit is not None:
         return hit
 
-    sql = f"""
-        SELECT DISTINCT ON (pp.id_producto, pp.id)
-            pp.id_producto AS codigo,
-            pp.id_tipo_parte_producto AS id_tipo,
-            COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') AS propietario,
-            pp.con_destino AS con_destino,
-            pp.observaciones AS observaciones,
-            s.nombre AS sucursal_origen,
-            s.direccion AS direccion_entrega,
-            de.nombre AS destino_real
-        FROM trazabilidad_proceso.parte_producto pp
-        {SQL_PPCR_JOIN}
-        {SQL_JOINS_PROGRAMADO}
-        WHERE
-            pp.id_tipo_parte_producto IN %s
-            AND ppcr.fecha_salida IS NULL
-        ORDER BY pp.id_producto, pp.id
-    """
-    rows = safe_query(sql, (fecha_filtro, IDS_CANAL), "despachos")
-    piezas = enriquecer_logistica(serializable(rows), fecha_filtro, turno, solo_despacho=True)
-
-    grupos = {}
-    for r in piezas:
-        clave = r.get("clave") or "SIN RUTA"
-        g = grupos.get(clave)
-        if not g:
-            g = {
-                "clave": clave,
-                "puesto": r.get("puesto") or "",
-                "zona": r.get("zona") or "",
-                "direccion": r.get("direccion") or "",
-                "ruta": r.get("ruta") or "",
-                "etiqueta": r.get("etiqueta") or "",
-                "destino": r.get("zona") or r.get("ruta") or "",
-                "propietario": r.get("propietario") or "Sin propietario",
-                "codigo": r.get("codigo"),
-                "id_tipo": r.get("id_tipo"),
-                "mc1": 0,
-                "mc2": 0,
-                "total_medias": 0,
-                "props": {},
-            }
-            grupos[clave] = g
-        if r.get("id_tipo") == ID_MC1:
-            g["mc1"] += 1
-        elif r.get("id_tipo") == ID_MC2:
-            g["mc2"] += 1
-        g["total_medias"] += 1
-        prop = r.get("propietario") or "Sin propietario"
-        g["props"][prop] = g["props"].get(prop, 0) + 1
-        if not g.get("codigo"):
-            g["codigo"] = r.get("codigo")
-            g["id_tipo"] = r.get("id_tipo")
-
-    data = []
-    for g in grupos.values():
-        # Propietario más frecuente en el puesto
-        if g["props"]:
-            g["propietario"] = max(g["props"].items(), key=lambda kv: kv[1])[0]
-        g["total_partes"] = g["total_medias"] * 0.5
-        g["total_canales"] = g["total_partes"]
-        g["mas_de_una"] = g["total_medias"] > 1
-        g["clientes"] = len(g["props"])
-        enriquecer_codigo(g)
-        del g["props"]
-        data.append(g)
-
-    data.sort(key=lambda x: (str(x.get("zona") or "").upper(), str(x.get("puesto") or "")))
-    total_partes = sum(float(r.get("total_partes") or 0) for r in data)
-    totales = {
-        "mc1":           sum(r.get("mc1", 0) or 0 for r in data),
-        "mc2":           sum(r.get("mc2", 0) or 0 for r in data),
-        "total_partes":  total_partes,
-        "total_canales": total_partes,
-        "clientes":      len(data),
-        "puestos":       len(data),
-    }
+    piezas = obtener_piezas_programadas(fecha_filtro, turno)
+    data, totales = agrupar_despachos_por_puesto(piezas)
     payload = {"fecha": fecha_filtro, "turno": turno, "totales": totales, "data": data}
     cache_set(ck, payload)
     return payload
@@ -887,37 +927,13 @@ def get_despacho_detalle(
     clave: Optional[str] = None,
     fecha: Optional[str] = None,
     turno: Optional[str] = None,
+    refresh: Optional[str] = None,
 ):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    sql = f"""
-        SELECT DISTINCT ON (pp.id_producto, pp.id)
-            pp.id_producto                          AS codigo,
-            tpp.id                                  AS id_tipo,
-            tpp.nombre                              AS descripcion,
-            tpp.abreviatura                         AS abrev,
-            pp.con_destino                          AS con_destino,
-            pp.observaciones,
-            COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') AS propietario,
-            c.nombre                                AS cava,
-            r.nombre                                AS riel,
-            ppcr.fecha_ingreso                      AS fecha_ingreso,
-            ppcr.fecha_salida                       AS fecha_salida,
-            s.nombre                                AS sucursal_origen,
-            s.direccion                             AS direccion_entrega,
-            de.nombre                               AS destino_real
-        FROM trazabilidad_proceso.parte_producto pp
-        JOIN trazabilidad_proceso.tipo_parte_producto tpp ON tpp.id = pp.id_tipo_parte_producto
-        {SQL_PPCR_JOIN}
-        LEFT JOIN trazabilidad_proceso.cava c ON c.id = ppcr.id_cava
-        LEFT JOIN trazabilidad_proceso.riel r ON r.id = ppcr.id_riel
-        {SQL_JOINS_PROGRAMADO}
-        WHERE pp.id_tipo_parte_producto IN %s
-          AND ppcr.fecha_salida IS NULL
-        ORDER BY pp.id_producto, pp.id, c.orden NULLS LAST, r.nombre
-    """
-    rows = safe_query(sql, (fecha_filtro, IDS_CANAL), "despacho_detalle")
-    data = enriquecer_logistica(serializable(rows), fecha_filtro, turno, solo_despacho=True)
+    if es_refresh(refresh):
+        cache_invalidate_fecha(fecha_filtro)
+    data = obtener_piezas_programadas(fecha_filtro, turno)
 
     clave_q = (clave or "").strip()
     puesto_q = formatear_codigo_sucursal(puesto or "")
@@ -934,10 +950,11 @@ def get_despacho_detalle(
             continue
         if prop_q and not clave_q and not puesto_q and str(r.get("propietario") or "").strip() != prop_q:
             continue
-        enriquecer_codigo(r)
-        r["destino"] = r.get("zona") or r.get("ruta") or ""
-        r["total_partes"] = 0.5
-        filtradas.append(r)
+        item = dict(r)
+        enriquecer_codigo(item)
+        item["destino"] = item.get("zona") or item.get("ruta") or ""
+        item["total_partes"] = 0.5
+        filtradas.append(item)
 
     etiqueta = filtradas[0]["etiqueta"] if filtradas else (clave_q or prop_q or zona_q or "—")
     return {
@@ -1110,7 +1127,11 @@ def get_salidas(fecha: Optional[str] = None, dias: int = 1, turno: Optional[str]
 # PLANILLA OPL — progreso de despacho por propietario
 # ═══════════════════════════════════════════════════════
 @app.get("/api/planilla_opl")
-def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
+def get_planilla_opl(
+    fecha: Optional[str] = None,
+    turno: Optional[str] = None,
+    refresh: Optional[str] = None,
+):
     """
     Progreso OPL del día programado:
     - Pendientes: en cava con fecha_programacion_despacho = fecha
@@ -1118,6 +1139,8 @@ def get_planilla_opl(fecha: Optional[str] = None, turno: Optional[str] = None):
     """
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
+    if es_refresh(refresh):
+        cache_invalidate_fecha(fecha_filtro)
     ck = ("planilla_opl", fecha_filtro, turno, "prog_v1")
     hit = cache_get(ck)
     if hit is not None:
@@ -1316,10 +1339,18 @@ def get_planilla_puntos(
     fecha: Optional[str] = None,
     turno: Optional[str] = None,
     opl: Optional[str] = None,
+    refresh: Optional[str] = None,
 ):
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    items = consultar_canales_planilla(fecha_filtro, turno)
+    if es_refresh(refresh):
+        cache_invalidate_fecha(fecha_filtro)
+    opl_key = (opl or "").strip() or "TODOS"
+    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v1")
+    hit = cache_get(ck)
+    if hit is not None:
+        return hit
+    items = obtener_piezas_programadas(fecha_filtro, turno)
     resumen, total_general = resumen_planilla_puntos(items)
     cfg = apps_script_local.getOplConfig()
     opls_cfg = cfg.get("opls") or []
@@ -1338,6 +1369,7 @@ def get_planilla_puntos(
     pack["data"] = detalle
     pack["total"] = len(detalle)
     pack["total_partes"] = round(len(detalle) * 0.5, 2)
+    cache_set(ck, pack)
     return pack
 
 
@@ -1353,7 +1385,7 @@ def excel_planilla_puntos(
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
     items = [
-        r for r in consultar_canales_planilla(fecha_filtro, turno)
+        r for r in obtener_piezas_programadas(fecha_filtro, turno)
         if (r.get("opl") or "") == opl
     ]
     buf = construir_excel_opl(opl, fecha_filtro, turno, items)
@@ -1366,6 +1398,13 @@ def excel_planilla_puntos(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers,
     )
+
+
+@app.post("/api/cache/invalidate")
+def api_cache_invalidate(fecha: Optional[str] = None):
+    """Invalida caché de la fecha (o toda). Usado por el botón Refrescar."""
+    n = cache_invalidate_fecha(fecha)
+    return {"ok": True, "fecha": fecha, "cleared": n, "ttl_seg": CACHE_TTL_SEG}
 
 
 # ═══════════════════════════════════════════════════════

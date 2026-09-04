@@ -4,10 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Colbeef · Despacho de Canales</title>
-  <link rel="icon" type="image/png" href="/static/favicon.png?v=6">
-  <link rel="shortcut icon" href="/favicon.ico?v=6">
-  <link rel="apple-touch-icon" href="/static/favicon.png?v=6">
-  <style>
+  <link rel="icon" type="image/png" href="/static/favicon.png?v=7">
+  <link rel="shortcut icon" href="/favicon.ico?v=7">
+  <link rel="apple-touch-icon" href="/static/favicon.png?v=7">  <style>
     :root{
       --vp:#1a6fc4;--vh:#2563eb;--vs:#60a5fa;--vc:#bfdbfe;
       --rojo:#dc2626;--fondo:#f0f6ff;--blanco:#ffffff;--gris:#6b7280;
@@ -204,8 +203,8 @@
   <!-- HEADER -->
   <div class="header">
     <div class="logo-area">
-      <div class="logo-icon" id="logoIconGestor" title="Colbeef">
-        <img src="/static/favicon.png?v=6" alt="Colbeef" width="56" height="56">
+      <div class="logo-icon" id="logoIconGestor" title="Colbeef · Despacho de Canales">
+        <img src="/static/logo-canal.png?v=7" alt="Despacho de Canales" width="56" height="56">
       </div>
       <div class="logo-text">
         <h1><span style="color:var(--vp)">Col</span><span style="color:var(--rojo)">beef</span> · Despacho de Canales</h1>
@@ -349,7 +348,7 @@
         <span class="s-icon">🔍</span>
         <input id="searchDesp" type="text" placeholder="Buscar puesto, zona o código..." oninput="filtrarDespachos()">
       </div>
-      <button class="btn btn-secondary btn-sm" onclick="cargarDespachos()">🔄 Refrescar</button>
+      <button class="btn btn-secondary btn-sm" onclick="cargarDespachos(true)">🔄 Refrescar</button>
       <button class="btn btn-primary btn-sm" onclick="imprimirTablaDespachos()">🖨️ Imprimir</button>
       <span style="font-size:0.78rem;color:var(--gris)">Agrupado por puesto/zona (ej. 9404 · Floridablanca). Doble clic para desglosar.</span>
     </div>
@@ -398,7 +397,7 @@
     <div class="stats-grid" id="oplStats"></div>
 
     <div style="display:flex;gap:0.8rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
-      <button class="btn btn-secondary btn-sm" onclick="cargarOpl()">🔄 Refrescar progreso</button>
+      <button class="btn btn-secondary btn-sm" onclick="cargarOpl(true)">🔄 Refrescar progreso</button>
       <span style="font-size:0.8rem;color:var(--gris)">Haz clic en una tarjeta de OPL para ver el detalle y descargar</span>
     </div>
 
@@ -418,7 +417,7 @@
         <span class="s-icon">🔍</span>
         <input id="searchCavas" type="text" placeholder="Buscar código, cava, riel..." oninput="filtrarCavas()">
       </div>
-      <button class="btn btn-secondary btn-sm" onclick="cargarCavas()">🔄 Refrescar</button>
+      <button class="btn btn-secondary btn-sm" onclick="cargarCavas(true)">🔄 Refrescar</button>
       <button class="btn btn-primary btn-sm" onclick="imprimirCavas()">🖨️ Imprimir</button>
     </div>
 
@@ -451,7 +450,7 @@
         <p style="color:var(--gris);font-size:0.84rem;">Medias canales: vista por <strong>puesto</strong> (operación) o por <strong>zona</strong> (resumen comercial)</p>
       </div>
       <div style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center;">
-        <button class="btn btn-secondary" id="btnProcesarPlanilla" onclick="procesarPlanilla()" style="padding:0.5rem 1.1rem;font-size:0.85rem;">⚙️ Procesar Planilla</button>
+        <button class="btn btn-secondary" id="btnProcesarPlanilla" onclick="procesarPlanilla(true)" style="padding:0.5rem 1.1rem;font-size:0.85rem;">⚙️ Procesar Planilla</button>
         <button class="btn btn-primary" id="btnExcelOpl" onclick="descargarExcelOplActivo()" style="padding:0.5rem 1.1rem;font-size:0.85rem;">📥 Exportar Excel</button>
       </div>
     </div>
@@ -605,6 +604,14 @@ async function apiFetch(url) {
   return r.json();
 }
 
+/** Invalida caché del servidor para la fecha actual (Refrescar → datos frescos de SIRT). */
+async function invalidarCache() {
+  const fecha = getFecha();
+  try {
+    await fetch(API(`/cache/invalidate?fecha=${encodeURIComponent(fecha)}`), { method: 'POST' });
+  } catch (_) { /* si falla, igual se intenta cargar */ }
+}
+
 function getFecha() {
   return $('fechaSelect').value || S.fecha;
 }
@@ -681,10 +688,11 @@ async function actualizarTodo() {
 // ═══════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════
-async function actualizarDashboard(silent) {
+async function actualizarDashboard(silent, forceRefresh) {
   const fecha = getFecha();
   try {
     if (!silent) showSpinner();
+    if (forceRefresh) await invalidarCache();
     const [dash, planilla] = await Promise.all([
       apiFetch(API(`/dashboard?fecha=${fecha}&turno=${encodeURIComponent(turnoDeFecha(fecha))}`)),
       apiFetch(API(`/planilla_opl?fecha=${fecha}&turno=${encodeURIComponent(turnoDeFecha(fecha))}`)),
@@ -800,11 +808,12 @@ function turnoSeleccionado(grupoId) {
   return sel.dataset.turno || '';
 }
 
-async function cargarDespachos() {
+async function cargarDespachos(forceRefresh) {
   const fecha = getFecha();
   const t = turnoSeleccionado('turnoBtns');
   try {
     showSpinner();
+    if (forceRefresh) await invalidarCache();
     const url = t
       ? API(`/despachos?fecha=${fecha}&turno=${encodeURIComponent(t)}`)
       : API(`/despachos?fecha=${fecha}&turno=Todos`);
@@ -1006,10 +1015,11 @@ function selTurnoOpl(btn, turno) {
   cargarOpl();
 }
 
-async function cargarOpl() {
+async function cargarOpl(forceRefresh) {
   const fecha = getFecha();
   try {
     showSpinner();
+    if (forceRefresh) await invalidarCache();
     const url = turnoOpl
       ? API(`/planilla_opl?fecha=${fecha}&turno=${turnoOpl}`)
       : API(`/planilla_opl?fecha=${fecha}&turno=Todos`);
@@ -1131,11 +1141,12 @@ function renderModalOpl(propietario, data) {
 // ═══════════════════════════════════════════════════
 // MÓDULO CAVAS
 // ═══════════════════════════════════════════════════
-async function cargarCavas() {
+async function cargarCavas(forceRefresh) {
   const fecha = getFecha();
   const t = turnoOpl || turnoDeFecha(fecha);
   try {
     showSpinner();
+    if (forceRefresh) await invalidarCache();
     const data = await apiFetch(API(`/cavas?fecha=${fecha}&turno=${encodeURIComponent(t)}`));
     S.cavasData = data;
     renderCavas(data);
@@ -1223,12 +1234,13 @@ function planillaTurnoQ() {
     : 'turno=Todos';
 }
 
-async function procesarPlanilla() {
+async function procesarPlanilla(forceRefresh) {
   const btn = $('btnProcesarPlanilla');
   const fecha = getFecha();
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Procesando...'; }
   try {
     showSpinner();
+    if (forceRefresh) await invalidarCache();
     const data = await apiFetch(API(`/planilla_puntos?fecha=${fecha}&${planillaTurnoQ()}`));
     _planillaData = data;
     renderOplChipsPlanilla(data);
