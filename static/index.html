@@ -34,14 +34,17 @@
     #fechaSelect:focus{outline:none;border-color:var(--vp);}
 
     /* RESUMEN TARJETAS */
-    .resumen-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1.5rem;margin-bottom:2.5rem;}
-    .tarjeta-resumen{background:var(--blanco);border-radius:var(--radio);padding:1.5rem;box-shadow:var(--sombra);border:1px solid rgba(96,165,250,0.2);transition:transform 0.2s;position:relative;overflow:hidden;}
-    .tarjeta-resumen:hover{transform:translateY(-4px);}
-    .tarjeta-resumen::before{content:'';position:absolute;top:0;left:0;width:100%;height:5px;background:linear-gradient(90deg,var(--vp),var(--vs));}
+    .resumen-panel{background:var(--blanco);border-radius:var(--radio);padding:1.25rem 1.4rem 1.5rem;box-shadow:var(--sombra);border:1px solid rgba(96,165,250,0.28);margin-bottom:2.5rem;}
+    .resumen-panel-titulo{font-size:0.95rem;font-weight:700;color:var(--vp);margin-bottom:1rem;display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;}
+    .resumen-panel-titulo span{font-size:0.78rem;font-weight:500;color:var(--gris);}
+    .resumen-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:0;}
+    .tarjeta-resumen{background:#f8fbff;border-radius:12px;padding:1.2rem 1.25rem;box-shadow:none;border:1px solid rgba(96,165,250,0.22);transition:transform 0.2s,border-color 0.2s;position:relative;overflow:hidden;}
+    .tarjeta-resumen:hover{transform:translateY(-2px);border-color:rgba(37,99,235,0.35);}
+    .tarjeta-resumen::before{content:'';position:absolute;top:0;left:0;width:100%;height:4px;background:linear-gradient(90deg,var(--vp),var(--vs));}
     .resumen-label{font-size:0.78rem;text-transform:uppercase;letter-spacing:1px;color:var(--gris);margin-bottom:0.5rem;}
-    .resumen-valor{font-size:2.8rem;font-weight:800;color:var(--vp);line-height:1;}
+    .resumen-valor{font-size:2.5rem;font-weight:800;color:var(--vp);line-height:1;}
     .resumen-sub{font-size:0.78rem;color:var(--gris);margin-top:0.4rem;}
-    .resumen-icon{position:absolute;right:1rem;bottom:1rem;font-size:3rem;opacity:0.1;color:var(--vp);}
+    .resumen-icon{position:absolute;right:1rem;bottom:1rem;font-size:2.4rem;opacity:0.1;color:var(--vp);}
     .tarjeta-opl{cursor:pointer;min-width:260px;}
     .tarjeta-opl:hover{transform:translateY(-4px);border-color:var(--vh);}
     .opl-mini-item{display:flex;align-items:center;gap:0.5rem;margin-bottom:0.55rem;}
@@ -233,37 +236,37 @@
   <!-- ══════ VISTA PRINCIPAL ══════ -->
   <div id="viewMain">
 
-    <!-- TARJETAS RESUMEN -->
-    <div class="resumen-grid" id="resumenGrid">
-      <div class="tarjeta-resumen">
-        <div class="resumen-label">Media Canal 1</div>
-        <div class="resumen-valor" id="numMC1">—</div>
-        <div class="resumen-sub">sufijo -1001 (izquierda)</div>
-        <div class="resumen-icon">◀</div>
+    <!-- TARJETAS RESUMEN — un panel, 4 indicadores -->
+    <div class="resumen-panel" id="resumenPanel">
+      <div class="resumen-panel-titulo">
+        Resumen del despacho
+        <span>Programados del día · cada media = 0.5 canal</span>
       </div>
-      <div class="tarjeta-resumen">
-        <div class="resumen-label">Media Canal 2</div>
-        <div class="resumen-valor" id="numMC2">—</div>
-        <div class="resumen-sub">sufijo -1002 (derecha)</div>
-        <div class="resumen-icon">▶</div>
-      </div>
-      <div class="tarjeta-resumen">
-        <div class="resumen-label">Canales Completas</div>
-        <div class="resumen-valor" id="numCanalesComp">—</div>
-        <div class="resumen-sub">MC1 + MC2 = 1 canal</div>
-        <div class="resumen-icon">🐄</div>
-      </div>
-      <div class="tarjeta-resumen">
-        <div class="resumen-label">Total Partes en Cava</div>
-        <div class="resumen-valor" id="numTotal">—</div>
-        <div class="resumen-sub">medias canales activas</div>
-        <div class="resumen-icon">📦</div>
-      </div>
-      <div class="tarjeta-resumen">
-        <div class="resumen-label">Puestos / Destinos</div>
-        <div class="resumen-valor" id="numPuestosDash">—</div>
-        <div class="resumen-sub">activos en despacho</div>
-        <div class="resumen-icon">📍</div>
+      <div class="resumen-grid" id="resumenGrid">
+        <div class="tarjeta-resumen">
+          <div class="resumen-label">Media Canal 1</div>
+          <div class="resumen-valor" id="numMC1">—</div>
+          <div class="resumen-sub">sufijo -1001 (izquierda)</div>
+          <div class="resumen-icon">◀</div>
+        </div>
+        <div class="tarjeta-resumen">
+          <div class="resumen-label">Media Canal 2</div>
+          <div class="resumen-valor" id="numMC2">—</div>
+          <div class="resumen-sub">sufijo -1002 (derecha)</div>
+          <div class="resumen-icon">▶</div>
+        </div>
+        <div class="tarjeta-resumen">
+          <div class="resumen-label">Canales Completas</div>
+          <div class="resumen-valor" id="numCanalesComp">—</div>
+          <div class="resumen-sub">MC1 + MC2 = 1 canal</div>
+          <div class="resumen-icon">🐄</div>
+        </div>
+        <div class="tarjeta-resumen">
+          <div class="resumen-label">Total Partes</div>
+          <div class="resumen-valor" id="numTotal">—</div>
+          <div class="resumen-sub">medias programadas</div>
+          <div class="resumen-icon">📦</div>
+        </div>
       </div>
     </div>
 
