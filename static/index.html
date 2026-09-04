@@ -33,29 +33,84 @@
     #fechaSelect{padding:0.4rem 0.8rem;border:2px solid var(--vc);border-radius:10px;font-size:0.88rem;background:white;cursor:pointer;}
     #fechaSelect:focus{outline:none;border-color:var(--vp);}
 
-    /* RESUMEN TARJETAS */
-    .resumen-panel{background:var(--blanco);border-radius:var(--radio);box-shadow:var(--sombra);border:1px solid rgba(96,165,250,0.28);margin-bottom:2.5rem;overflow:hidden;}
-    .resumen-panel-titulo{font-size:0.95rem;font-weight:700;color:var(--vp);padding:1rem 1.35rem 0.85rem;display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;border-bottom:1px solid rgba(96,165,250,0.2);}
-    .resumen-panel-titulo span{font-size:0.78rem;font-weight:500;color:var(--gris);}
-    .resumen-grid{display:grid;grid-template-columns:repeat(4,1fr);margin-bottom:0;gap:0;}
-    .tarjeta-resumen{background:transparent;border-radius:0;padding:1.35rem 1.4rem 1.5rem;box-shadow:none;border:none;border-right:1px solid rgba(96,165,250,0.22);transition:background 0.15s;position:relative;overflow:hidden;}
-    .tarjeta-resumen:last-child{border-right:none;}
-    .tarjeta-resumen:hover{transform:none;background:#f8fbff;}
-    .tarjeta-resumen::before{display:none;}
-    .resumen-label{font-size:0.78rem;text-transform:uppercase;letter-spacing:1px;color:var(--gris);margin-bottom:0.5rem;}
-    .resumen-valor{font-size:2.5rem;font-weight:800;color:var(--vp);line-height:1;}
-    .resumen-sub{font-size:0.78rem;color:var(--gris);margin-top:0.4rem;}
-    .resumen-icon{position:absolute;right:1rem;bottom:1rem;font-size:2.4rem;opacity:0.1;color:var(--vp);}
-    @media(max-width:900px){
-      .resumen-grid{grid-template-columns:1fr 1fr;}
-      .tarjeta-resumen:nth-child(2){border-right:none;}
-      .tarjeta-resumen:nth-child(1),
-      .tarjeta-resumen:nth-child(2){border-bottom:1px solid rgba(96,165,250,0.22);}
+    /* RESUMEN — estilo Vísceras, 4 celdas (2×2) */
+    .resumen-panel{
+      background:var(--blanco);
+      border-radius:14px;
+      box-shadow:var(--sombra);
+      border:1px solid #e5e7eb;
+      margin-bottom:2.5rem;
+      overflow:hidden;
+      position:relative;
     }
-    @media(max-width:560px){
-      .resumen-grid{grid-template-columns:1fr;}
-      .tarjeta-resumen{border-right:none;border-bottom:1px solid rgba(96,165,250,0.22);}
+    .resumen-panel::before{
+      content:'';
+      display:block;
+      height:5px;
+      background:var(--vp);
+    }
+    .resumen-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      grid-template-rows:1fr 1fr;
+      margin:0;
+      gap:0;
+    }
+    .tarjeta-resumen{
+      background:transparent;
+      border-radius:0;
+      padding:1.25rem 1.5rem 1.35rem;
+      box-shadow:none;
+      border:none;
+      position:relative;
+      overflow:hidden;
+      min-height:118px;
+    }
+    .tarjeta-resumen:nth-child(1),
+    .tarjeta-resumen:nth-child(2){border-bottom:1px solid #e8eef5;}
+    .tarjeta-resumen:nth-child(odd){border-right:1px solid #e8eef5;}
+    .tarjeta-resumen:hover{transform:none;background:#fafcff;}
+    .tarjeta-resumen::before{display:none;}
+    .resumen-head{
+      display:flex;
+      align-items:center;
+      gap:0.45rem;
+      margin-bottom:0.45rem;
+    }
+    .resumen-ico{
+      font-size:1.05rem;
+      line-height:1;
+      opacity:0.9;
+    }
+    .resumen-label{
+      font-size:0.72rem;
+      text-transform:uppercase;
+      letter-spacing:0.6px;
+      color:var(--gris);
+      font-weight:600;
+      margin:0;
+    }
+    .resumen-valor{
+      font-size:2.35rem;
+      font-weight:800;
+      color:var(--vp);
+      line-height:1.05;
+      letter-spacing:-0.5px;
+    }
+    .resumen-valor.accent-canales{color:#0f766e;}
+    .resumen-valor.accent-total{color:#1d4ed8;}
+    .resumen-sub{
+      font-size:0.78rem;
+      color:var(--gris);
+      margin-top:0.35rem;
+      line-height:1.3;
+    }
+    .resumen-icon{display:none;}
+    @media(max-width:640px){
+      .resumen-grid{grid-template-columns:1fr;grid-template-rows:auto;}
+      .tarjeta-resumen{border-right:none !important;border-bottom:1px solid #e8eef5;}
       .tarjeta-resumen:last-child{border-bottom:none;}
+      .resumen-valor{font-size:2.1rem;}
     }
     .tarjeta-opl{cursor:pointer;min-width:260px;}
     .tarjeta-opl:hover{transform:translateY(-4px);border-color:var(--vh);}
@@ -248,36 +303,40 @@
   <!-- ══════ VISTA PRINCIPAL ══════ -->
   <div id="viewMain">
 
-    <!-- TARJETAS RESUMEN — un panel, 4 indicadores -->
+    <!-- RESUMEN — un cuadro estilo Vísceras, 4 indicadores (2×2) -->
     <div class="resumen-panel" id="resumenPanel">
-      <div class="resumen-panel-titulo">
-        Resumen del despacho
-        <span>Programados del día · cada media = 0.5 canal</span>
-      </div>
       <div class="resumen-grid" id="resumenGrid">
         <div class="tarjeta-resumen">
-          <div class="resumen-label">Media Canal 1</div>
+          <div class="resumen-head">
+            <span class="resumen-ico">◀</span>
+            <div class="resumen-label">Media Canal 1</div>
+          </div>
           <div class="resumen-valor" id="numMC1">—</div>
           <div class="resumen-sub">sufijo -1001 (izquierda)</div>
-          <div class="resumen-icon">◀</div>
         </div>
         <div class="tarjeta-resumen">
-          <div class="resumen-label">Media Canal 2</div>
+          <div class="resumen-head">
+            <span class="resumen-ico">▶</span>
+            <div class="resumen-label">Media Canal 2</div>
+          </div>
           <div class="resumen-valor" id="numMC2">—</div>
           <div class="resumen-sub">sufijo -1002 (derecha)</div>
-          <div class="resumen-icon">▶</div>
         </div>
         <div class="tarjeta-resumen">
-          <div class="resumen-label">Canales Completas</div>
-          <div class="resumen-valor" id="numCanalesComp">—</div>
+          <div class="resumen-head">
+            <span class="resumen-ico">🐄</span>
+            <div class="resumen-label">Canales Completas</div>
+          </div>
+          <div class="resumen-valor accent-canales" id="numCanalesComp">—</div>
           <div class="resumen-sub">MC1 + MC2 = 1 canal</div>
-          <div class="resumen-icon">🐄</div>
         </div>
         <div class="tarjeta-resumen">
-          <div class="resumen-label">Total Partes</div>
-          <div class="resumen-valor" id="numTotal">—</div>
-          <div class="resumen-sub">medias programadas</div>
-          <div class="resumen-icon">📦</div>
+          <div class="resumen-head">
+            <span class="resumen-ico">📦</span>
+            <div class="resumen-label">Total Partes</div>
+          </div>
+          <div class="resumen-valor accent-total" id="numTotal">—</div>
+          <div class="resumen-sub">medias programadas del día</div>
         </div>
       </div>
     </div>
