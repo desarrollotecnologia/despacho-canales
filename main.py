@@ -103,14 +103,9 @@ SQL_JOINS_PROGRAMADO = """
 """
 
 SQL_PPCR_JOIN = """
-        JOIN LATERAL (
-            SELECT mov.*
-            FROM trazabilidad_proceso.parte_producto_cava_riel mov
-            WHERE mov.id_parte_producto = pp.id
-              AND mov.id_producto::text = pp.id_producto::text
-            ORDER BY mov.fecha_ingreso DESC NULLS LAST, mov.id DESC
-            LIMIT 1
-        ) ppcr ON TRUE
+        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr
+            ON ppcr.id_parte_producto = pp.id
+           AND ppcr.id_producto::text = pp.id_producto::text
 """
 
 SQL_EXISTS_PROGRAMADO = """
@@ -460,6 +455,28 @@ def consultar_canales_planilla(fecha_filtro: str, turno: Optional[str]):
     con ruta puesto/zona como Gestor Vísceras.
     """
     sql = f"""
+        WITH programadas AS MATERIALIZED (
+            SELECT pp.*
+            FROM trazabilidad_proceso.parte_producto pp
+            WHERE pp.id_tipo_parte_producto IN %s
+              {SQL_EXISTS_PROGRAMADO}
+        ),
+        actuales AS MATERIALIZED (
+            SELECT DISTINCT ON (pp.id_producto, pp.id)
+                pp.*,
+                mov.id_cava AS movimiento_id_cava,
+                mov.id_riel AS movimiento_id_riel
+            FROM programadas pp
+            JOIN trazabilidad_proceso.parte_producto_cava_riel mov
+              ON mov.id_parte_producto = pp.id
+             AND mov.id_producto::text = pp.id_producto::text
+            WHERE mov.fecha_salida IS NULL
+            ORDER BY
+                pp.id_producto,
+                pp.id,
+                mov.fecha_ingreso DESC NULLS LAST,
+                mov.id DESC
+        )
         SELECT DISTINCT ON (pp.id_producto, pp.id)
             pp.id_producto                          AS codigo,
             tpp.id                                  AS id_tipo,
@@ -471,18 +488,18 @@ def consultar_canales_planilla(fecha_filtro: str, turno: Optional[str]):
             s.nombre                                AS sucursal_origen,
             s.direccion                             AS direccion_entrega,
             de.nombre                               AS destino_real
-        FROM trazabilidad_proceso.parte_producto pp
+        FROM actuales pp
         JOIN trazabilidad_proceso.tipo_parte_producto tpp ON tpp.id = pp.id_tipo_parte_producto
-        {SQL_PPCR_JOIN}
-        LEFT JOIN trazabilidad_proceso.cava c ON c.id = ppcr.id_cava
-        LEFT JOIN trazabilidad_proceso.riel r ON r.id = ppcr.id_riel
+        LEFT JOIN trazabilidad_proceso.cava c ON c.id = pp.movimiento_id_cava
+        LEFT JOIN trazabilidad_proceso.riel r ON r.id = pp.movimiento_id_riel
         {SQL_JOINS_PROGRAMADO}
-        WHERE pp.id_tipo_parte_producto IN %s
-          AND ppcr.fecha_salida IS NULL
         ORDER BY pp.id_producto, pp.id, e3.nombre NULLS LAST, c.orden NULLS LAST, r.nombre
     """
-    # JOIN programado consume fecha_filtro primero; luego IDS_CANAL
-    rows = safe_query(sql, (fecha_filtro, IDS_CANAL), "planilla_puntos")
+    rows = safe_query(
+        sql,
+        (IDS_CANAL, fecha_filtro, fecha_filtro),
+        "planilla_puntos",
+    )
     data = enriquecer_logistica(serializable(rows), fecha_filtro, turno, solo_despacho=True)
     for r in data:
         enriquecer_codigo(r)
@@ -768,6 +785,7 @@ def get_cavas(
             ON tpp.id = pp.id_tipo_parte_producto
         JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr
             ON ppcr.id_parte_producto = pp.id
+           AND ppcr.id_producto::text = pp.id_producto::text
         LEFT JOIN trazabilidad_proceso.cava c
             ON c.id = ppcr.id_cava
         LEFT JOIN trazabilidad_proceso.riel r
@@ -1151,50 +1169,69 @@ def get_planilla_opl(
     if hit is not None:
         return hit
 
-    sql_en_cava = f"""
+    sql_estado = f"""
+        WITH programadas AS (
+            SELECT DISTINCT
+                pp.id_producto::text AS id_producto,
+                pp.id AS id_parte_producto,
+                pp.id_tipo_parte_producto
+            FROM trazabilidad_proceso.parte_producto pp
+            WHERE pp.id_tipo_parte_producto IN %s
+              {SQL_EXISTS_PROGRAMADO}
+        ),
+        ultimo_movimiento AS (
+            SELECT DISTINCT ON (p.id_producto, p.id_parte_producto)
+                p.id_producto,
+                p.id_parte_producto,
+                p.id_tipo_parte_producto,
+                mov.fecha_salida
+            FROM programadas p
+            JOIN trazabilidad_proceso.parte_producto_cava_riel mov
+              ON mov.id_parte_producto = p.id_parte_producto
+             AND mov.id_producto::text = p.id_producto
+            ORDER BY
+                p.id_producto,
+                p.id_parte_producto,
+                mov.fecha_ingreso DESC NULLS LAST,
+                mov.id DESC
+        )
         SELECT
             e3.nombre                           AS propietario,
-            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1_pend,
-            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2_pend,
-            COUNT(*)                        AS total_pend
-        FROM trazabilidad_proceso.parte_producto pp
-        {SQL_PPCR_JOIN}
-        LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
+            COUNT(*) FILTER (WHERE u.id_tipo_parte_producto = {ID_MC1} AND u.fecha_salida IS NULL) AS mc1_pend,
+            COUNT(*) FILTER (WHERE u.id_tipo_parte_producto = {ID_MC2} AND u.fecha_salida IS NULL) AS mc2_pend,
+            COUNT(*) FILTER (WHERE u.fecha_salida IS NULL) AS total_pend,
+            COUNT(*) FILTER (WHERE u.id_tipo_parte_producto = {ID_MC1} AND u.fecha_salida::date = %s::date) AS mc1_sal,
+            COUNT(*) FILTER (WHERE u.id_tipo_parte_producto = {ID_MC2} AND u.fecha_salida::date = %s::date) AS mc2_sal,
+            COUNT(*) FILTER (WHERE u.fecha_salida::date = %s::date) AS total_sal
+        FROM ultimo_movimiento u
+        LEFT JOIN trazabilidad_proceso.producto_empresa pe
+          ON pe.id_producto::text = u.id_producto AND pe.activo = true
         LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
-        WHERE pp.id_tipo_parte_producto IN %s
-          AND ppcr.fecha_salida IS NULL
-          {SQL_EXISTS_PROGRAMADO}
-        GROUP BY e3.nombre ORDER BY total_pend DESC
-    """
-    sql_salidas = f"""
-        SELECT
-            e3.nombre                           AS propietario,
-            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc1_sal,
-            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = %s) AS mc2_sal,
-            COUNT(*)                        AS total_sal
-        FROM trazabilidad_proceso.parte_producto pp
-        {SQL_PPCR_JOIN}
-        LEFT JOIN trazabilidad_proceso.producto_empresa pe ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
-        LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
-        WHERE pp.id_tipo_parte_producto IN %s
-          AND ppcr.fecha_salida IS NOT NULL
-          AND DATE(ppcr.fecha_salida) = %s::date
-          {SQL_EXISTS_PROGRAMADO}
+        WHERE u.fecha_salida IS NULL OR u.fecha_salida::date = %s::date
         GROUP BY e3.nombre
+        ORDER BY total_pend DESC
     """
 
-    results = safe_query_many([
-        ("en_cava", sql_en_cava, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro), "planilla.cava"),
-        ("salidas",  sql_salidas, (ID_MC1, ID_MC2, IDS_CANAL, fecha_filtro, fecha_filtro), "planilla.salidas"),
-    ])
+    rows_estado = serializable(safe_query(
+        sql_estado,
+        (
+            IDS_CANAL,
+            fecha_filtro,
+            fecha_filtro,
+            fecha_filtro,
+            fecha_filtro,
+            fecha_filtro,
+        ),
+        "planilla.estado",
+    ))
 
     idx_cava = {
         (r.get("propietario") or "SIN PROPIETARIO"): r
-        for r in serializable(results.get("en_cava", []))
+        for r in rows_estado
     }
     idx_salidas = {
         (r.get("propietario") or "SIN PROPIETARIO"): r
-        for r in serializable(results.get("salidas", []))
+        for r in rows_estado
     }
 
     lista = []
