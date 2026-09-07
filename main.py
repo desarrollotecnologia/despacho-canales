@@ -103,9 +103,14 @@ SQL_JOINS_PROGRAMADO = """
 """
 
 SQL_PPCR_JOIN = """
-        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr
-            ON ppcr.id_parte_producto = pp.id
-           AND ppcr.id_producto::text = pp.id_producto::text
+        JOIN LATERAL (
+            SELECT mov.*
+            FROM trazabilidad_proceso.parte_producto_cava_riel mov
+            WHERE mov.id_parte_producto = pp.id
+              AND mov.id_producto::text = pp.id_producto::text
+            ORDER BY mov.fecha_ingreso DESC NULLS LAST, mov.id DESC
+            LIMIT 1
+        ) ppcr ON TRUE
 """
 
 SQL_EXISTS_PROGRAMADO = """

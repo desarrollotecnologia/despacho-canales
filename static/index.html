@@ -1012,17 +1012,22 @@ async function actualizarDashboard(silent, forceRefresh) {
     S.dashData = dash;
     S.planillaData = planilla;
 
-    $('numMC1').textContent = fmt(dash.mc1);
-    $('numMC2').textContent = fmt(dash.mc2);
-    $('numCanalesComp').textContent = fmtD(dash.canales_completas);
-    $('numTotal').textContent = fmt(dash.total_partes);
+    // El resumen muestra toda la operación asignada: pendientes + despachadas.
+    // Cavas y módulos continúan mostrando únicamente lo que sigue en cava.
+    const tot = planilla.totales || {};
+    const mc1Asignadas = (tot.mc1_pend || 0) + (tot.mc1_sal || 0);
+    const mc2Asignadas = (tot.mc2_pend || 0) + (tot.mc2_sal || 0);
+    const mediasAsignadas = mc1Asignadas + mc2Asignadas;
+    $('numMC1').textContent = fmt(mc1Asignadas);
+    $('numMC2').textContent = fmt(mc2Asignadas);
+    $('numCanalesComp').textContent = fmtD(mediasAsignadas * 0.5);
+    $('numTotal').textContent = fmt(mediasAsignadas);
     if ($('numPuestosDash')) {
       const nP = (dash.top_destinos && dash.top_destinos.length) || 0;
       $('numPuestosDash').textContent = fmt(nP);
     }
 
     // Progreso global + ficha OPL
-    const tot = planilla.totales || {};
     actualizarBarraProgreso(tot, planilla.operacionFinalizada);
     if ($('progSal')) $('progSal').textContent = fmt(tot.sal_total);
     if ($('progPend')) $('progPend').textContent = fmt(tot.pend_total);
