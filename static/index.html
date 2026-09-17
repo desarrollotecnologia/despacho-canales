@@ -436,7 +436,7 @@
               <div class="resumen-label">Canales Completas</div>
             </div>
             <div class="resumen-valor accent-canales" id="numCanalesComp">—</div>
-            <div class="resumen-sub">MC1 + MC2 = 1 canal</div>
+            <div class="resumen-sub">MC1 + MC2 = 1 canal · asignado del día</div>
           </div>
           <div class="tarjeta-resumen">
             <div class="resumen-head">
@@ -444,7 +444,7 @@
               <div class="resumen-label">Total Partes</div>
             </div>
             <div class="resumen-valor accent-total" id="numTotal">—</div>
-            <div class="resumen-sub">medias programadas del día</div>
+            <div class="resumen-sub">asignadas (congelado; no baja al pistolear)</div>
           </div>
         </div>
       </div>
@@ -984,14 +984,16 @@ function actualizarBarraProgreso(tot, operacionFinalizada) {
     if (operacionFinalizada) {
       $('progresoMeta').textContent = '✅ Operación finalizada — todas las canales programadas fueron pistoleadas';
     } else {
-      const sal = tot.canales_sal || 0;
+      const asignado = tot.asignado_canales != null
+        ? tot.asignado_canales
+        : ((tot.canales_sal || 0) + (tot.canales_pend || 0));
       const pend = tot.canales_pend || 0;
-      const total = sal + pend;
-      if (!total) {
+      const sal = tot.canales_sal != null ? tot.canales_sal : Math.max(0, asignado - pend);
+      if (!asignado) {
         $('progresoMeta').textContent = 'Sin canales programadas / despachadas para esta fecha';
       } else {
         $('progresoMeta').textContent =
-          `${fmtD(sal)} despachadas de ${fmtD(total)} canales — ${fmtD(pend)} pendientes`;
+          `${fmtD(sal)} despachadas de ${fmtD(asignado)} canales asignadas — ${fmtD(pend)} pendientes`;
       }
     }
   }
@@ -1012,12 +1014,18 @@ async function actualizarDashboard(silent, forceRefresh) {
     S.dashData = dash;
     S.planillaData = planilla;
 
-    // El resumen muestra toda la operación asignada: pendientes + despachadas.
-    // Cavas y módulos continúan mostrando únicamente lo que sigue en cava.
+    // Resumen = asignado congelado del día (no baja con pistoleo).
+    // Pendientes bajan; despachadas = asignado − pendientes.
     const tot = planilla.totales || {};
-    const mc1Asignadas = (tot.mc1_pend || 0) + (tot.mc1_sal || 0);
-    const mc2Asignadas = (tot.mc2_pend || 0) + (tot.mc2_sal || 0);
-    const mediasAsignadas = mc1Asignadas + mc2Asignadas;
+    const mc1Asignadas = tot.mc1_asignado != null
+      ? tot.mc1_asignado
+      : ((tot.mc1_pend || 0) + (tot.mc1_sal || 0));
+    const mc2Asignadas = tot.mc2_asignado != null
+      ? tot.mc2_asignado
+      : ((tot.mc2_pend || 0) + (tot.mc2_sal || 0));
+    const mediasAsignadas = tot.asignado_medias != null
+      ? tot.asignado_medias
+      : (mc1Asignadas + mc2Asignadas);
     $('numMC1').textContent = fmt(mc1Asignadas);
     $('numMC2').textContent = fmt(mc2Asignadas);
     $('numCanalesComp').textContent = fmtD(mediasAsignadas * 0.5);

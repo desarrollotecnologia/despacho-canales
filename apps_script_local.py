@@ -41,6 +41,10 @@ def _blank_state():
         "opl_progreso": [],
         "historico": [],
         "operacion_finalizada": False,
+        # Asignado congelado estilo Vísceras: meta del día por fecha/turno.
+        # Solo sube si asignan más; solo baja si el total vivo (pend+sal) baja
+        # (cancelación / se quita la asignación o una salida deja de contar).
+        "asignado_congelado": {},
     }
 
 
@@ -119,6 +123,98 @@ def eliminarOpl(rowIdx):
         state["opl_config"].pop(idx)
         _save_state(state)
     return {"success": True}
+
+
+# ═══════════════════════════════════════════════════════
+# ASIGNADO CONGELADO — meta del día (estilo Vísceras)
+# ═══════════════════════════════════════════════════════
+def _clave_asignado(fecha, turno=None):
+    t = _as_str(turno) or "Todos"
+    return f"{_as_str(fecha)}|{t}"
+
+
+def actualizar_asignado_congelado(fecha, turno, snapshot):
+    """
+    Actualiza la meta congelada del día.
+
+    snapshot vivo = pendientes + salidas actuales:
+      {
+        "medias": int, "mc1": int, "mc2": int,
+        "por_opl": { "OPL": {"medias": n, "mc1": n, "mc2": n} }
+      }
+
+    Reglas estilo Vísceras:
+    - Si asignan más → el congelado sube.
+    - Si pistolean → no cambia (pend baja, sal sube, suma igual).
+    - Si baja el total vivo → el congelado baja (cancelación /
+      una salida marcada deja de contar en el día).
+    """
+    state = _load_state()
+    key = _clave_asignado(fecha, turno)
+    bag = state.setdefault("asignado_congelado", {})
+    prev = bag.get(key) or {}
+
+    vivo_medias = int(_num(snapshot.get("medias")))
+    vivo_mc1 = int(_num(snapshot.get("mc1")))
+    vivo_mc2 = int(_num(snapshot.get("mc2")))
+    vivo_opl = snapshot.get("por_opl") or {}
+
+    prev_medias = int(_num(prev.get("medias")))
+    prev_opl = prev.get("por_opl") or {}
+
+    # Universo asignado = pend + sal. El pistoleo lo deja igual.
+    if vivo_medias > prev_medias:
+        medias, mc1, mc2 = vivo_medias, vivo_mc1, vivo_mc2
+    elif vivo_medias < prev_medias:
+        medias, mc1, mc2 = vivo_medias, vivo_mc1, vivo_mc2
+    elif prev_medias:
+        medias = prev_medias
+        mc1 = int(_num(prev.get("mc1"))) or vivo_mc1
+        mc2 = int(_num(prev.get("mc2"))) or vivo_mc2
+    else:
+        medias, mc1, mc2 = vivo_medias, vivo_mc1, vivo_mc2
+
+    por_opl = {}
+    opl_keys = set(prev_opl.keys()) | set(vivo_opl.keys())
+    for opl in opl_keys:
+        v = vivo_opl.get(opl) or {}
+        p = prev_opl.get(opl) or {}
+        v_m = int(_num(v.get("medias")))
+        p_m = int(_num(p.get("medias")))
+        if v_m > p_m:
+            m, a, b = v_m, int(_num(v.get("mc1"))), int(_num(v.get("mc2")))
+        elif v_m < p_m:
+            m, a, b = v_m, int(_num(v.get("mc1"))), int(_num(v.get("mc2")))
+        elif p_m:
+            m = p_m
+            a = int(_num(p.get("mc1"))) or int(_num(v.get("mc1")))
+            b = int(_num(p.get("mc2"))) or int(_num(v.get("mc2")))
+        else:
+            m, a, b = v_m, int(_num(v.get("mc1"))), int(_num(v.get("mc2")))
+        if m > 0 or v_m > 0 or p_m > 0:
+            por_opl[opl] = {"medias": m, "mc1": a, "mc2": b}
+
+    nuevo = {
+        "fecha": _as_str(fecha),
+        "turno": _as_str(turno) or "Todos",
+        "medias": medias,
+        "mc1": mc1,
+        "mc2": mc2,
+        "canales": medias * 0.5,
+        "por_opl": por_opl,
+        "actualizado": _now(),
+        "vivo_medias": vivo_medias,
+        "prev_medias": prev_medias,
+    }
+    bag[key] = nuevo
+    state["asignado_congelado"] = bag
+    _save_state(state)
+    return nuevo
+
+
+def get_asignado_congelado(fecha, turno=None):
+    state = _load_state()
+    return (state.get("asignado_congelado") or {}).get(_clave_asignado(fecha, turno))
 
 
 # ═══════════════════════════════════════════════════════

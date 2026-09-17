@@ -1164,7 +1164,7 @@ def get_planilla_opl(
     turno = resolver_turno(fecha_filtro, turno)
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
-    ck = ("planilla_opl", fecha_filtro, turno, "prog_v1")
+    ck = ("planilla_opl", fecha_filtro, turno, "prog_v2_cong")
     hit = cache_get(ck)
     if hit is not None:
         return hit
@@ -1271,13 +1271,45 @@ def get_planilla_opl(
     by_opl = {}
     for r in lista:
         opl = r.get("opl") or apps_script_local.OPL_DEFAULT
-        b = by_opl.setdefault(opl, {"opl": opl, "pend": 0, "sal": 0})
+        b = by_opl.setdefault(opl, {"opl": opl, "pend": 0, "sal": 0, "mc1": 0, "mc2": 0})
         b["pend"] += int(r["total_pendiente"] or 0)
         b["sal"] += int(r["total_despachado"] or 0)
+        b["mc1"] += int(r["mc1_pendiente"] or 0) + int(r["mc1_despachado"] or 0)
+        b["mc2"] += int(r["mc2_pendiente"] or 0) + int(r["mc2_despachado"] or 0)
+
+    totales_vivos = {
+        "mc1_pend":  sum(r["mc1_pendiente"]   for r in lista),
+        "mc2_pend":  sum(r["mc2_pendiente"]   for r in lista),
+        "mc1_sal":   sum(r["mc1_despachado"]  for r in lista),
+        "mc2_sal":   sum(r["mc2_despachado"]  for r in lista),
+        "pend_total":sum(r["total_pendiente"] for r in lista),
+        "sal_total": sum(r["total_despachado"]for r in lista),
+    }
+    # Snapshot vivo = universo asignado del día (pendientes + pistoleadas).
+    # El pistoleo no lo mueve: solo sube con más asignaciones y baja si
+    # cancelan / una salida deja de contar.
+    snapshot = {
+        "medias": totales_vivos["pend_total"] + totales_vivos["sal_total"],
+        "mc1": totales_vivos["mc1_pend"] + totales_vivos["mc1_sal"],
+        "mc2": totales_vivos["mc2_pend"] + totales_vivos["mc2_sal"],
+        "por_opl": {
+            opl: {"medias": b["pend"] + b["sal"], "mc1": b["mc1"], "mc2": b["mc2"]}
+            for opl, b in by_opl.items()
+        },
+    }
+    congelado = apps_script_local.actualizar_asignado_congelado(
+        fecha_filtro, turno or turno_de_fecha(fecha_filtro), snapshot
+    )
+    por_opl_cong = congelado.get("por_opl") or {}
+
     todos_opl = []
     for opl, b in by_opl.items():
-        pend, sal = b["pend"], b["sal"]
-        total = pend + sal
+        pend = b["pend"]
+        cong = por_opl_cong.get(opl) or {}
+        total = int(cong.get("medias") or (b["pend"] + b["sal"]))
+        # Estilo Vísceras: despachados = asignado congelado − pendientes
+        pend = min(total, pend)
+        sal = max(0, total - pend)
         pct = round((sal / total) * 100) if total else 0
         if pend > 0:
             pct = min(99, pct)
@@ -1292,23 +1324,34 @@ def get_planilla_opl(
             "total_medias": total,
             "pendientes_medias": pend,
             "despachados_medias": sal,
+            "asignado_medias": total,
         })
     todos_opl.sort(key=lambda x: (-x["pendientes"], -x["total"], x["opl"]))
     progreso_activos = [x for x in todos_opl if x["pendientes"] > 0]
 
+    asignado_medias = int(congelado.get("medias") or 0)
+    pend_total = totales_vivos["pend_total"]
+    pend_total = min(asignado_medias, pend_total) if asignado_medias else pend_total
+    sal_total = max(0, asignado_medias - pend_total)
     totales = {
-        "mc1_pend":  sum(r["mc1_pendiente"]   for r in lista),
-        "mc2_pend":  sum(r["mc2_pendiente"]   for r in lista),
-        "mc1_sal":   sum(r["mc1_despachado"]  for r in lista),
-        "mc2_sal":   sum(r["mc2_despachado"]  for r in lista),
-        "pend_total":sum(r["total_pendiente"] for r in lista),
-        "sal_total": sum(r["total_despachado"]for r in lista),
-        "canales_pend": sum(r["canales_pendiente"]  for r in lista),
-        "canales_sal":  sum(r["canales_despachado"] for r in lista),
+        "mc1_pend":  totales_vivos["mc1_pend"],
+        "mc2_pend":  totales_vivos["mc2_pend"],
+        "mc1_sal":   totales_vivos["mc1_sal"],
+        "mc2_sal":   totales_vivos["mc2_sal"],
+        "pend_total": pend_total,
+        "sal_total": sal_total,
+        "canales_pend": pend_total * 0.5,
+        "canales_sal":  sal_total * 0.5,
+        # Meta congelada del día (no baja con pistoleo)
+        "asignado_medias": asignado_medias,
+        "asignado_canales": asignado_medias * 0.5,
+        "mc1_asignado": int(congelado.get("mc1") or 0),
+        "mc2_asignado": int(congelado.get("mc2") or 0),
+        "asignado_congelado": True,
     }
-    t_ini = totales["pend_total"] + totales["sal_total"]
-    totales["progreso_global"] = round((totales["sal_total"] / t_ini) * 100) if t_ini else 0
-    if totales["pend_total"] > 0:
+    t_ini = asignado_medias
+    totales["progreso_global"] = round((sal_total / t_ini) * 100) if t_ini else 0
+    if pend_total > 0:
         totales["progreso_global"] = min(99, totales["progreso_global"])
     elif t_ini > 0:
         totales["progreso_global"] = 100
