@@ -35,7 +35,7 @@
     #fechaSelect{padding:0.4rem 0.8rem;border:2px solid var(--vc);border-radius:10px;font-size:0.88rem;background:white;cursor:pointer;}
     #fechaSelect:focus{outline:none;border-color:var(--vp);}
 
-    /* RESUMEN — estilo Vísceras, 4 celdas (2×2), compacto a la izquierda */
+    /* RESUMEN — asignado congelado vs pendientes (estilo Vísceras) */
     .resumen-panel{
       background:var(--blanco);
       border-radius:14px;
@@ -45,7 +45,7 @@
       overflow:hidden;
       position:relative;
       width:100%;
-      max-width:480px;
+      max-width:560px;
       margin-right:auto;
     }
     .resumen-panel::before{
@@ -69,7 +69,7 @@
       border:none;
       position:relative;
       overflow:hidden;
-      min-height:108px;
+      min-height:118px;
     }
     .tarjeta-resumen:nth-child(1),
     .tarjeta-resumen:nth-child(2){border-bottom:1px solid #e8eef5;}
@@ -104,11 +104,19 @@
     }
     .resumen-valor.accent-canales{color:#0f766e;}
     .resumen-valor.accent-total{color:#1d4ed8;}
+    .resumen-valor.accent-pend{color:#dc2626;}
+    .resumen-valor.accent-ok{color:#16a34a;}
     .resumen-sub{
       font-size:0.74rem;
       color:var(--gris);
       margin-top:0.3rem;
       line-height:1.25;
+    }
+    .resumen-vs{
+      font-size:0.78rem;
+      font-weight:700;
+      color:var(--vp);
+      margin-top:0.25rem;
     }
     .resumen-icon{display:none;}
     @media(max-width:640px){
@@ -416,35 +424,43 @@
         <div class="resumen-grid" id="resumenGrid">
           <div class="tarjeta-resumen">
             <div class="resumen-head">
-              <span class="resumen-ico">◀</span>
-              <div class="resumen-label">Media Canal 1</div>
+              <span class="resumen-ico">📤</span>
+              <div class="resumen-label">Asignadas (congelado)</div>
             </div>
-            <div class="resumen-valor" id="numMC1">—</div>
-            <div class="resumen-sub">sufijo -1001 (izquierda)</div>
+            <div class="resumen-valor accent-total" id="numAsignadas">—</div>
+            <div class="resumen-sub" id="numAsignadasSub">meta del día · no baja al pistolear</div>
+            <div class="resumen-vs" id="numAsignadasMedias"></div>
           </div>
           <div class="tarjeta-resumen">
             <div class="resumen-head">
-              <span class="resumen-ico">▶</span>
-              <div class="resumen-label">Media Canal 2</div>
+              <span class="resumen-ico">🚛</span>
+              <div class="resumen-label">Pendientes a despachar</div>
             </div>
-            <div class="resumen-valor" id="numMC2">—</div>
-            <div class="resumen-sub">sufijo -1002 (derecha)</div>
+            <div class="resumen-valor accent-pend" id="numPendientes">—</div>
+            <div class="resumen-sub">solo disminuye con pistoleo</div>
+            <div class="resumen-vs" id="numPendientesVs">— de — asignadas</div>
+          </div>
+          <div class="tarjeta-resumen">
+            <div class="resumen-head">
+              <span class="resumen-ico">✅</span>
+              <div class="resumen-label">Despachadas</div>
+            </div>
+            <div class="resumen-valor accent-ok" id="numDespachadas">—</div>
+            <div class="resumen-sub">asignado − pendientes</div>
+            <div class="resumen-vs" id="numDespachadasPct"></div>
           </div>
           <div class="tarjeta-resumen">
             <div class="resumen-head">
               <span class="resumen-ico">🐄</span>
-              <div class="resumen-label">Canales Completas</div>
+              <div class="resumen-label">Desglose MC1 / MC2</div>
             </div>
-            <div class="resumen-valor accent-canales" id="numCanalesComp">—</div>
-            <div class="resumen-sub">MC1 + MC2 = 1 canal · asignado del día</div>
-          </div>
-          <div class="tarjeta-resumen">
-            <div class="resumen-head">
-              <span class="resumen-ico">📦</span>
-              <div class="resumen-label">Total Partes</div>
-            </div>
-            <div class="resumen-valor accent-total" id="numTotal">—</div>
-            <div class="resumen-sub">asignadas (congelado; no baja al pistolear)</div>
+            <div class="resumen-valor accent-canales" style="font-size:1.55rem;" id="numMC1MC2">—</div>
+            <div class="resumen-sub">medias asignadas del día</div>
+            <!-- ids legacy -->
+            <span id="numMC1" style="display:none">—</span>
+            <span id="numMC2" style="display:none">—</span>
+            <span id="numCanalesComp" style="display:none">—</span>
+            <span id="numTotal" style="display:none">—</span>
           </div>
         </div>
       </div>
@@ -993,7 +1009,7 @@ function actualizarBarraProgreso(tot, operacionFinalizada) {
         $('progresoMeta').textContent = 'Sin canales programadas / despachadas para esta fecha';
       } else {
         $('progresoMeta').textContent =
-          `${fmtD(sal)} despachadas de ${fmtD(asignado)} canales asignadas — ${fmtD(pend)} pendientes`;
+          `${fmtD(sal)} despachadas de ${fmtD(asignado)} asignadas (congelado) — ${fmtD(pend)} pendientes`;
       }
     }
   }
@@ -1014,8 +1030,8 @@ async function actualizarDashboard(silent, forceRefresh) {
     S.dashData = dash;
     S.planillaData = planilla;
 
-    // Resumen = asignado congelado del día (no baja con pistoleo).
-    // Pendientes bajan; despachadas = asignado − pendientes.
+    // Resumen visual estilo Vísceras:
+    // asignado congelado | pendientes (baja) | despachadas | MC1/MC2
     const tot = planilla.totales || {};
     const mc1Asignadas = tot.mc1_asignado != null
       ? tot.mc1_asignado
@@ -1026,10 +1042,32 @@ async function actualizarDashboard(silent, forceRefresh) {
     const mediasAsignadas = tot.asignado_medias != null
       ? tot.asignado_medias
       : (mc1Asignadas + mc2Asignadas);
-    $('numMC1').textContent = fmt(mc1Asignadas);
-    $('numMC2').textContent = fmt(mc2Asignadas);
-    $('numCanalesComp').textContent = fmtD(mediasAsignadas * 0.5);
-    $('numTotal').textContent = fmt(mediasAsignadas);
+    const canalesAsignadas = tot.asignado_canales != null
+      ? tot.asignado_canales
+      : (mediasAsignadas * 0.5);
+    const canalesPend = tot.canales_pend != null ? tot.canales_pend : ((tot.pend_total || 0) * 0.5);
+    const canalesSal = tot.canales_sal != null
+      ? tot.canales_sal
+      : Math.max(0, canalesAsignadas - canalesPend);
+    const pct = tot.progreso_global || 0;
+
+    if ($('numAsignadas')) $('numAsignadas').textContent = fmtD(canalesAsignadas);
+    if ($('numAsignadasMedias')) $('numAsignadasMedias').textContent = `${fmt(mediasAsignadas)} medias`;
+    if ($('numPendientes')) $('numPendientes').textContent = fmtD(canalesPend);
+    if ($('numPendientesVs')) {
+      $('numPendientesVs').textContent = canalesAsignadas
+        ? `${fmtD(canalesPend)} de ${fmtD(canalesAsignadas)} asignadas`
+        : 'sin asignación';
+    }
+    if ($('numDespachadas')) $('numDespachadas').textContent = fmtD(canalesSal);
+    if ($('numDespachadasPct')) $('numDespachadasPct').textContent = fmtPct(pct) + ' del asignado';
+    if ($('numMC1MC2')) $('numMC1MC2').textContent = `${fmt(mc1Asignadas)} / ${fmt(mc2Asignadas)}`;
+
+    // ids legacy
+    if ($('numMC1')) $('numMC1').textContent = fmt(mc1Asignadas);
+    if ($('numMC2')) $('numMC2').textContent = fmt(mc2Asignadas);
+    if ($('numCanalesComp')) $('numCanalesComp').textContent = fmtD(canalesAsignadas);
+    if ($('numTotal')) $('numTotal').textContent = fmt(mediasAsignadas);
     if ($('numPuestosDash')) {
       const nP = (dash.top_destinos && dash.top_destinos.length) || 0;
       $('numPuestosDash').textContent = fmt(nP);
