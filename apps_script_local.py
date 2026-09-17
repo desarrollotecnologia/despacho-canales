@@ -45,6 +45,8 @@ def _blank_state():
         # Solo sube si asignan más; solo baja si el total vivo (pend+sal) baja
         # (cancelación / se quita la asignación o una salida deja de contar).
         "asignado_congelado": {},
+        # OPLs marcados como particulares para Excel multi-hoja.
+        "opls_particulares": [],
     }
 
 
@@ -215,6 +217,44 @@ def actualizar_asignado_congelado(fecha, turno, snapshot):
 def get_asignado_congelado(fecha, turno=None):
     state = _load_state()
     return (state.get("asignado_congelado") or {}).get(_clave_asignado(fecha, turno))
+
+
+# ═══════════════════════════════════════════════════════
+# OPLS PARTICULARES — selección para Excel multi-hoja
+# ═══════════════════════════════════════════════════════
+def getOplsParticulares():
+    state = _load_state()
+    lista = [_as_str(x) for x in (state.get("opls_particulares") or []) if _as_str(x)]
+    # únicos preservando orden
+    vistos = set()
+    out = []
+    for opl in lista:
+        key = opl.upper()
+        if key in vistos:
+            continue
+        vistos.add(key)
+        out.append(opl)
+    return {"success": True, "opls": out}
+
+
+def setOplsParticulares(opls):
+    if not isinstance(opls, list):
+        return {"success": False, "message": "opls debe ser una lista"}
+    limpios = []
+    vistos = set()
+    for item in opls:
+        opl = _as_str(item)
+        if not opl:
+            continue
+        key = opl.upper()
+        if key in vistos:
+            continue
+        vistos.add(key)
+        limpios.append(opl)
+    state = _load_state()
+    state["opls_particulares"] = limpios
+    _save_state(state)
+    return {"success": True, "opls": limpios}
 
 
 # ═══════════════════════════════════════════════════════

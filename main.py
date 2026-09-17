@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
@@ -611,19 +612,21 @@ def resumen_planilla_puntos(items: List[dict]):
     return lista, round(total_general, 2)
 
 
-def construir_excel_opl(opl: str, fecha: str, turno, filas: List[dict]) -> BytesIO:
-    try:
-        from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-    except ImportError:
-        raise HTTPException(
-            status_code=500,
-            detail="Falta openpyxl. En el servidor ejecuta: pip install openpyxl",
-        )
+def _sanear_nombre_hoja(nombre: str, usados: set) -> str:
+    raw = re.sub(r'[\\/*?:\[\]]', "-", str(nombre or "OPL")).strip() or "OPL"
+    base = raw[:31]
+    candidato = base
+    i = 2
+    while candidato.upper() in usados:
+        suf = f"_{i}"
+        candidato = (base[: max(1, 31 - len(suf))] + suf)[:31]
+        i += 1
+    usados.add(candidato.upper())
+    return candidato
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = (opl or "OPL")[:31]
+
+def _escribir_hoja_excel_opl(ws, opl: str, fecha: str, turno, filas: List[dict]):
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
     verde = PatternFill("solid", fgColor="259C39")
     verde_claro = PatternFill("solid", fgColor="E8F5E9")
@@ -648,7 +651,9 @@ def construir_excel_opl(opl: str, fecha: str, turno, filas: List[dict]) -> Bytes
 
     turno_txt = turno or "Todos"
     ws.merge_cells("A2:F2")
-    ws["A2"] = f"Medias canales pendientes · {fecha} · turno {turno_txt} · {len(filas)} registros"
+    ws["A2"] = (
+        f"Medias canales pendientes · {fecha} · turno {turno_txt} · {len(filas)} registros"
+    )
     ws["A2"].font = Font(name="Calibri", size=10, italic=True, color="374151")
     ws["A2"].alignment = Alignment(horizontal="center")
     ws.row_dimensions[2].height = 18
@@ -691,6 +696,58 @@ def construir_excel_opl(opl: str, fecha: str, turno, filas: List[dict]) -> Bytes
     ws.page_setup.fitToHeight = 0
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.print_title_rows = "1:3"
+
+
+def construir_excel_opl(opl: str, fecha: str, turno, filas: List[dict]) -> BytesIO:
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="Falta openpyxl. En el servidor ejecuta: pip install openpyxl",
+        )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = _sanear_nombre_hoja(opl or "OPL", set())
+    _escribir_hoja_excel_opl(ws, opl, fecha, turno, filas)
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def construir_excel_particulares(fecha: str, turno, por_opl: dict) -> BytesIO:
+    """
+    Un Excel con una hoja por OPL particular.
+    Solo incluye lo pendiente (sin pistolear) de cada OPL.
+    """
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="Falta openpyxl. En el servidor ejecuta: pip install openpyxl",
+        )
+
+    wb = Workbook()
+    usados = set()
+    primero = True
+    for opl, filas in por_opl.items():
+        titulo = _sanear_nombre_hoja(opl, usados)
+        if primero:
+            ws = wb.active
+            ws.title = titulo
+            primero = False
+        else:
+            ws = wb.create_sheet(titulo)
+        _escribir_hoja_excel_opl(ws, opl, fecha, turno, filas)
+
+    if primero:
+        # Sin datos: hoja vacía informativa
+        ws = wb.active
+        ws.title = "Sin pendientes"
+        _escribir_hoja_excel_opl(ws, "PARTICULARES", fecha, turno, [])
 
     buf = BytesIO()
     wb.save(buf)
@@ -1518,6 +1575,66 @@ def excel_planilla_puntos(
     ]
     buf = construir_excel_opl(opl, fecha_filtro, turno, items)
     fname = f"OPL_{opl.replace(' ', '_')}_{fecha_filtro}.xlsx"
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"
+    }
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+class ParticularesIn(BaseModel):
+    opls: List[str] = []
+
+
+@app.get("/api/planilla_puntos/particulares")
+def get_particulares():
+    return apps_script_local.getOplsParticulares()
+
+
+@app.post("/api/planilla_puntos/particulares")
+def set_particulares(payload: ParticularesIn):
+    return apps_script_local.setOplsParticulares(payload.opls or [])
+
+
+@app.get("/api/planilla_puntos/excel_particulares")
+def excel_planilla_particulares(
+    fecha: Optional[str] = None,
+    turno: Optional[str] = None,
+    refresh: Optional[str] = None,
+):
+    """
+    Excel multi-hoja de OPLs particulares.
+    Solo pendientes (sin fecha_salida): a medida que pistolean, se van quitando.
+    """
+    fecha_filtro = fecha or date.today().isoformat()
+    turno = resolver_turno(fecha_filtro, turno)
+    if es_refresh(refresh):
+        cache_invalidate_fecha(fecha_filtro)
+
+    cfg = apps_script_local.getOplsParticulares()
+    seleccion = [str(x).strip() for x in (cfg.get("opls") or []) if str(x).strip()]
+    if not seleccion:
+        raise HTTPException(
+            status_code=400,
+            detail="No hay OPLs particulares configurados. Selecciónalos primero.",
+        )
+
+    seleccion_up = {x.upper() for x in seleccion}
+    piezas = obtener_piezas_programadas(fecha_filtro, turno)
+    por_opl = {opl: [] for opl in seleccion}
+    mapa_nombre = {opl.upper(): opl for opl in seleccion}
+    for r in piezas:
+        opl = (r.get("opl") or "").strip()
+        if opl.upper() in seleccion_up:
+            por_opl[mapa_nombre[opl.upper()]].append(r)
+
+    # Mantener orden de selección; incluir hojas aunque queden en 0 (ya despachados)
+    ordenado = {opl: por_opl.get(opl, []) for opl in seleccion}
+    buf = construir_excel_particulares(fecha_filtro, turno, ordenado)
+    fname = f"Particulares_pendientes_{fecha_filtro}.xlsx"
     headers = {
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"
     }

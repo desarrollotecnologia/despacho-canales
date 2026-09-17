@@ -35,147 +35,112 @@
     #fechaSelect{padding:0.4rem 0.8rem;border:2px solid var(--vc);border-radius:10px;font-size:0.88rem;background:white;cursor:pointer;}
     #fechaSelect:focus{outline:none;border-color:var(--vp);}
 
-    /* RESUMEN — asignado congelado vs pendientes (estilo Vísceras) */
-    .resumen-panel{
-      background:var(--blanco);
-      border-radius:14px;
-      box-shadow:var(--sombra);
-      border:1px solid #e5e7eb;
-      margin-bottom:2.5rem;
-      overflow:hidden;
-      position:relative;
-      width:100%;
-      max-width:560px;
-      margin-right:auto;
-    }
-    .resumen-panel::before{
-      content:'';
-      display:block;
-      height:5px;
-      background:var(--vp);
-    }
-    .resumen-grid{
+    /* RESUMEN — 3 tarjetas estilo Vísceras */
+    .home-top-row{
       display:grid;
-      grid-template-columns:1fr 1fr;
-      grid-template-rows:1fr 1fr;
-      margin:0;
-      gap:0;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:1.5rem;
+      margin-bottom:2.5rem;
+      align-items:stretch;
+      width:100%;
     }
     .tarjeta-resumen{
-      background:transparent;
-      border-radius:0;
-      padding:1.05rem 1.15rem 1.15rem;
-      box-shadow:none;
-      border:none;
+      background:var(--blanco);
+      border-radius:var(--radio);
+      padding:1.5rem;
+      box-shadow:var(--sombra);
+      border:1px solid rgba(96,165,250,0.2);
+      transition:transform 0.2s;
       position:relative;
       overflow:hidden;
-      min-height:118px;
+      min-height:160px;
     }
-    .tarjeta-resumen:nth-child(1),
-    .tarjeta-resumen:nth-child(2){border-bottom:1px solid #e8eef5;}
-    .tarjeta-resumen:nth-child(odd){border-right:1px solid #e8eef5;}
-    .tarjeta-resumen:hover{transform:none;background:#fafcff;}
-    .tarjeta-resumen::before{display:none;}
-    .resumen-head{
-      display:flex;
-      align-items:center;
-      gap:0.4rem;
-      margin-bottom:0.35rem;
-    }
-    .resumen-ico{
-      font-size:1rem;
-      line-height:1;
-      opacity:0.9;
+    .tarjeta-resumen:hover{transform:translateY(-4px);}
+    .tarjeta-resumen::before{
+      content:'';
+      position:absolute;top:0;left:0;width:100%;height:5px;
+      background:linear-gradient(90deg,var(--vp),var(--vs));
     }
     .resumen-label{
-      font-size:0.68rem;
+      font-size:0.8rem;
       text-transform:uppercase;
-      letter-spacing:0.5px;
+      letter-spacing:1px;
       color:var(--gris);
+      margin-bottom:0.5rem;
       font-weight:600;
-      margin:0;
     }
     .resumen-valor{
-      font-size:2rem;
+      font-size:2.6rem;
       font-weight:800;
       color:var(--vp);
-      line-height:1.05;
+      line-height:1;
       letter-spacing:-0.5px;
     }
-    .resumen-valor.accent-canales{color:#0f766e;}
-    .resumen-valor.accent-total{color:#1d4ed8;}
     .resumen-valor.accent-pend{color:#dc2626;}
     .resumen-valor.accent-ok{color:#16a34a;}
     .resumen-sub{
-      font-size:0.74rem;
-      color:var(--gris);
-      margin-top:0.3rem;
-      line-height:1.25;
-    }
-    .resumen-vs{
       font-size:0.78rem;
-      font-weight:700;
-      color:var(--vp);
-      margin-top:0.25rem;
+      color:var(--gris);
+      margin-top:0.4rem;
+      line-height:1.3;
     }
-    .resumen-icon{display:none;}
-    @media(max-width:640px){
-      .resumen-panel{max-width:100%;}
-      .resumen-grid{grid-template-columns:1fr 1fr;}
-      .resumen-valor{font-size:1.7rem;}
+    .resumen-icon{
+      position:absolute;right:1rem;bottom:1rem;
+      font-size:3rem;opacity:0.1;color:var(--vp);
     }
+    .tarjeta-split{display:flex;gap:0;align-items:stretch;}
+    .split-left{flex:1.1;padding-right:1rem;border-right:2px solid var(--vc);}
+    .split-right{flex:1;padding-left:1rem;}
+    .split-label{
+      font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;
+      color:var(--gris);margin-bottom:0.3rem;font-weight:600;
+    }
+    .split-valor{font-size:2.2rem;font-weight:800;color:var(--vp);line-height:1;}
+    .split-valor.rojo{color:#dc2626;}
+    .split-valor.teal{color:#0f766e;}
+    .split-sub{font-size:0.72rem;color:var(--gris);margin-top:0.3rem;line-height:1.25;}
+    .dash-meta-line{
+      margin-top:0.65rem;font-size:0.8rem;color:var(--gris);
+    }
+    .dash-meta-line strong{color:#1f2937;}
 
-    /* Fila superior: resumen + progreso OPL pegados a la izquierda */
-    .home-top-row{
-      display:flex;
-      align-items:stretch;
-      justify-content:flex-start;
-      gap:0.75rem;
-      margin-bottom:2.5rem;
-      flex-wrap:wrap;
-    }
-    .home-top-row .resumen-panel{
-      margin-bottom:0;
-      margin-right:0;
-      flex:0 0 auto;
-      width:auto;
-      max-width:480px;
-    }
     .progreso-opl-card{
       background:var(--blanco);
-      border-radius:14px;
+      border-radius:var(--radio);
       box-shadow:var(--sombra);
-      border:1px solid #e5e7eb;
+      border:1px solid rgba(96,165,250,0.2);
       overflow:hidden;
       position:relative;
-      width:360px;
-      max-width:100%;
-      flex:0 0 auto;
-      min-width:300px;
+      width:100%;
+      max-width:none;
+      flex:none;
+      min-width:0;
+      min-height:160px;
       display:flex;
       flex-direction:column;
+      transition:transform 0.2s;
     }
+    .progreso-opl-card:hover{transform:translateY(-4px);}
     .progreso-opl-card::before{
       content:'';
-      display:block;
-      height:5px;
-      background:var(--vp);
+      position:absolute;top:0;left:0;width:100%;height:5px;
+      background:linear-gradient(90deg,var(--vp),var(--vs));
     }
     .poc-head{
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:0.5rem;
-      padding:0.85rem 1.1rem 0.65rem;
-      border-bottom:1px solid #eef2f7;
+      padding:1.15rem 1.3rem 0.55rem;
+      border-bottom:none;
     }
     .poc-title{
       display:flex;
       align-items:center;
       gap:0.4rem;
-      font-size:0.78rem;
+      font-size:0.8rem;
       font-weight:700;
-      letter-spacing:0.6px;
+      letter-spacing:1px;
       color:var(--gris);
       text-transform:uppercase;
     }
@@ -194,7 +159,7 @@
       padding:0.2rem 0;
     }
     .poc-detalle:hover{color:var(--vp);}
-    .poc-body{padding:0.8rem 1.1rem 0.5rem;flex:1;}
+    .poc-body{padding:0.35rem 1.3rem 0.5rem;flex:1;}
     .poc-row{margin-bottom:0.7rem;}
     .poc-row-top{
       display:flex;align-items:center;justify-content:space-between;
@@ -222,9 +187,8 @@
     .opl-select{padding:0.3rem 0.45rem;border:1.5px solid var(--vc);border-radius:8px;font-size:0.8rem;background:white;max-width:140px;}
     .opl-modal-row{margin-bottom:0.7rem;padding-bottom:0.55rem;border-bottom:1px solid #f1f5f9;}
     .opl-modal-row:last-child{border-bottom:none;}
-    @media(max-width:700px){
-      .home-top-row .resumen-panel,
-      .progreso-opl-card{max-width:100%;}
+    @media(max-width:980px){
+      .home-top-row{grid-template-columns:1fr;}
     }
     .tarjeta-opl{cursor:pointer;min-width:260px;}
     .tarjeta-opl:hover{transform:translateY(-4px);border-color:var(--vh);}
@@ -418,53 +382,36 @@
   <!-- ══════ VISTA PRINCIPAL ══════ -->
   <div id="viewMain">
 
-    <!-- Fila superior: resumen + progreso OPL (tiempo real) -->
+    <!-- Fila superior estilo Vísceras: Asignadas | OPL | Pendientes -->
     <div class="home-top-row">
-      <div class="resumen-panel" id="resumenPanel">
-        <div class="resumen-grid" id="resumenGrid">
-          <div class="tarjeta-resumen">
-            <div class="resumen-head">
-              <span class="resumen-ico">📤</span>
-              <div class="resumen-label">Asignadas (congelado)</div>
-            </div>
-            <div class="resumen-valor accent-total" id="numAsignadas">—</div>
-            <div class="resumen-sub" id="numAsignadasSub">meta del día · no baja al pistolear</div>
-            <div class="resumen-vs" id="numAsignadasMedias"></div>
+      <!-- Tarjeta 1: Asignadas (congelado) + MC1/MC2 -->
+      <div class="tarjeta-resumen">
+        <div class="tarjeta-split">
+          <div class="split-left">
+            <div class="split-label">📤 Asignadas</div>
+            <div class="split-valor" id="numAsignadas">—</div>
+            <div class="split-sub">Congelado · no baja al pistolear</div>
+            <div class="split-sub" id="numAsignadasMedias" style="margin-top:0.45rem;font-weight:700;color:var(--vp);"></div>
           </div>
-          <div class="tarjeta-resumen">
-            <div class="resumen-head">
-              <span class="resumen-ico">🚛</span>
-              <div class="resumen-label">Pendientes a despachar</div>
+          <div class="split-right">
+            <div class="split-label">◀ MC1</div>
+            <div class="split-valor teal" id="numMC1" style="font-size:1.7rem;">—</div>
+            <div class="split-sub">medias izquierda</div>
+            <div style="margin-top:0.55rem;padding-top:0.55rem;border-top:1px solid rgba(96,165,250,0.25);">
+              <div class="split-label">▶ MC2</div>
+              <div class="split-valor teal" id="numMC2" style="font-size:1.7rem;">—</div>
+              <div class="split-sub">medias derecha</div>
             </div>
-            <div class="resumen-valor accent-pend" id="numPendientes">—</div>
-            <div class="resumen-sub">solo disminuye con pistoleo</div>
-            <div class="resumen-vs" id="numPendientesVs">— de — asignadas</div>
-          </div>
-          <div class="tarjeta-resumen">
-            <div class="resumen-head">
-              <span class="resumen-ico">✅</span>
-              <div class="resumen-label">Despachadas</div>
-            </div>
-            <div class="resumen-valor accent-ok" id="numDespachadas">—</div>
-            <div class="resumen-sub">asignado − pendientes</div>
-            <div class="resumen-vs" id="numDespachadasPct"></div>
-          </div>
-          <div class="tarjeta-resumen">
-            <div class="resumen-head">
-              <span class="resumen-ico">🐄</span>
-              <div class="resumen-label">Desglose MC1 / MC2</div>
-            </div>
-            <div class="resumen-valor accent-canales" style="font-size:1.55rem;" id="numMC1MC2">—</div>
-            <div class="resumen-sub">medias asignadas del día</div>
-            <!-- ids legacy -->
-            <span id="numMC1" style="display:none">—</span>
-            <span id="numMC2" style="display:none">—</span>
-            <span id="numCanalesComp" style="display:none">—</span>
-            <span id="numTotal" style="display:none">—</span>
           </div>
         </div>
+        <div class="resumen-icon">📤</div>
+        <span id="numCanalesComp" style="display:none">—</span>
+        <span id="numTotal" style="display:none">—</span>
+        <span id="numMC1MC2" style="display:none">—</span>
+        <span id="numAsignadasSub" style="display:none"></span>
       </div>
 
+      <!-- Tarjeta 2: Progreso OPL -->
       <div class="progreso-opl-card" id="progresoOplCard" onclick="abrirModalOPL()" title="Ver progreso y configuración OPL" style="cursor:pointer;">
         <div class="poc-head">
           <div class="poc-title">
@@ -477,10 +424,23 @@
           <div class="poc-empty">Cargando progreso…</div>
         </div>
         <div class="poc-more" id="progresoOplMas" style="display:none;" onclick="event.stopPropagation();abrirModalOPL()"></div>
-        <!-- ids legacy para totales (ocultos) -->
         <span id="progSal" style="display:none">0</span>
         <span id="progPend" style="display:none">0</span>
         <span id="progCanSal" style="display:none">0.0</span>
+        <div class="resumen-icon">🚚</div>
+      </div>
+
+      <!-- Tarjeta 3: Pendientes a despachar -->
+      <div class="tarjeta-resumen">
+        <div class="resumen-label">🚛 Total canales a despachar</div>
+        <div class="resumen-valor accent-pend" id="numPendientes">—</div>
+        <div class="resumen-sub" id="dashDespTurno">Pendientes del turno</div>
+        <div class="dash-meta-line">
+          Despachadas: <strong id="numDespachadas">0</strong>
+          &nbsp;·&nbsp; Meta asignadas: <strong id="numPendientesVs">—</strong>
+        </div>
+        <div class="resumen-sub" id="numDespachadasPct" style="margin-top:0.35rem;"></div>
+        <div class="resumen-icon">🚛</div>
       </div>
     </div>
 
@@ -662,7 +622,8 @@
       </div>
       <div style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center;">
         <button class="btn btn-secondary" id="btnProcesarPlanilla" onclick="procesarPlanilla(true)" style="padding:0.5rem 1.1rem;font-size:0.85rem;">⚙️ Procesar Planilla</button>
-        <button class="btn btn-primary" id="btnExcelOpl" onclick="descargarExcelOplActivo()" style="padding:0.5rem 1.1rem;font-size:0.85rem;">📥 Exportar Excel</button>
+        <button class="btn btn-primary" id="btnExcelOpl" onclick="descargarExcelOplActivo()" style="padding:0.5rem 1.1rem;font-size:0.85rem;" title="Excel del OPL seleccionado (solo pendientes)">📥 Exportar Excel OPL</button>
+        <button class="btn btn-secondary" id="btnParticulares" onclick="abrirModalParticulares()" style="padding:0.5rem 1.1rem;font-size:0.85rem;background:#ff9800;color:#fff;" title="Elegir OPLs y descargar Excel multi-hoja solo con lo pendiente">📥 Descargar particulares</button>
       </div>
     </div>
     <div class="alert" id="planillaAlert"></div>
@@ -720,6 +681,30 @@
       <button class="modal-close" onclick="cerrarModal()">✕</button>
     </div>
     <div id="modalContenido"></div>
+  </div>
+</div>
+
+<!-- MODAL PARTICULARES -->
+<div class="modal-overlay" id="modalParticulares">
+  <div class="modal-box" style="max-width:560px;">
+    <div class="modal-header">
+      <div class="modal-title">📥 Particulares · Excel multi-hoja</div>
+      <button class="modal-close" onclick="cerrarModalParticulares()" aria-label="Cerrar">✕</button>
+    </div>
+    <p style="font-size:0.84rem;color:var(--gris);margin-bottom:0.8rem;line-height:1.4;">
+      Marca los OPLs que quieras como <strong>particulares</strong>. El Excel tendrá
+      <strong>una hoja por OPL</strong> y solo lo <strong>pendiente</strong>
+      (lo pistoleado se va quitando en cada descarga).
+    </p>
+    <div id="particularesLista" style="max-height:320px;overflow:auto;border:1px solid var(--vc);border-radius:10px;padding:0.6rem 0.8rem;margin-bottom:1rem;background:#f8fbff;">
+      <div class="poc-empty">Cargando OPLs…</div>
+    </div>
+    <div style="display:flex;gap:0.6rem;flex-wrap:wrap;justify-content:flex-end;">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="cerrarModalParticulares()">Cancelar</button>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="guardarParticularesSeleccion(false)">💾 Guardar selección</button>
+      <button type="button" class="btn btn-primary btn-sm" style="background:#ff9800;border:none;" onclick="guardarYDescargarParticulares()">📥 Guardar y descargar</button>
+    </div>
+    <div class="alert" id="particularesAlert" style="margin-top:0.8rem;"></div>
   </div>
 </div>
 
@@ -1030,8 +1015,8 @@ async function actualizarDashboard(silent, forceRefresh) {
     S.dashData = dash;
     S.planillaData = planilla;
 
-    // Resumen visual estilo Vísceras:
-    // asignado congelado | pendientes (baja) | despachadas | MC1/MC2
+    // Resumen estilo Vísceras (3 tarjetas):
+    // Asignadas+MC | Progreso OPL | Pendientes a despachar
     const tot = planilla.totales || {};
     const mc1Asignadas = tot.mc1_asignado != null
       ? tot.mc1_asignado
@@ -1050,22 +1035,22 @@ async function actualizarDashboard(silent, forceRefresh) {
       ? tot.canales_sal
       : Math.max(0, canalesAsignadas - canalesPend);
     const pct = tot.progreso_global || 0;
+    const turnoTxt = planilla.turno || turnoDeFecha(fecha);
 
     if ($('numAsignadas')) $('numAsignadas').textContent = fmtD(canalesAsignadas);
     if ($('numAsignadasMedias')) $('numAsignadasMedias').textContent = `${fmt(mediasAsignadas)} medias`;
     if ($('numPendientes')) $('numPendientes').textContent = fmtD(canalesPend);
-    if ($('numPendientesVs')) {
-      $('numPendientesVs').textContent = canalesAsignadas
-        ? `${fmtD(canalesPend)} de ${fmtD(canalesAsignadas)} asignadas`
-        : 'sin asignación';
-    }
+    if ($('dashDespTurno')) $('dashDespTurno').textContent = `Turno ${turnoTxt} · ${fecha}`;
+    if ($('numPendientesVs')) $('numPendientesVs').textContent = fmtD(canalesAsignadas);
     if ($('numDespachadas')) $('numDespachadas').textContent = fmtD(canalesSal);
-    if ($('numDespachadasPct')) $('numDespachadasPct').textContent = fmtPct(pct) + ' del asignado';
-    if ($('numMC1MC2')) $('numMC1MC2').textContent = `${fmt(mc1Asignadas)} / ${fmt(mc2Asignadas)}`;
-
-    // ids legacy
+    if ($('numDespachadasPct')) {
+      $('numDespachadasPct').textContent = canalesAsignadas
+        ? `${fmtPct(pct)} del asignado · solo baja con pistoleo`
+        : 'Sin asignación para esta fecha';
+    }
     if ($('numMC1')) $('numMC1').textContent = fmt(mc1Asignadas);
     if ($('numMC2')) $('numMC2').textContent = fmt(mc2Asignadas);
+    if ($('numMC1MC2')) $('numMC1MC2').textContent = `${fmt(mc1Asignadas)} / ${fmt(mc2Asignadas)}`;
     if ($('numCanalesComp')) $('numCanalesComp').textContent = fmtD(canalesAsignadas);
     if ($('numTotal')) $('numTotal').textContent = fmt(mediasAsignadas);
     if ($('numPuestosDash')) {
@@ -2009,6 +1994,131 @@ function descargarExcelOpl(opl) {
   a.click();
   a.remove();
 }
+
+// ── Particulares (Excel multi-hoja, solo pendientes) ──
+let _particularesSeleccion = new Set();
+
+function abrirModalParticulares() {
+  const m = $('modalParticulares');
+  if (!m) return;
+  m.classList.add('show');
+  cargarModalParticulares();
+}
+
+function cerrarModalParticulares() {
+  const m = $('modalParticulares');
+  if (m) m.classList.remove('show');
+}
+
+async function cargarModalParticulares() {
+  const box = $('particularesLista');
+  const alert = $('particularesAlert');
+  if (alert) alert.classList.remove('show');
+  if (box) box.innerHTML = '<div class="poc-empty">Cargando OPLs…</div>';
+  try {
+    const fecha = getFecha();
+    const [planilla, cfg] = await Promise.all([
+      apiFetch(API(`/planilla_puntos?fecha=${fecha}&${planillaTurnoQ()}`)),
+      apiFetch(API('/planilla_puntos/particulares')),
+    ]);
+    const resumen = planilla.resumen || [];
+    const guardados = new Set((cfg.opls || []).map(x => String(x).trim().toUpperCase()));
+    _particularesSeleccion = new Set(
+      (cfg.opls || []).map(x => String(x).trim()).filter(Boolean)
+    );
+
+    if (!resumen.length) {
+      if (box) box.innerHTML = '<div class="poc-empty">No hay OPLs. Procesa la planilla primero.</div>';
+      return;
+    }
+
+    box.innerHTML = resumen.map(r => {
+      const opl = r.opl || '';
+      const canales = r.totalCanales != null ? r.totalCanales : (r.total_partes || 0);
+      const checked = guardados.has(String(opl).toUpperCase()) ? 'checked' : '';
+      return `<label style="display:flex;align-items:center;gap:0.6rem;padding:0.45rem 0.2rem;border-bottom:1px solid #eef2f7;cursor:pointer;">
+        <input type="checkbox" class="part-opl-check" value="${escHtml(opl)}" ${checked}
+          onchange="toggleParticularCheck(this)" style="width:16px;height:16px;">
+        <span style="flex:1;font-weight:700;color:#1f2937;">${escHtml(opl)}</span>
+        <span style="font-size:0.78rem;color:var(--gris);">${fmtD(canales)} can. pend.</span>
+      </label>`;
+    }).join('');
+  } catch (e) {
+    if (box) box.innerHTML = `<div class="poc-empty" style="color:#991b1b;">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function toggleParticularCheck(el) {
+  const opl = (el.value || '').trim();
+  if (!opl) return;
+  const up = opl.toUpperCase();
+  // mantener nombre original (no upper) en el set
+  for (const x of [..._particularesSeleccion]) {
+    if (String(x).toUpperCase() === up) _particularesSeleccion.delete(x);
+  }
+  if (el.checked) _particularesSeleccion.add(opl);
+}
+
+function _oplsParticularesActuales() {
+  return [..._particularesSeleccion].filter(Boolean);
+}
+
+function showParticularesAlert(type, msg) {
+  const el = $('particularesAlert');
+  if (!el) return;
+  el.className = 'alert alert-' + type + ' show';
+  el.textContent = msg;
+}
+
+async function guardarParticularesSeleccion(silent) {
+  const opls = _oplsParticularesActuales();
+  try {
+    const r = await fetch(API('/planilla_puntos/particulares'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ opls }),
+    });
+    const res = await r.json();
+    if (!r.ok || res.success === false) {
+      throw new Error(res.detail || res.message || `HTTP ${r.status}`);
+    }
+    _particularesSeleccion = new Set(res.opls || opls);
+    if (!silent) showParticularesAlert('success', `✅ ${(_particularesSeleccion.size)} OPL(s) particulares guardados`);
+    return true;
+  } catch (e) {
+    showParticularesAlert('error', e.message || 'No se pudo guardar');
+    return false;
+  }
+}
+
+async function guardarYDescargarParticulares() {
+  const opls = _oplsParticularesActuales();
+  if (!opls.length) {
+    showParticularesAlert('warn', 'Selecciona al menos un OPL particular.');
+    return;
+  }
+  const ok = await guardarParticularesSeleccion(true);
+  if (!ok) return;
+  descargarExcelParticulares();
+  showParticularesAlert('success', `📥 Descargando Excel con ${_particularesSeleccion.size} hoja(s)…`);
+}
+
+function descargarExcelParticulares() {
+  if (window.ColbeefUsage) ColbeefUsage.track('excel_download', 'planilla', 'Excel particulares');
+  const fecha = getFecha();
+  const a = document.createElement('a');
+  a.href = API(`/planilla_puntos/excel_particulares?fecha=${fecha}&${planillaTurnoQ()}&refresh=1`);
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// Cerrar modal particulares con clic fuera
+document.addEventListener('click', function(e) {
+  const m = $('modalParticulares');
+  if (m && e.target === m) cerrarModalParticulares();
+});
 
 async function mostrarResumenGeneralPlanilla() {
   _planillaOplActivo = '';
