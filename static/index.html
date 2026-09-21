@@ -240,22 +240,20 @@
     .btn-sm-secondary{background:var(--vc);color:var(--vp);}
     .btn-sm-danger{background:#fee2e2;color:#991b1b;}
 
-    /* Upload adicionales (estilo Vísceras) */
-    .upload-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem;margin:1rem 0;}
-    .upload-box{border:2px dashed var(--vs);border-radius:var(--radio);padding:1.4rem 1.2rem;text-align:center;background:#f8fbff;transition:all 0.2s;position:relative;cursor:pointer;}
-    .upload-box:hover{border-color:var(--vp);background:#eff6ff;}
-    .upload-box.has-file{border-style:solid;border-color:var(--vp);background:#e0f2fe;}
-    .upload-box.adic{border-color:#f59e0b;background:#fffbeb;}
-    .upload-box.adic:hover{border-color:#d97706;background:#fef3c7;}
-    .upload-box.adic.has-file{border-style:solid;border-color:#d97706;}
-    .upload-box .ub-icon{font-size:2rem;margin-bottom:0.4rem;}
-    .upload-box .ub-label{font-weight:700;color:var(--vp);margin-bottom:0.25rem;}
-    .upload-box.adic .ub-label{color:#d97706;}
-    .upload-box .ub-hint{font-size:0.78rem;color:var(--gris);}
-    .upload-box .ub-filename{font-size:0.82rem;color:var(--vp);font-weight:600;margin-top:0.6rem;word-break:break-word;}
-    .upload-box.adic .ub-filename{color:#b45309;}
-    .upload-box input[type=file]{position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;}
-    .adic-meta{font-size:0.8rem;color:#92400e;margin-top:0.4rem;}
+    /* Salidas físicas — normales vs adicionales */
+    .badge-adicional{display:inline-block;font-size:0.62rem;background:#1e3a5f;color:#fff;border-radius:3px;padding:0 5px;margin-left:0.35rem;vertical-align:middle;white-space:nowrap;line-height:1.35;}
+    .fila-adicional{background:#f0f7ff;}
+    .adicionales-panel{border:1px solid #bfdbfe;background:#f8fbff;border-radius:8px;padding:0.85rem 1rem;margin:0.75rem 0 1rem;}
+    .adicionales-panel h4{margin:0 0 0.35rem;color:#1e3a5f;font-size:0.92rem;}
+    .adicionales-kpis{display:flex;flex-wrap:wrap;gap:1rem 1.5rem;font-size:0.82rem;margin-bottom:0.65rem;}
+    .adicionales-kpis strong{font-size:1.05rem;}
+    .adicionales-filtros{display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.55rem;}
+    .adicionales-filtros button{padding:0.28rem 0.7rem;font-size:0.78rem;border-radius:4px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;}
+    .adicionales-filtros button.active{background:#1e3a5f;color:#fff;border-color:#1e3a5f;}
+    .ux-collapsible{margin:0.75rem 0 1rem;border:1px solid rgba(96,165,250,0.3);border-radius:8px;background:#fff;overflow:hidden;}
+    .ux-collapsible > summary{cursor:pointer;padding:0.7rem 1rem;font-weight:700;color:var(--vp);list-style:none;user-select:none;}
+    .ux-collapsible > summary::-webkit-details-marker{display:none;}
+    .ux-collapsible-body{padding:0 1rem 1rem;}
 
     /* STATS */
     .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1.5rem;}
@@ -419,6 +417,11 @@
               <div class="split-valor teal" id="numMC2" style="font-size:1.7rem;">—</div>
               <div class="split-sub">medias derecha</div>
             </div>
+            <div style="margin-top:0.55rem;padding-top:0.55rem;border-top:1px solid rgba(96,165,250,0.25);">
+              <div class="split-label" style="font-size:0.7rem;color:#1e3a5f;">➕ Adicionales</div>
+              <div class="split-valor" id="dashAdicionales" style="font-size:1.4rem;color:#1e3a5f;">—</div>
+              <div class="split-sub" id="dashAdicionalesSub">Canales pistoleadas ≥ 15:20</div>
+            </div>
           </div>
         </div>
         <div class="resumen-icon">📤</div>
@@ -527,22 +530,46 @@
       <button class="turno-btn" data-turno="SxD" onclick="selTurno(this,'SxD')"><span>Sáb→Dom</span> SxD</button>
     </div>
 
-    <div class="upload-grid" style="grid-template-columns:1fr;">
-      <div class="upload-box adic" id="uploadBoxAdic">
-        <div class="ub-icon">➕</div>
-        <div class="ub-label">Salidas Adicionales</div>
-        <div class="ub-hint">Excel de cortes extras · se acumula en el asignado del día (igual que Vísceras)</div>
-        <div class="ub-filename" id="fileAdicName">Sin archivo</div>
-        <div class="adic-meta" id="adicMeta">Adicionales locales hoy: —</div>
-        <input type="file" id="fileInputAdic" accept=".xlsx,.xls" onchange="onFileAdicSelected()">
+    <details class="ux-collapsible" open>
+      <summary>Salidas físicas — normales vs adicionales (≥ 15:20)</summary>
+      <div class="ux-collapsible-body">
+        <div class="adicionales-panel">
+          <h4>Pistoleo del día · corte adicionales <span id="corteAdicionalLbl">15:20</span></h4>
+          <p style="margin:0 0 0.55rem;font-size:0.78rem;color:#64748b;line-height:1.35;">
+            Hasta las <strong>15:19</strong> = salida normal · desde las <strong>15:20</strong> = adicional.
+            En pendientes / OPL se cuentan igual: la etiqueta solo sirve para diferenciar cuáles salieron tarde.
+          </p>
+          <div class="adicionales-kpis">
+            <div>Normales<br><strong id="kpiSalNormales">—</strong></div>
+            <div>Adicionales<br><strong id="kpiSalAdicionales" style="color:#1e3a5f;">—</strong></div>
+            <div>Total<br><strong id="kpiSalTotal">—</strong></div>
+          </div>
+          <div class="adicionales-filtros">
+            <button type="button" class="active" id="filtroSalTodas" onclick="filtrarSalidasFisicas('todas')">Todas</button>
+            <button type="button" id="filtroSalNormales" onclick="filtrarSalidasFisicas('normales')">Normales</button>
+            <button type="button" id="filtroSalAdicionales" onclick="filtrarSalidasFisicas('adicionales')">Solo adicionales</button>
+            <button type="button" class="btn btn-secondary" style="padding:0.28rem 0.7rem;font-size:0.78rem;" onclick="cargarVistaSalidasFisicas()">🔄 Actualizar</button>
+          </div>
+          <div class="table-wrap" style="max-height:260px;margin-top:0;">
+            <table style="font-size:0.82rem;">
+              <thead>
+                <tr>
+                  <th>Fecha/hora salida</th>
+                  <th>Código</th>
+                  <th>Tipo</th>
+                  <th>Zona</th>
+                  <th>Cava</th>
+                  <th>Clase</th>
+                </tr>
+              </thead>
+              <tbody id="tablaSalidasFisicas">
+                <tr><td colspan="6" class="empty-state">Se cargará al abrir el módulo.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="btn-row" style="align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
-      <button class="btn btn-primary" id="btnProcesarAdic" onclick="procesarAdicionales()" disabled style="background:#f59e0b;">⚙️ Procesar Adicionales</button>
-      <button class="btn btn-secondary btn-sm" type="button" onclick="limpiarAdicionalesDia()">🗑 Limpiar adicionales del día</button>
-      <span style="font-size:0.78rem;color:var(--gris);">Solo ADICIONALES suman. Cancelaciones/cambios se aplican sobre los adicionales locales.</span>
-    </div>
-    <div class="alert" id="despAdicAlert"></div>
+    </details>
 
     <!-- Stats -->
     <div class="stats-grid" id="despStats"></div>
@@ -1087,6 +1114,18 @@ async function actualizarDashboard(silent, forceRefresh) {
     if ($('numMC1MC2')) $('numMC1MC2').textContent = `${fmt(mc1Asignadas)} / ${fmt(mc2Asignadas)}`;
     if ($('numCanalesComp')) $('numCanalesComp').textContent = fmtD(canalesAsignadas);
     if ($('numTotal')) $('numTotal').textContent = fmt(mediasAsignadas);
+    // Adicionales por hora (≥ corte) — solo etiqueta visual
+    const adiCanales = planilla.totalCanalesAdicionales != null ? Number(planilla.totalCanalesAdicionales) : null;
+    const adiMedias = planilla.totalMediasAdicionales != null ? Number(planilla.totalMediasAdicionales) : 0;
+    const corteAdi = planilla.corteAdicional || '15:20';
+    if ($('dashAdicionales')) {
+      $('dashAdicionales').textContent = adiCanales != null ? fmtD(adiCanales) : '—';
+    }
+    if ($('dashAdicionalesSub')) {
+      $('dashAdicionalesSub').textContent = adiCanales != null
+        ? `${fmt(adiMedias)} medias · pistoleo ≥ ${corteAdi}`
+        : `Canales pistoleadas ≥ ${corteAdi}`;
+    }
     if ($('numPuestosDash')) {
       const nP = (dash.top_destinos && dash.top_destinos.length) || 0;
       $('numPuestosDash').textContent = fmt(nP);
@@ -1407,92 +1446,89 @@ document.addEventListener('click', (e) => {
 // MÓDULO DESPACHOS
 // ═══════════════════════════════════════════════════
 let turnoDesp = '';
-let _fileAdicState = { file: null, nombre: '' };
+window._salidasFisicasCache = { filas: [], filtro: 'todas', corte: '15:20' };
 
-function showDespAdicAlert(type, msg) {
-  const el = $('despAdicAlert');
-  if (!el) return;
-  el.className = 'alert alert-' + type + ' show';
-  el.innerHTML = msg;
-  if (type !== 'error') setTimeout(() => el.classList.remove('show'), 6000);
+function filtrarSalidasFisicas(modo) {
+  window._salidasFisicasCache.filtro = modo || 'todas';
+  ['filtroSalTodas', 'filtroSalNormales', 'filtroSalAdicionales'].forEach((id) => {
+    const el = $(id);
+    if (el) el.classList.remove('active');
+  });
+  const map = { todas: 'filtroSalTodas', normales: 'filtroSalNormales', adicionales: 'filtroSalAdicionales' };
+  const btn = $(map[modo] || 'filtroSalTodas');
+  if (btn) btn.classList.add('active');
+  renderTablaSalidasFisicas();
 }
 
-function onFileAdicSelected() {
-  const file = $('fileInputAdic') && $('fileInputAdic').files[0];
-  if (!file) return;
-  _fileAdicState = { file, nombre: file.name };
-  if ($('fileAdicName')) $('fileAdicName').textContent = file.name;
-  if ($('uploadBoxAdic')) $('uploadBoxAdic').classList.add('has-file');
-  if ($('btnProcesarAdic')) $('btnProcesarAdic').disabled = false;
-  showDespAdicAlert('info', `📂 <strong>${escHtml(file.name)}</strong> listo. Presiona <strong>⚙️ Procesar Adicionales</strong>.`);
-}
-
-async function refreshAdicMeta() {
-  try {
-    const fecha = getFecha();
-    const res = await apiFetch(API(`/adicionales?fecha=${fecha}`));
-    if ($('adicMeta')) {
-      $('adicMeta').textContent = `Adicionales locales hoy: ${fmt(res.total || 0)} medias`;
-    }
-  } catch (_) {
-    if ($('adicMeta')) $('adicMeta').textContent = 'Adicionales locales hoy: —';
-  }
-}
-
-async function procesarAdicionales() {
-  if (!_fileAdicState.file) {
-    showDespAdicAlert('warn', 'Sube el archivo de adicionales primero.');
+function renderTablaSalidasFisicas() {
+  const tbody = $('tablaSalidasFisicas');
+  if (!tbody) return;
+  const cache = window._salidasFisicasCache || { filas: [], filtro: 'todas', corte: '15:20' };
+  let filas = cache.filas || [];
+  const filtro = cache.filtro || 'todas';
+  if (filtro === 'normales') filas = filas.filter((f) => !f.adicional);
+  if (filtro === 'adicionales') filas = filas.filter((f) => f.adicional);
+  if (!filas.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="6" class="empty-state">' +
+      (filtro === 'adicionales'
+        ? `Sin salidas adicionales (≥ ${escHtml(cache.corte || '15:20')}).`
+        : 'Sin salidas físicas para la fecha.') +
+      '</td></tr>';
     return;
   }
-  const btn = $('btnProcesarAdic');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Procesando...'; }
-  showSpinner();
-  try {
-    const fd = new FormData();
-    fd.append('file', _fileAdicState.file);
-    fd.append('fecha', getFecha());
-    const r = await fetch(API('/adicionales/procesar'), { method: 'POST', body: fd });
-    const res = await r.json();
-    if (!r.ok || res.success === false) {
-      throw new Error(res.detail || res.message || `HTTP ${r.status}`);
-    }
-    let msg = `✅ <strong>${res.totalAdicional || 0}</strong> medias adicionales agregadas.`;
-    if (res.ignorados) msg += ` <span style="color:#6b7280;">${res.ignorados} ya existían.</span>`;
-    if (res.totalCancel) msg += ` <span style="color:#6b7280;">${res.totalCancel} cancelaciones.</span>`;
-    if (res.totalCambio) msg += ` <span style="color:#6b7280;">${res.totalCambio} cambios.</span>`;
-    showDespAdicAlert('success', msg);
-    _fileAdicState = { file: null, nombre: '' };
-    if ($('fileInputAdic')) $('fileInputAdic').value = '';
-    if ($('fileAdicName')) $('fileAdicName').textContent = 'Sin archivo';
-    if ($('uploadBoxAdic')) $('uploadBoxAdic').classList.remove('has-file');
-    if (btn) { btn.disabled = true; btn.textContent = '⚙️ Procesar Adicionales'; }
-    await refreshAdicMeta();
-    await cargarDespachos(true);
-    await actualizarDashboard(true, true);
-  } catch (e) {
-    showDespAdicAlert('error', e.message || 'Error procesando adicionales');
-    if (btn) { btn.disabled = false; btn.textContent = '⚙️ Procesar Adicionales'; }
-  } finally {
-    hideSpinner();
+  const MAX = 200;
+  const slice = filas.slice(0, MAX);
+  tbody.innerHTML = slice
+    .map((f) => {
+      const badge = f.adicional
+        ? `<span class="badge-adicional" title="Salida ≥ ${escHtml(cache.corte || '15:20')}">adicional</span>`
+        : '<span style="color:#64748b;font-size:0.72rem;">normal</span>';
+      return (
+        `<tr class="${f.adicional ? 'fila-adicional' : ''}">` +
+        `<td>${escHtml(f.fecha_salida || '')}</td>` +
+        `<td>${escHtml(f.codigo || '')}</td>` +
+        `<td>${escHtml(f.tipo || f.tipo_nombre || '')}</td>` +
+        `<td style="max-width:200px;font-size:0.78rem;word-break:break-word;">${escHtml(f.zona || f.puesto || '')}</td>` +
+        `<td>${escHtml(f.cava || '—')}</td>` +
+        `<td>${badge}</td></tr>`
+      );
+    })
+    .join('');
+  if (filas.length > slice.length) {
+    tbody.innerHTML +=
+      `<tr><td colspan="6" class="empty-state" style="font-size:0.78rem;">Mostrando ${slice.length} de ${filas.length}.</td></tr>`;
   }
 }
 
-async function limpiarAdicionalesDia() {
-  if (!confirm('¿Limpiar los adicionales locales de esta fecha?')) return;
+async function cargarVistaSalidasFisicas() {
+  const tbody = $('tablaSalidasFisicas');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Consultando pistoleo…</td></tr>';
   try {
-    showSpinner();
     const fecha = getFecha();
-    const r = await fetch(API(`/adicionales?fecha=${encodeURIComponent(fecha)}`), { method: 'DELETE' });
-    const res = await r.json();
-    if (!r.ok || res.success === false) throw new Error(res.detail || res.message || 'Error');
-    showDespAdicAlert('success', '🗑 Adicionales del día limpiados');
-    await refreshAdicMeta();
-    await cargarDespachos(true);
-    await actualizarDashboard(true, true);
+    const res = await apiFetch(API(`/salidas_fisicas?fecha=${fecha}`));
+    if (!res || res.success === false) {
+      if (tbody) {
+        tbody.innerHTML =
+          `<tr><td colspan="6" class="empty-state">${escHtml((res && res.message) || 'Error al consultar salidas físicas')}</td></tr>`;
+      }
+      return;
+    }
+    const corte = res.corteAdicional || '15:20';
+    window._salidasFisicasCache = {
+      filas: res.filas || [],
+      filtro: (window._salidasFisicasCache && window._salidasFisicasCache.filtro) || 'todas',
+      corte,
+    };
+    if ($('corteAdicionalLbl')) $('corteAdicionalLbl').textContent = corte;
+    if ($('kpiSalNormales')) $('kpiSalNormales').textContent = res.totalNormales != null ? res.totalNormales : 0;
+    if ($('kpiSalAdicionales')) $('kpiSalAdicionales').textContent = res.totalAdicionales != null ? res.totalAdicionales : 0;
+    if ($('kpiSalTotal')) $('kpiSalTotal').textContent = res.totalFilas != null ? res.totalFilas : 0;
+    renderTablaSalidasFisicas();
   } catch (e) {
-    showDespAdicAlert('error', e.message || 'No se pudo limpiar');
-  } finally {
-    hideSpinner();
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${escHtml(e.message || 'Error')}</td></tr>`;
+    }
   }
 }
 
@@ -1515,7 +1551,7 @@ async function cargarDespachos(forceRefresh) {
   try {
     showSpinner();
     if (forceRefresh) await invalidarCache();
-    refreshAdicMeta();
+    cargarVistaSalidasFisicas();
     const url = t
       ? API(`/despachos?fecha=${fecha}&turno=${encodeURIComponent(t)}`)
       : API(`/despachos?fecha=${fecha}&turno=Todos`);
