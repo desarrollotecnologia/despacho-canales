@@ -47,6 +47,8 @@ def _blank_state():
         "asignado_congelado": {},
         # OPLs marcados como particulares para Excel multi-hoja.
         "opls_particulares": [],
+        # Adicionales del día (Excel), estilo Vísceras Estado_Cavas.
+        "adicionales_por_fecha": {},
     }
 
 
@@ -255,6 +257,115 @@ def setOplsParticulares(opls):
     state["opls_particulares"] = limpios
     _save_state(state)
     return {"success": True, "opls": limpios}
+
+
+# ═══════════════════════════════════════════════════════
+# ADICIONALES — salidas extra del día (estilo Vísceras)
+# ═══════════════════════════════════════════════════════
+def getAdicionales(fecha):
+    state = _load_state()
+    bag = state.get("adicionales_por_fecha") or {}
+    filas = bag.get(_as_str(fecha)) or []
+    return {
+        "success": True,
+        "fecha": _as_str(fecha),
+        "total": len(filas),
+        "filas": filas,
+    }
+
+
+def reemplazarAdicionales(fecha, filas):
+    state = _load_state()
+    bag = state.setdefault("adicionales_por_fecha", {})
+    bag[_as_str(fecha)] = filas or []
+    state["adicionales_por_fecha"] = bag
+    _save_state(state)
+    return getAdicionales(fecha)
+
+
+def agregarAdicionales(fecha, nuevas):
+    """Agrega adicionales evitando duplicados por código."""
+    state = _load_state()
+    bag = state.setdefault("adicionales_por_fecha", {})
+    key = _as_str(fecha)
+    actuales = list(bag.get(key) or [])
+    vistos = {_as_str(r.get("codigo")).upper() for r in actuales if _as_str(r.get("codigo"))}
+    agregados = 0
+    ignorados = 0
+    for row in nuevas or []:
+        codigo = _as_str(row.get("codigo"))
+        if not codigo:
+            continue
+        cup = codigo.upper()
+        if cup in vistos:
+            ignorados += 1
+            continue
+        vistos.add(cup)
+        actuales.append(row)
+        agregados += 1
+    bag[key] = actuales
+    state["adicionales_por_fecha"] = bag
+    _save_state(state)
+    return {
+        "success": True,
+        "fecha": key,
+        "agregados": agregados,
+        "ignorados": ignorados,
+        "total": len(actuales),
+        "filas": actuales,
+    }
+
+
+def quitarAdicionalesPorCodigos(fecha, codigos):
+    state = _load_state()
+    bag = state.setdefault("adicionales_por_fecha", {})
+    key = _as_str(fecha)
+    actuales = list(bag.get(key) or [])
+    quitar = {_as_str(c).upper() for c in (codigos or []) if _as_str(c)}
+    if not quitar:
+        return {"success": True, "eliminados": 0, "total": len(actuales), "filas": actuales}
+    queda = [r for r in actuales if _as_str(r.get("codigo")).upper() not in quitar]
+    eliminados = len(actuales) - len(queda)
+    bag[key] = queda
+    state["adicionales_por_fecha"] = bag
+    _save_state(state)
+    return {"success": True, "eliminados": eliminados, "total": len(queda), "filas": queda}
+
+
+def actualizarDestinoAdicionales(fecha, cambios):
+    """cambios: [{codigo, zona|destino}]"""
+    state = _load_state()
+    bag = state.setdefault("adicionales_por_fecha", {})
+    key = _as_str(fecha)
+    actuales = list(bag.get(key) or [])
+    mapa = {
+        _as_str(c.get("codigo")).upper(): _as_str(c.get("zona") or c.get("destino"))
+        for c in (cambios or [])
+        if _as_str(c.get("codigo"))
+    }
+    actualizados = 0
+    for row in actuales:
+        cup = _as_str(row.get("codigo")).upper()
+        if cup in mapa and mapa[cup]:
+            row["zona"] = mapa[cup]
+            row["destino"] = mapa[cup]
+            actualizados += 1
+    bag[key] = actuales
+    state["adicionales_por_fecha"] = bag
+    _save_state(state)
+    return {"success": True, "actualizados": actualizados, "total": len(actuales), "filas": actuales}
+
+
+def limpiarAdicionales(fecha=None):
+    state = _load_state()
+    bag = state.setdefault("adicionales_por_fecha", {})
+    if fecha:
+        bag.pop(_as_str(fecha), None)
+    else:
+        bag.clear()
+    state["adicionales_por_fecha"] = bag
+    _save_state(state)
+    return {"success": True}
 
 
 # ═══════════════════════════════════════════════════════

@@ -3,7 +3,7 @@ Despacho de Canales — Colbeef
 Backend FastAPI con conexión directa a PostgreSQL (solo lectura)
 v1.0 — Medias canales: Media Canal 1 (sufijo -1001) y Media Canal 2 (sufijo -1002)
 """
-from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi import FastAPI, HTTPException, Header, Request, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -519,14 +519,298 @@ def obtener_piezas_programadas(fecha_filtro: str, turno: Optional[str]) -> List[
     """
     Listado único de medias programadas (fecha + turno), compartido por
     despachos / planilla / detalle. TTL = CACHE_TTL_SEG.
+    Incluye adicionales locales del día que aún no están en SIRT.
     """
-    ck = ("programados", fecha_filtro, turno, "v1")
+    ck = ("programados", fecha_filtro, turno, "v2_adic")
     hit = cache_get(ck)
     if hit is not None:
         return hit
     data = consultar_canales_planilla(fecha_filtro, turno)
+    data = fusionar_adicionales(data, fecha_filtro, turno)
     cache_set(ck, data)
     return data
+
+
+def _inferir_id_tipo(codigo: str, descripcion: str = "") -> int:
+    c = (codigo or "").strip().upper()
+    d = (descripcion or "").strip().upper()
+    if c.endswith("-1002") or c.endswith("-002") or "MEDIA CANAL 2" in d or "MC2" in d:
+        return ID_MC2
+    if c.endswith("-1001") or c.endswith("-001") or "MEDIA CANAL 1" in d or "MC1" in d:
+        return ID_MC1
+    # Por defecto MC1 si no se puede inferir
+    return ID_MC1
+
+
+def _leer_filas_excel_adicionales(raw: bytes, nombre: str = "") -> List[list]:
+    """Lee Excel adicionales (.xlsx/.xls). Datos desde fila 16 (1-based) como Vísceras."""
+    nombre_l = (nombre or "").lower()
+    # openpyxl para xlsx
+    if nombre_l.endswith(".xlsx") or raw[:2] == b"PK":
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            raise HTTPException(status_code=500, detail="Falta openpyxl")
+        wb = load_workbook(BytesIO(raw), data_only=True, read_only=True)
+        ws = wb.active
+        rows = []
+        for i, row in enumerate(ws.iter_rows(values_only=True), 1):
+            if i < 16:
+                continue
+            vals = list(row[:15]) if row else []
+            while len(vals) < 15:
+                vals.append("")
+            rows.append(vals)
+        return rows
+
+    # .xls con xlrd si está disponible
+    try:
+        import xlrd
+    except ImportError:
+        raise HTTPException(
+            status_code=400,
+            detail="Para archivos .xls instala xlrd, o sube .xlsx",
+        )
+    book = xlrd.open_workbook(file_contents=raw)
+    sheet = book.sheet_by_index(0)
+    rows = []
+    for r in range(15, sheet.nrows):  # 0-based → desde fila 16
+        vals = [sheet.cell_value(r, c) if c < sheet.ncols else "" for c in range(15)]
+        rows.append(vals)
+    return rows
+
+
+def _detectar_tipo_fila_adicional(fila: list) -> str:
+    col_j = str((fila[9] if len(fila) > 9 else "") or "").strip().upper()
+    col_o = str((fila[14] if len(fila) > 14 else "") or "").strip().upper()
+    if "QUEDA EN CAVA" in col_j:
+        return "CANCELACION"
+    if "CAMBIO DE DESTINO" in col_o:
+        return "CAMBIO"
+    return "ADICIONAL"
+
+
+def _fila_excel_a_pieza(fila: list, fecha: str) -> Optional[dict]:
+    codigo_raw = str((fila[1] if len(fila) > 1 else "") or "").strip()
+    if not codigo_raw:
+        return None
+    desc = str((fila[2] if len(fila) > 2 else "") or "").strip()
+    prop = str((fila[4] if len(fila) > 4 else "") or "").strip() or "Sin propietario"
+    destino = str((fila[9] if len(fila) > 9 else "") or "").strip()
+    cava = str((fila[10] if len(fila) > 10 else "") or "").strip()
+    riel = str((fila[11] if len(fila) > 11 else "") or "").strip()
+    id_tipo = _inferir_id_tipo(codigo_raw, desc)
+    pieza = {
+        "codigo": codigo_raw,
+        "id_tipo": id_tipo,
+        "propietario": prop,
+        "cava": cava,
+        "riel": riel,
+        "zona": destino,
+        "destino": destino,
+        "puesto": "",
+        "direccion": "",
+        "ruta": destino,
+        "etiqueta": destino or "Adicional",
+        "clave": f"ADIC|{destino}|{prop}|{codigo_raw}",
+        "con_destino": destino,
+        "observaciones": str((fila[14] if len(fila) > 14 else "") or "").strip(),
+        "origen": "adicional",
+        "fecha_adicional": fecha,
+    }
+    enriquecer_codigo(pieza)
+    pieza["opl"] = resolver_opl_de_propietario(prop)
+    return pieza
+
+
+def procesar_excel_adicionales(raw: bytes, nombre: str, fecha: str) -> dict:
+    filas = _leer_filas_excel_adicionales(raw, nombre)
+    filas = [f for f in filas if str((f[1] if len(f) > 1 else "") or "").strip()]
+    adicionales, cancelaciones, cambios = [], [], []
+    for f in filas:
+        tipo = _detectar_tipo_fila_adicional(f)
+        if tipo == "CANCELACION":
+            cancelaciones.append(f)
+        elif tipo == "CAMBIO":
+            cambios.append(f)
+        else:
+            adicionales.append(f)
+
+    piezas_nuevas = []
+    for f in adicionales:
+        p = _fila_excel_a_pieza(f, fecha)
+        if p:
+            piezas_nuevas.append(p)
+
+    res_add = apps_script_local.agregarAdicionales(fecha, piezas_nuevas)
+
+    codigos_cancel = [
+        str((f[1] if len(f) > 1 else "") or "").strip()
+        for f in cancelaciones
+        if str((f[1] if len(f) > 1 else "") or "").strip()
+    ]
+    res_cancel = (
+        apps_script_local.quitarAdicionalesPorCodigos(fecha, codigos_cancel)
+        if codigos_cancel else {"eliminados": 0}
+    )
+
+    cambios_payload = []
+    for f in cambios:
+        codigo = str((f[1] if len(f) > 1 else "") or "").strip()
+        dest = str((f[9] if len(f) > 9 else "") or "").strip()
+        if codigo and dest:
+            cambios_payload.append({"codigo": codigo, "zona": dest})
+    res_cambio = (
+        apps_script_local.actualizarDestinoAdicionales(fecha, cambios_payload)
+        if cambios_payload else {"actualizados": 0}
+    )
+
+    cache_invalidate_fecha(fecha)
+    return {
+        "success": True,
+        "nombreArchivo": nombre,
+        "fecha": fecha,
+        "totalAdicional": int(res_add.get("agregados") or 0),
+        "ignorados": int(res_add.get("ignorados") or 0),
+        "totalCancel": int(res_cancel.get("eliminados") or 0),
+        "totalCambio": int(res_cambio.get("actualizados") or 0),
+        "totalLocal": int(res_add.get("total") or 0),
+        "mensaje": (
+            f"✅ {int(res_add.get('agregados') or 0)} medias adicionales agregadas"
+            + (f" ({int(res_add.get('ignorados') or 0)} ya existían)" if res_add.get("ignorados") else "")
+            + (f". {int(res_cancel.get('eliminados') or 0)} cancelaciones aplicadas" if res_cancel.get("eliminados") else "")
+            + (f". {int(res_cambio.get('actualizados') or 0)} cambios de destino" if res_cambio.get("actualizados") else "")
+        ),
+    }
+
+
+def _codigos_sirt_programados_dia(fecha_filtro: str) -> set:
+    """Códigos (completos) ya presentes en SIRT para la fecha de programación."""
+    sql = f"""
+        WITH programadas AS (
+            SELECT DISTINCT
+                pp.id_producto::text AS id_producto,
+                pp.id AS id_parte,
+                pp.id_tipo_parte_producto AS id_tipo
+            FROM trazabilidad_proceso.parte_producto pp
+            WHERE pp.id_tipo_parte_producto IN %s
+              {SQL_EXISTS_PROGRAMADO}
+        )
+        SELECT id_producto, id_tipo FROM programadas
+    """
+    rows = safe_query(sql, (IDS_CANAL, fecha_filtro), "adicionales.codigos_sirt")
+    out = set()
+    for r in serializable(rows):
+        code = codigo_completo_canal(r.get("id_producto") or "", int(r.get("id_tipo") or 0))
+        if code:
+            out.add(code.upper())
+            # también base sin sufijo
+            base = str(r.get("id_producto") or "").strip().upper()
+            if base:
+                out.add(base)
+    return out
+
+
+def _adicionales_efectivos(fecha: str) -> List[dict]:
+    """Adicionales locales que aún no están en SIRT (evita doble conteo)."""
+    adic = apps_script_local.getAdicionales(fecha).get("filas") or []
+    if not adic:
+        return []
+    sirt = _codigos_sirt_programados_dia(fecha)
+    out = []
+    for a in adic:
+        code = str(a.get("codigo") or "").strip().upper()
+        if not code:
+            continue
+        if code in sirt:
+            continue
+        # base sin últimos 5 chars -1001
+        partes = code.split("-")
+        if len(partes) >= 3 and partes[-1] in ("1001", "1002", "001", "002"):
+            base = "-".join(partes[:-1]).upper()
+            if base in sirt:
+                continue
+        out.append(a)
+    return out
+
+
+def fusionar_adicionales(piezas: List[dict], fecha: str, turno: Optional[str]) -> List[dict]:
+    """Une piezas SIRT + adicionales locales no duplicados."""
+    adic = _adicionales_efectivos(fecha)
+    if not adic:
+        return piezas
+    vistos = set()
+    out = []
+    for r in piezas:
+        code = str(r.get("codigo") or "").strip().upper()
+        if code:
+            vistos.add(code)
+        out.append(r)
+    cal = turno or turno_de_fecha(fecha)
+    for a in adic:
+        code = str(a.get("codigo") or "").strip().upper()
+        if not code or code in vistos:
+            continue
+        row = dict(a)
+        log = resolver_logistica_pieza(row, cal)
+        row.update(log)
+        row["destino"] = row.get("zona") or row.get("destino") or ""
+        row["opl"] = resolver_opl_de_propietario(row.get("propietario") or "")
+        enriquecer_codigo(row)
+        vistos.add(str(row.get("codigo") or "").strip().upper())
+        out.append(row)
+    out.sort(key=lambda x: (
+        str(x.get("zona") or "").upper(),
+        str(x.get("puesto") or ""),
+        str(x.get("propietario") or ""),
+        str(x.get("codigo") or ""),
+    ))
+    return out
+
+
+def _aplicar_adicionales_a_planilla_opl(lista: List[dict], fecha: str) -> List[dict]:
+    """Suma adicionales pendientes (locales, no en SIRT) a la lista por propietario."""
+    adic = _adicionales_efectivos(fecha)
+    if not adic:
+        return lista
+    by_prop = {r["propietario"]: dict(r) for r in lista}
+    for a in adic:
+        prop = (a.get("propietario") or "Sin propietario").strip() or "Sin propietario"
+        id_tipo = int(a.get("id_tipo") or ID_MC1)
+        row = by_prop.get(prop)
+        if not row:
+            row = {
+                "propietario": prop,
+                "mc1_pendiente": 0,
+                "mc2_pendiente": 0,
+                "mc1_despachado": 0,
+                "mc2_despachado": 0,
+                "total_pendiente": 0,
+                "total_despachado": 0,
+                "canales_pendiente": 0,
+                "canales_despachado": 0,
+                "total_inicial": 0,
+                "progreso_pct": 0,
+                "opl": resolver_opl_de_propietario(prop),
+            }
+            by_prop[prop] = row
+        if id_tipo == ID_MC2:
+            row["mc2_pendiente"] = int(row.get("mc2_pendiente") or 0) + 1
+        else:
+            row["mc1_pendiente"] = int(row.get("mc1_pendiente") or 0) + 1
+        row["total_pendiente"] = int(row["mc1_pendiente"]) + int(row["mc2_pendiente"])
+        row["canales_pendiente"] = row["total_pendiente"] * 0.5
+        total_ini = row["total_pendiente"] + int(row.get("total_despachado") or 0)
+        row["total_inicial"] = total_ini
+        pct = round((int(row.get("total_despachado") or 0) / total_ini) * 100) if total_ini else 0
+        if row["total_pendiente"] > 0:
+            pct = min(99, pct)
+        elif total_ini > 0:
+            pct = 100
+        row["progreso_pct"] = pct
+    out = list(by_prop.values())
+    out.sort(key=lambda x: x["total_pendiente"], reverse=True)
+    return out
 
 
 def agrupar_despachos_por_puesto(piezas: List[dict]) -> tuple:
@@ -1324,6 +1608,7 @@ def get_planilla_opl(
         })
 
     lista.sort(key=lambda x: x["total_pendiente"], reverse=True)
+    lista = _aplicar_adicionales_a_planilla_opl(lista, fecha_filtro)
 
     by_opl = {}
     for r in lista:
@@ -1643,6 +1928,38 @@ def excel_planilla_particulares(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers,
     )
+
+
+# ═══════════════════════════════════════════════════════
+# ADICIONALES — Excel de salidas extras (estilo Vísceras)
+# ═══════════════════════════════════════════════════════
+@app.get("/api/adicionales")
+def api_get_adicionales(fecha: Optional[str] = None):
+    fecha_filtro = fecha or date.today().isoformat()
+    return apps_script_local.getAdicionales(fecha_filtro)
+
+
+@app.post("/api/adicionales/procesar")
+async def api_procesar_adicionales(
+    file: UploadFile = File(...),
+    fecha: Optional[str] = Form(None),
+):
+    fecha_filtro = fecha or date.today().isoformat()
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Archivo vacío")
+    nombre = file.filename or "adicionales.xlsx"
+    try:
+        return procesar_excel_adicionales(raw, nombre, fecha_filtro)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/api/adicionales")
+def api_limpiar_adicionales(fecha: Optional[str] = None):
+    return apps_script_local.limpiarAdicionales(fecha)
 
 
 @app.post("/api/cache/invalidate")
