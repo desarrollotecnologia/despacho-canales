@@ -119,6 +119,74 @@ PUESTOS_EXCLUIDOS = {
     "CAVAYERSON", "CAVA JUDITH", "CAVA CV", "CAVA EMERGENCIA",
 }
 
+# Puestos con salida temprana (prioridad en planilla). Igual catálogo que Vísceras.
+# Override: CANALES_PUESTOS_TEMPRANAS=NSF,6505,ARIR,LHMV,WMERCAN
+_PUESTOS_TEMPRANAS_DEFAULT = ("NSF", "6505", "ARIR", "LHMV", "WMERCAN")
+
+
+def get_puestos_tempranas() -> set:
+    raw = (os.getenv("CANALES_PUESTOS_TEMPRANAS") or "").strip()
+    src = [p.strip() for p in raw.split(",")] if raw else list(_PUESTOS_TEMPRANAS_DEFAULT)
+    out = set()
+    for p in src:
+        u = str(p or "").strip().upper()
+        if not u:
+            continue
+        if u.isdigit():
+            out.add(str(int(u)))
+        else:
+            out.add(u)
+    return out
+
+
+def _codigo_candidato_temprana(texto) -> str:
+    raw = str(texto or "").strip()
+    if not raw:
+        return ""
+    first = raw.split("/")[0].strip().upper()
+    if not first:
+        return ""
+    if first.isdigit():
+        return str(int(first))
+    return first
+
+
+def es_destino_marcador_temprana(zona) -> bool:
+    """TEMP1 / TEMPRANA en SIRT = marcador logístico, no zona comercial."""
+    u = " ".join(str(zona or "").strip().upper().split())
+    if not u:
+        return False
+    compact = u.replace(" ", "")
+    if re.match(r"^TEMP\d*$", compact):
+        return True
+    if "TEMPRANA" in u and "PROVENZA" not in u:
+        return True
+    return False
+
+
+def es_puesto_temprana(sucursal_or_puesto, puesto_full: str = "") -> bool:
+    """Temprana = código de sucursal/puesto en catálogo (NSF, 6505…)."""
+    cat = get_puestos_tempranas()
+    for t in (sucursal_or_puesto, puesto_full):
+        cod = _codigo_candidato_temprana(t)
+        if cod and cod in cat:
+            return True
+        u = str(t or "").strip().upper()
+        if not u:
+            continue
+        for p in cat:
+            if u == p or u.startswith(p + "/") or f"/{p}/" in u:
+                return True
+    return False
+
+
+def normalizar_zona_planilla(zona: str) -> str:
+    z = str(zona or "").strip()
+    if not z or es_destino_marcador_temprana(z):
+        return "SIN ZONA"
+    return z
+
+
 # Joins de ruta (puesto/zona). Sin filtrar por fecha de programación.
 # Importante: en SIRT pp.id NO es único (MC1=4, MC2=5); siempre cruzar también id_producto.
 SQL_JOINS_LOGISTICA = """
@@ -1911,8 +1979,9 @@ def get_planilla_opl(
 def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fecha: str, turno: Optional[str]) -> dict:
     """
     Misma estructura que Gestor Vísceras generarPlanillaPuntos:
-    zonas[{nombre, total, puestos[{puesto, cantidad}]}] + lista plana puestos.
+    zonas[{nombre, total, puestos[{puesto, cantidad, temprana}]}] + lista plana puestos.
     Cantidad = medias × 0.5 (equivalente canal).
+    Tempranas: puestos del catálogo NSF/6505/… — prioridad visual, no cambian pendientes.
     """
     opl_sel = (opl_sel or "").strip()
     total_global = round(len(items) * 0.5, 2)
@@ -1926,18 +1995,22 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
             continue
         cantidad = 0.5
         total_opl += cantidad
-        zona = (r.get("zona") or "SIN ZONA").strip() or "SIN ZONA"
+        zona = normalizar_zona_planilla(r.get("zona") or "SIN ZONA")
         puesto = formatear_codigo_sucursal(r.get("puesto") or "") or "—"
+        ruta = r.get("ruta") or construir_ruta(puesto, zona, r.get("direccion") or "", turno or "")
+        temprana = es_puesto_temprana(puesto, ruta)
         clave = r.get("clave") or f"{puesto}|{zona.upper()}"
         if zona not in zonas_map:
             zonas_map[zona] = {"total": 0.0, "puestos_map": {}}
         zonas_map[zona]["total"] += cantidad
         pm = zonas_map[zona]["puestos_map"]
         if clave not in pm:
-            pm[clave] = {"puesto": puesto, "cantidad": 0.0}
+            pm[clave] = {"puesto": puesto, "cantidad": 0.0, "temprana": temprana}
         pm[clave]["cantidad"] += cantidad
+        if temprana:
+            pm[clave]["temprana"] = True
         puestos_flat.append({
-            "puesto": r.get("ruta") or construir_ruta(puesto, zona, r.get("direccion") or "", turno or ""),
+            "puesto": ruta,
             "etiqueta": r.get("etiqueta") or (f"{puesto} · {zona}" if puesto and zona else puesto or zona),
             "sucursal": puesto,
             "zona": zona,
@@ -1945,6 +2018,8 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
             "opl": opl_reg,
             "codigo": r.get("codigo"),
             "propietario": r.get("propietario"),
+            "temprana": temprana,
+            "marcadorTemp": "TEMP" if temprana else "",
         })
 
     # Consolidar flat por puesto+zona
@@ -1959,29 +2034,50 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
                 "zona": p["zona"],
                 "cantidad": 0.0,
                 "opl": p["opl"],
+                "temprana": bool(p.get("temprana")),
+                "marcadorTemp": p.get("marcadorTemp") or "",
             }
         flat_agg[k]["cantidad"] += p["cantidad"]
+        if p.get("temprana"):
+            flat_agg[k]["temprana"] = True
+            flat_agg[k]["marcadorTemp"] = "TEMP"
     puestos_lista = sorted(
         ({**v, "cantidad": round(v["cantidad"], 2)} for v in flat_agg.values()),
-        key=lambda x: (str(x.get("zona") or ""), str(x.get("sucursal") or "")),
+        key=lambda x: (
+            0 if x.get("temprana") else 1,
+            str(x.get("zona") or ""),
+            str(x.get("sucursal") or ""),
+        ),
     )
 
     zonas_array = []
     for zona, bucket in zonas_map.items():
         puestos_arr = sorted(
             [
-                {"puesto": v["puesto"], "cantidad": round(v["cantidad"], 2)}
+                {
+                    "puesto": v["puesto"],
+                    "cantidad": round(v["cantidad"], 2),
+                    "temprana": bool(v.get("temprana")),
+                    "marcadorTemp": "TEMP" if v.get("temprana") else "",
+                }
                 for v in bucket["puestos_map"].values()
             ],
-            key=lambda x: str(x["puesto"]),
+            key=lambda x: (0 if x.get("temprana") else 1, str(x["puesto"])),
         )
         zonas_array.append({
             "nombre": zona,
             "total": round(bucket["total"], 2),
             "puestos": puestos_arr,
+            "tieneTempranas": any(p.get("temprana") for p in puestos_arr),
         })
-    zonas_array.sort(key=lambda z: (-z["total"], z["nombre"]))
+    zonas_array.sort(
+        key=lambda z: (0 if z.get("tieneTempranas") else 1, -z["total"], z["nombre"])
+    )
 
+    total_tempranas = round(
+        sum(float(p.get("cantidad") or 0) for p in puestos_lista if p.get("temprana")),
+        2,
+    )
     pct = f"{(total_opl / total_global * 100):.1f}" if total_global > 0 else "0.0"
     return {
         "success": True,
@@ -1993,6 +2089,9 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
         "porcentaje": pct,
         "turno": turno or "Todos",
         "fecha": fecha,
+        "totalTempranas": total_tempranas,
+        "tieneTempranas": total_tempranas > 0,
+        "puestosTempranas": sorted(get_puestos_tempranas()),
     }
 
 
@@ -2008,7 +2107,7 @@ def get_planilla_puntos(
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
     opl_key = (opl or "").strip() or "TODOS"
-    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v1")
+    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v2_temp")
     hit = cache_get(ck)
     if hit is not None:
         return hit

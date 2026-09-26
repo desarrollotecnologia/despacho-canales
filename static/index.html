@@ -255,6 +255,12 @@
     .ux-collapsible > summary::-webkit-details-marker{display:none;}
     .ux-collapsible-body{padding:0 1rem 1rem;}
 
+    /* Tempranas (planilla) — igual idea que Vísceras */
+    .planilla-row-temprana{background:#fef2f2 !important;border-left:3px solid #dc2626;}
+    .planilla-row-temprana td:first-child{color:#dc2626;font-weight:700;}
+    .planilla-row-temprana td:last-child{color:#dc2626;font-weight:700;}
+    .badge-temprana{display:inline-block;font-size:0.62rem;background:#dc2626;color:#fff;border-radius:3px;padding:0 5px;margin-right:0.35rem;vertical-align:middle;white-space:nowrap;line-height:1.35;font-weight:700;}
+
     /* STATS */
     .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1.5rem;}
     .stat-card{background:var(--fondo);border-radius:12px;padding:1.2rem 1rem;border:1px solid rgba(96,165,250,0.25);text-align:center;position:relative;overflow:hidden;}
@@ -2085,27 +2091,49 @@ function fmtFechaTitulo(fechaStr) {
   return s;
 }
 
+function badgeTempHtml(marcador, title) {
+  const text = marcador || 'TEMP';
+  const tip = title ? ` title="${escHtml(title)}"` : ' title="Salida temprana"';
+  return `<span class="badge-temprana"${tip}>${escHtml(text)}</span>`;
+}
+
+function celdaPuestoTempranaHtml(p, label) {
+  const txt = label || p.sucursal || p.etiqueta || p.puesto || '—';
+  if (!p.temprana) return escHtml(txt);
+  return badgeTempHtml(p.marcadorTemp || 'TEMP') + escHtml(txt);
+}
+
 function renderPlanilla(res) {
   _planillaData = res;
   const fecha = fmtFechaTitulo(res.fecha);
   const opl = res.opl || _planillaOplActivo || 'TODOS';
+  const tempTxt = res.tieneTempranas
+    ? ` | Tempranas: ${res.totalTempranas} canales`
+    : '';
   $('planillaTitulo').textContent = 'LISTA DE PUESTOS: CANALES DE SALIDA DE CAVA — ' + fecha;
   $('planillaSubtitulo').textContent =
     'OPL: ' + opl +
     ' | Total: ' + (res.totalOPL != null ? res.totalOPL : res.total_partes || 0) +
     ' canales | ' + (res.porcentaje || '0') + '% del total' +
+    tempTxt +
     (res.turno ? ' · turno ' + res.turno : '');
 
   const grid = $('planillaGrid');
   const resumenBox = $('planillaResumen');
   if (resumenBox) {
-    resumenBox.innerHTML = `<div class="stat-card" style="min-width:180px;"><div class="stat-label">Total OPL</div><div class="stat-valor">${fmtD(res.totalOPL)}</div><div class="stat-sub">${escHtml(opl)}</div></div>`;
+    let extra = '';
+    if (res.tieneTempranas) {
+      extra = `<div class="stat-card" style="min-width:160px;border-color:#fecaca;"><div class="stat-label" style="color:#dc2626;">Tempranas</div><div class="stat-valor" style="color:#dc2626;">${fmtD(res.totalTempranas)}</div><div class="stat-sub">puestos prioritarios</div></div>`;
+    }
+    resumenBox.innerHTML =
+      `<div class="stat-card" style="min-width:180px;"><div class="stat-label">Total OPL</div><div class="stat-valor">${fmtD(res.totalOPL)}</div><div class="stat-sub">${escHtml(opl)}</div></div>` +
+      extra;
   }
 
   if (_planillaVista === 'puestos' && res.puestos && res.puestos.length) {
     const filas = res.puestos.map(p => `
-      <tr style="border-bottom:1px solid #dbeafe;">
-        <td style="padding:6px 10px;font-weight:600;">${escHtml(p.sucursal || p.etiqueta || p.puesto || '—')}</td>
+      <tr class="${p.temprana ? 'planilla-row-temprana' : ''}" style="border-bottom:1px solid #dbeafe;">
+        <td style="padding:6px 10px;font-weight:600;">${celdaPuestoTempranaHtml(p, p.sucursal || p.etiqueta || p.puesto)}</td>
         <td style="padding:6px 10px;font-size:0.78rem;">${escHtml(p.zona || '—')}</td>
         <td class="num" style="padding:6px 10px;font-weight:700;color:var(--vp);">${p.cantidad}</td>
       </tr>`).join('');
@@ -2130,8 +2158,8 @@ function renderPlanilla(res) {
 
   grid.innerHTML = res.zonas.map(z => {
     const filas = (z.puestos || []).map(p => `
-      <tr style="border-bottom:1px solid #dbeafe;">
-        <td style="padding:4px 8px;text-align:left;font-weight:500;font-size:0.8rem;">${escHtml(p.puesto)}</td>
+      <tr class="${p.temprana ? 'planilla-row-temprana' : ''}" style="border-bottom:1px solid #dbeafe;">
+        <td style="padding:4px 8px;text-align:left;font-weight:500;font-size:0.8rem;">${celdaPuestoTempranaHtml(p, p.puesto)}</td>
         <td style="padding:4px 8px;text-align:center;font-weight:700;color:var(--vp);font-size:0.82rem;">${p.cantidad}</td>
       </tr>`).join('');
     return `
