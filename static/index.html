@@ -420,7 +420,7 @@
             <div style="margin-top:0.55rem;padding-top:0.55rem;border-top:1px solid rgba(96,165,250,0.25);">
               <div class="split-label" style="font-size:0.7rem;color:#1e3a5f;">➕ Adicionales</div>
               <div class="split-valor" id="dashAdicionales" style="font-size:1.4rem;color:#1e3a5f;">—</div>
-              <div class="split-sub" id="dashAdicionalesSub">Canales pistoleadas ≥ 15:20</div>
+              <div class="split-sub" id="dashAdicionalesSub">Salidas ≥ 15:20 (cuentan en el progreso)</div>
             </div>
           </div>
         </div>
@@ -457,6 +457,7 @@
         <div class="resumen-sub" id="dashDespTurno">Pendientes del turno</div>
         <div class="dash-meta-line">
           Despachadas: <strong id="numDespachadas">0</strong>
+          <span id="numDespachadasSplit" style="color:#64748b;font-weight:500;"></span>
           &nbsp;·&nbsp; Meta asignadas: <strong id="numPendientesVs">—</strong>
         </div>
         <div class="resumen-sub" id="numDespachadasPct" style="margin-top:0.35rem;"></div>
@@ -536,13 +537,14 @@
         <div class="adicionales-panel">
           <h4>Pistoleo del día · corte adicionales <span id="corteAdicionalLbl">15:20</span></h4>
           <p style="margin:0 0 0.55rem;font-size:0.78rem;color:#64748b;line-height:1.35;">
-            Hasta las <strong>15:19</strong> = salida normal · desde las <strong>15:20</strong> = adicional.
-            En pendientes / OPL se cuentan igual: la etiqueta solo sirve para diferenciar cuáles salieron tarde.
+            Hasta las <strong>15:19</strong> = normal · desde las <strong>15:20</strong> = adicional.
+            <strong>Normales + Adicionales = total salidas</strong>. Ambas cuentan en el progreso y bajan pendientes.
+            Solo piezas <strong>programadas</strong> del día.
           </p>
           <div class="adicionales-kpis">
-            <div>Normales<br><strong id="kpiSalNormales">—</strong></div>
-            <div>Adicionales<br><strong id="kpiSalAdicionales" style="color:#1e3a5f;">—</strong></div>
-            <div>Total<br><strong id="kpiSalTotal">—</strong></div>
+            <div>Normales (&lt; corte)<br><strong id="kpiSalNormales">—</strong></div>
+            <div>Adicionales (≥ corte)<br><strong id="kpiSalAdicionales" style="color:#1e3a5f;">—</strong></div>
+            <div>Total salidas<br><strong id="kpiSalTotal">—</strong></div>
           </div>
           <div class="adicionales-filtros">
             <button type="button" class="active" id="filtroSalTodas" onclick="filtrarSalidasFisicas('todas')">Todas</button>
@@ -1051,8 +1053,13 @@ function actualizarBarraProgreso(tot, operacionFinalizada) {
         : ((tot.canales_sal || 0) + (tot.canales_pend || 0));
       const pend = tot.canales_pend || 0;
       const sal = tot.canales_sal != null ? tot.canales_sal : Math.max(0, asignado - pend);
+      const nor = tot._canalesNormales;
+      const adi = tot._canalesAdicionales;
       if (!asignado) {
         $('progresoMeta').textContent = 'Sin canales programadas / despachadas para esta fecha';
+      } else if (nor != null && adi != null) {
+        $('progresoMeta').textContent =
+          `${fmtD(sal)} despachadas (${fmtD(nor)} antes · ${fmtD(adi)} adi) de ${fmtD(asignado)} asignadas — ${fmtD(pend)} pendientes`;
       } else {
         $('progresoMeta').textContent =
           `${fmtD(sal)} despachadas de ${fmtD(asignado)} asignadas (congelado) — ${fmtD(pend)} pendientes`;
@@ -1104,9 +1111,21 @@ async function actualizarDashboard(silent, forceRefresh) {
     if ($('dashDespTurno')) $('dashDespTurno').textContent = `Turno ${turnoTxt} · ${fecha}`;
     if ($('numPendientesVs')) $('numPendientesVs').textContent = fmtD(canalesAsignadas);
     if ($('numDespachadas')) $('numDespachadas').textContent = fmtD(canalesSal);
+    // Desglose: normales + adicionales = despachadas (progreso cuenta las dos)
+    const adiCanales = planilla.totalCanalesAdicionales != null ? Number(planilla.totalCanalesAdicionales) : null;
+    const norCanales = planilla.totalCanalesNormales != null ? Number(planilla.totalCanalesNormales) : null;
+    const adiMedias = planilla.totalMediasAdicionales != null ? Number(planilla.totalMediasAdicionales) : 0;
+    const corteAdi = planilla.corteAdicional || '15:20';
+    if ($('numDespachadasSplit')) {
+      if (norCanales != null && adiCanales != null) {
+        $('numDespachadasSplit').textContent = ` (${fmtD(norCanales)} antes · ${fmtD(adiCanales)} adi)`;
+      } else {
+        $('numDespachadasSplit').textContent = '';
+      }
+    }
     if ($('numDespachadasPct')) {
       $('numDespachadasPct').textContent = canalesAsignadas
-        ? `${fmtPct(pct)} del asignado · solo baja con pistoleo`
+        ? `${fmtPct(pct)} del asignado · normales y adicionales cuentan igual`
         : 'Sin asignación para esta fecha';
     }
     if ($('numMC1')) $('numMC1').textContent = fmt(mc1Asignadas);
@@ -1114,18 +1133,17 @@ async function actualizarDashboard(silent, forceRefresh) {
     if ($('numMC1MC2')) $('numMC1MC2').textContent = `${fmt(mc1Asignadas)} / ${fmt(mc2Asignadas)}`;
     if ($('numCanalesComp')) $('numCanalesComp').textContent = fmtD(canalesAsignadas);
     if ($('numTotal')) $('numTotal').textContent = fmt(mediasAsignadas);
-    // Adicionales por hora (≥ corte) — solo etiqueta visual
-    const adiCanales = planilla.totalCanalesAdicionales != null ? Number(planilla.totalCanalesAdicionales) : null;
-    const adiMedias = planilla.totalMediasAdicionales != null ? Number(planilla.totalMediasAdicionales) : 0;
-    const corteAdi = planilla.corteAdicional || '15:20';
     if ($('dashAdicionales')) {
       $('dashAdicionales').textContent = adiCanales != null ? fmtD(adiCanales) : '—';
     }
     if ($('dashAdicionalesSub')) {
       $('dashAdicionalesSub').textContent = adiCanales != null
-        ? `${fmt(adiMedias)} medias · pistoleo ≥ ${corteAdi}`
-        : `Canales pistoleadas ≥ ${corteAdi}`;
+        ? `${fmt(adiMedias)} medias · ≥ ${corteAdi} · cuentan en el progreso`
+        : `Salidas ≥ ${corteAdi} (cuentan en el progreso)`;
     }
+    // Pasar desglose a la barra de progreso
+    tot._canalesNormales = norCanales;
+    tot._canalesAdicionales = adiCanales;
     if ($('numPuestosDash')) {
       const nP = (dash.top_destinos && dash.top_destinos.length) || 0;
       $('numPuestosDash').textContent = fmt(nP);
@@ -1521,9 +1539,11 @@ async function cargarVistaSalidasFisicas() {
       corte,
     };
     if ($('corteAdicionalLbl')) $('corteAdicionalLbl').textContent = corte;
-    if ($('kpiSalNormales')) $('kpiSalNormales').textContent = res.totalNormales != null ? res.totalNormales : 0;
-    if ($('kpiSalAdicionales')) $('kpiSalAdicionales').textContent = res.totalAdicionales != null ? res.totalAdicionales : 0;
-    if ($('kpiSalTotal')) $('kpiSalTotal').textContent = res.totalFilas != null ? res.totalFilas : 0;
+    // KPIs en canales (medias × 0.5) para alinear con el tablero
+    const setKpi = (id, v) => { if ($(id)) $(id).textContent = v; };
+    setKpi('kpiSalNormales', res.totalCanalesNormales != null ? fmtD(res.totalCanalesNormales) : (res.totalNormales != null ? res.totalNormales : 0));
+    setKpi('kpiSalAdicionales', res.totalCanalesAdicionales != null ? fmtD(res.totalCanalesAdicionales) : (res.totalAdicionales != null ? res.totalAdicionales : 0));
+    setKpi('kpiSalTotal', res.totalCanalesSalida != null ? fmtD(res.totalCanalesSalida) : (res.totalFilas != null ? fmtD(res.totalFilas * 0.5) : 0));
     renderTablaSalidasFisicas();
   } catch (e) {
     if (tbody) {

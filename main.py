@@ -57,8 +57,9 @@ def resolver_turno(fecha_str: Optional[str], turno: Optional[str]) -> Optional[s
 
 TURNOS_CODIGO = ("DxL", "LxM", "MxM", "MxJ", "JxV", "VxS", "SxD")
 
-# Corte horario: pistoleo ≥ esta hora = salida adicional (etiqueta; no cambia pendientes).
+# Corte horario: pistoleo ≥ esta hora = salida adicional (desglose).
 # Override: CANALES_SALIDA_ADICIONAL_HORA / CANALES_SALIDA_ADICIONAL_MINUTO
+# Pendientes y progreso cuentan normales + adicionales por igual.
 def get_salida_adicional_corte():
     try:
         hora = int(os.getenv("CANALES_SALIDA_ADICIONAL_HORA", "15"))
@@ -486,17 +487,26 @@ def enriquecer_codigo(row: dict) -> dict:
 
 def consultar_salidas_fisicas(fecha_filtro: str) -> dict:
     """
-    Salidas físicas (fecha_salida) del día para medias canales.
-    Clasifica normal vs adicional por hora (≥ corte, defecto 15:20).
-    No altera pendientes/OPL: solo etiqueta y métricas.
+    Salidas físicas del día **programado** (MC1/MC2).
+    Parte en normales (< corte) vs adicionales (≥ corte, defecto 15:20).
+    El progreso / pendientes cuentan las dos: aquí solo se desglosa.
     """
     corte = get_salida_adicional_corte()
     corte_lbl = get_salida_adicional_corte_label()
     sql = f"""
-        WITH ultimo AS (
-            SELECT DISTINCT ON (pp.id_producto, pp.id)
-                pp.id_producto::text AS codigo,
-                pp.id_tipo_parte_producto AS id_tipo,
+        WITH programadas AS (
+            SELECT DISTINCT
+                pp.id_producto::text AS id_producto,
+                pp.id AS id_parte_producto,
+                pp.id_tipo_parte_producto
+            FROM trazabilidad_proceso.parte_producto pp
+            WHERE pp.id_tipo_parte_producto IN %s
+              {SQL_EXISTS_PROGRAMADO}
+        ),
+        ultimo AS (
+            SELECT DISTINCT ON (p.id_producto, p.id_parte_producto)
+                p.id_producto AS codigo,
+                p.id_tipo_parte_producto AS id_tipo,
                 tpp.nombre AS tipo_nombre,
                 COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') AS propietario,
                 c.nombre AS cava,
@@ -504,36 +514,38 @@ def consultar_salidas_fisicas(fecha_filtro: str) -> dict:
                 mov.fecha_ingreso,
                 mov.fecha_salida,
                 COALESCE(NULLIF(TRIM(de.nombre), ''), NULLIF(TRIM(s.nombre), ''), '') AS zona
-            FROM trazabilidad_proceso.parte_producto pp
-            JOIN trazabilidad_proceso.tipo_parte_producto tpp
-              ON tpp.id = pp.id_tipo_parte_producto
+            FROM programadas p
             JOIN trazabilidad_proceso.parte_producto_cava_riel mov
-              ON mov.id_parte_producto = pp.id
-             AND mov.id_producto::text = pp.id_producto::text
+              ON mov.id_parte_producto = p.id_parte_producto
+             AND mov.id_producto::text = p.id_producto
+            JOIN trazabilidad_proceso.tipo_parte_producto tpp
+              ON tpp.id = p.id_tipo_parte_producto
             LEFT JOIN trazabilidad_proceso.cava c ON c.id = mov.id_cava
             LEFT JOIN trazabilidad_proceso.riel r ON r.id = mov.id_riel
             LEFT JOIN trazabilidad_proceso.producto_empresa pe
-              ON pe.id_producto::text = pp.id_producto::text AND pe.activo = true
+              ON pe.id_producto::text = p.id_producto AND pe.activo = true
             LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
             LEFT JOIN trazabilidad_proceso.parte_producto_empresa ppe
-              ON ppe.id_producto::text = pp.id_producto::text
-             AND ppe.id_parte_producto = pp.id
+              ON ppe.id_producto::text = p.id_producto
+             AND ppe.id_parte_producto = p.id_parte_producto
             LEFT JOIN trazabilidad_proceso.parte_producto_empresa_local ppel
               ON ppel.id_parte_producto_empresa = ppe.id
+             AND ppel.fecha_programacion_despacho::date = %s::date
             LEFT JOIN organizaciones.sucursal s ON s.id = ppel.id_local
             LEFT JOIN trazabilidad_proceso.destino de ON de.id = s.id_destino
-            WHERE pp.id_tipo_parte_producto IN %s
-              AND mov.fecha_salida IS NOT NULL
+            WHERE mov.fecha_salida IS NOT NULL
               AND mov.fecha_salida::date = %s::date
             ORDER BY
-                pp.id_producto, pp.id,
+                p.id_producto, p.id_parte_producto,
                 mov.fecha_ingreso DESC NULLS LAST,
                 mov.id DESC
         )
         SELECT * FROM ultimo
         ORDER BY fecha_salida DESC NULLS LAST, codigo
     """
-    rows = serializable(safe_query(sql, (IDS_CANAL, fecha_filtro), "salidas_fisicas"))
+    rows = serializable(
+        safe_query(sql, (IDS_CANAL, fecha_filtro, fecha_filtro, fecha_filtro), "salidas_fisicas")
+    )
     filas = []
     for r in rows:
         id_tipo = int(r.get("id_tipo") or 0)
@@ -561,24 +573,34 @@ def consultar_salidas_fisicas(fecha_filtro: str) -> dict:
 
     normales = [f for f in filas if not f["adicional"]]
     adicionales = [f for f in filas if f["adicional"]]
+    n_nor = len(normales)
+    n_adi = len(adicionales)
     return {
         "success": True,
         "fecha": fecha_filtro,
         "corteAdicional": corte_lbl,
+        "soloProgramadas": True,
         "totalFilas": len(filas),
-        "totalNormales": len(normales),
-        "totalAdicionales": len(adicionales),
-        "totalCanalesAdicionales": round(len(adicionales) * 0.5, 2),
-        "totalMediasAdicionales": len(adicionales),
+        "totalNormales": n_nor,
+        "totalAdicionales": n_adi,
+        "totalCanalesNormales": round(n_nor * 0.5, 2),
+        "totalMediasNormales": n_nor,
+        "totalCanalesAdicionales": round(n_adi * 0.5, 2),
+        "totalMediasAdicionales": n_adi,
+        "totalCanalesSalida": round(len(filas) * 0.5, 2),
         "filas": filas,
         "filasNormales": normales,
         "filasAdicionales": adicionales,
+        "nota": (
+            f"Normales (< {corte_lbl}) + Adicionales (≥ {corte_lbl}) = total salidas. "
+            "Ambas cuentan en el progreso / pendientes."
+        ),
     }
 
 
 def contar_adicionales_dashboard(fecha_filtro: str) -> dict:
-    """Métrica visual del tablero: canales/medias pistoleadas ≥ corte."""
-    ck = ("salidas_fisicas", fecha_filtro, "v1")
+    """Desglose visual: antes / adicionales / total (progreso usa el total)."""
+    ck = ("salidas_fisicas", fecha_filtro, "v2_prog")
     out = cache_get(ck)
     if out is None:
         out = consultar_salidas_fisicas(fecha_filtro)
@@ -586,6 +608,9 @@ def contar_adicionales_dashboard(fecha_filtro: str) -> dict:
     return {
         "totalCanalesAdicionales": out.get("totalCanalesAdicionales") or 0,
         "totalMediasAdicionales": out.get("totalMediasAdicionales") or 0,
+        "totalCanalesNormales": out.get("totalCanalesNormales") or 0,
+        "totalMediasNormales": out.get("totalMediasNormales") or 0,
+        "totalCanalesSalida": out.get("totalCanalesSalida") or 0,
         "corteAdicional": out.get("corteAdicional") or get_salida_adicional_corte_label(),
     }
 
@@ -1664,7 +1689,7 @@ def get_planilla_opl(
     turno = resolver_turno(fecha_filtro, turno)
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
-    ck = ("planilla_opl", fecha_filtro, turno, "prog_v3_adi")
+    ck = ("planilla_opl", fecha_filtro, turno, "prog_v4_adi_split")
     hit = cache_get(ck)
     if hit is not None:
         return hit
@@ -1868,9 +1893,12 @@ def get_planilla_opl(
         "operacionFinalizada": bool(todos_opl) and not progreso_activos,
         "unidad": "canales",
         "success": True,
-        # Métrica visual: pistoleo ≥ corte (no altera pendientes/OPL)
+        # Desglose horario: progreso / pendientes cuentan AMBAS
+        "totalCanalesNormales": adi.get("totalCanalesNormales") or 0,
+        "totalMediasNormales": adi.get("totalMediasNormales") or 0,
         "totalCanalesAdicionales": adi.get("totalCanalesAdicionales") or 0,
         "totalMediasAdicionales": adi.get("totalMediasAdicionales") or 0,
+        "totalCanalesSalidaDia": adi.get("totalCanalesSalida") or 0,
         "corteAdicional": adi.get("corteAdicional") or get_salida_adicional_corte_label(),
     }
     cache_set(ck, payload)
@@ -2107,7 +2135,7 @@ def api_salidas_fisicas(fecha: Optional[str] = None, refresh: Optional[str] = No
     fecha_filtro = fecha or date.today().isoformat()
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
-    ck = ("salidas_fisicas", fecha_filtro, "v1")
+    ck = ("salidas_fisicas", fecha_filtro, "v2_prog")
     hit = cache_get(ck)
     if hit is not None:
         return hit
