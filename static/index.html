@@ -413,6 +413,7 @@
             <div class="split-valor" id="numAsignadas">—</div>
             <div class="split-sub">Congelado · no baja al pistolear</div>
             <div class="split-sub" id="numAsignadasMedias" style="margin-top:0.45rem;font-weight:700;color:var(--vp);"></div>
+            <button type="button" onclick="recalcularAsignado()" title="Usar solo si cancelaron canales: vuelve a fijar la meta con lo asignado actual en SIRT" style="margin-top:0.45rem;font-size:0.7rem;padding:0.2rem 0.5rem;border:1px solid var(--vp);background:transparent;color:var(--vp);border-radius:6px;cursor:pointer;">↻ Recalcular meta</button>
           </div>
           <div class="split-right">
             <div class="split-label">◀ MC1</div>
@@ -928,6 +929,18 @@ async function invalidarCache() {
 
 function getFecha() {
   return $('fechaSelect').value || S.fecha;
+}
+
+async function recalcularAsignado() {
+  const fecha = getFecha();
+  if (!confirm(`¿Recalcular la meta de Asignadas del ${fecha}?\n\nSolo úsalo si cancelaron canales. La meta se vuelve a fijar con lo asignado actualmente en SIRT.`)) return;
+  try {
+    const r = await fetch(API(`/asignado/recalcular?fecha=${encodeURIComponent(fecha)}`), { method: 'POST' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    await actualizarDashboard();
+  } catch (e) {
+    alert('No se pudo recalcular: ' + e.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════

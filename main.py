@@ -17,6 +17,7 @@ from io import BytesIO
 from threading import Lock
 from typing import Optional, List
 from urllib.parse import quote
+from pathlib import Path
 
 from dotenv import load_dotenv
 import psycopg2
@@ -152,14 +153,16 @@ def _codigo_candidato_temprana(texto) -> str:
 
 
 def es_destino_marcador_temprana(zona) -> bool:
-    """TEMP1 / TEMPRANA en SIRT = marcador logístico, no zona comercial."""
+    """TEMP1 / TEMPRANA / 'Temp 2 …' = marcador logístico (no usar como nombre de zona)."""
     u = " ".join(str(zona or "").strip().upper().split())
     if not u:
         return False
     compact = u.replace(" ", "")
     if re.match(r"^TEMP\d*$", compact):
         return True
-    if "TEMPRANA" in u and "PROVENZA" not in u:
+    if re.match(r"^TEMP\s*\d*\b", u):
+        return True
+    if u.startswith("TEMPRANA") and "PROVENZA" not in u:
         return True
     return False
 
@@ -180,11 +183,163 @@ def es_puesto_temprana(sucursal_or_puesto, puesto_full: str = "") -> bool:
     return False
 
 
+# Catálogo puesto → plaza/zona (mismo origen que Gestor Vísceras).
+_PLAZAS_MAP_CACHE = None
+_PLAZAS_MAP_LOCK = Lock()
+PLAZAS_CATALOG_PATH = Path(__file__).resolve().parent / "plazas_catalog.json"
+
+
+def _etiqueta_zona_planilla(zona: str) -> str:
+    u = str(zona or "").strip().upper()
+    if u == "CUMBRE":
+        return "LA CUMBRE"
+    return str(zona or "").strip()
+
+
+def cargar_plazas_map() -> dict:
+    """Carga plazas_catalog.json (puesto → zona comercial)."""
+    global _PLAZAS_MAP_CACHE
+    with _PLAZAS_MAP_LOCK:
+        if _PLAZAS_MAP_CACHE is not None:
+            return _PLAZAS_MAP_CACHE
+        out = {}
+        try:
+            import json
+            if PLAZAS_CATALOG_PATH.exists():
+                raw = json.loads(PLAZAS_CATALOG_PATH.read_text(encoding="utf-8"))
+                src = raw.get("plazasMap") if isinstance(raw, dict) else {}
+                if isinstance(src, dict):
+                    for k, v in src.items():
+                        p = formatear_codigo_sucursal(k) or str(k or "").strip()
+                        pl = str(v or "").strip()
+                        if p and pl:
+                            out[p] = pl
+                            out[str(p).upper()] = pl
+        except Exception as e:
+            print(f"[WARN] plazas_catalog: {e}")
+        _PLAZAS_MAP_CACHE = out
+        return out
+
+
+def zona_desde_catalogo_plazas(puesto_or_ruta: str, mapa: Optional[dict] = None) -> str:
+    """6505→PROVENZA, NSF→GIRON, etc. Prioridad sobre marcadores TEMP de SIRT."""
+    mapa = mapa if mapa is not None else cargar_plazas_map()
+    if not mapa:
+        return ""
+    raw = str(puesto_or_ruta or "").strip()
+    if not raw:
+        return ""
+    cod = formatear_codigo_sucursal(_codigo_candidato_temprana(raw) or raw)
+    candidatos = [cod, str(raw.split("/")[0]).strip()]
+    for k in candidatos:
+        if not k:
+            continue
+        kf = formatear_codigo_sucursal(k) or k
+        if kf in mapa:
+            return _etiqueta_zona_planilla(mapa[kf])
+        if k in mapa:
+            return _etiqueta_zona_planilla(mapa[k])
+        ku = str(k).upper()
+        if ku in mapa:
+            return _etiqueta_zona_planilla(mapa[ku])
+    u = raw.upper()
+    for k, zona in mapa.items():
+        ku = str(k).upper()
+        if u.startswith(ku + "/") or f"/{ku}/" in u:
+            return _etiqueta_zona_planilla(zona)
+    return ""
+
+
+# Segmentos de ruta/observación → zona comercial (igual idea que Vísceras).
+ZONA_POR_SEGMENTO_RUTA = [
+    ("SAN FRANCISCO", "SAN FRANCISCO"),
+    ("PROVENZA", "PROVENZA"),
+    ("CUMBRE", "LA CUMBRE"),
+    ("GIRON", "GIRON"),
+    ("GIRÓN", "GIRON"),
+    ("LAGOS", "LAGOS"),
+    ("FLORIDA", "FLORIDA"),
+    ("FLORIDABLANCA", "FLORIDABLANCA"),
+    ("PIEDECUESTA", "PIEDECUESTA"),
+    ("BUCARAMANGA", "CENTRO"),
+    ("NORTE", "NORTE"),
+    ("CPA", "CPA"),
+    ("REAL DE MINAS", "REAL DE MINAS"),
+    ("LEBRIJA", "LEBRIJA"),
+    ("RIONEGRO", "RIONEGRO"),
+]
+
+
+def inferir_zona_desde_ruta(puesto_full: str) -> str:
+    """
+    Lee la zona en la misma ruta/observación (ej. 6505/Temp 2 Florida/...).
+    En segmentos TEMP busca el nombre de ciudad; en TEMP puros salta.
+    """
+    parts = [p.strip() for p in re.split(r"\s*/\s*", str(puesto_full or "")) if p.strip()]
+    for part in parts:
+        u = part.upper()
+        compact = u.replace(" ", "")
+        # TEMP1 / TEMPRANA solo → sin zona en ese segmento
+        if re.match(r"^TEMP\d*$", compact) or u == "TEMPRANA":
+            continue
+        sin_prefijo = re.sub(r"^\d+\s+", "", u).strip()
+        # "TEMP 2 FLORIDA" → "FLORIDA"
+        sin_temp = re.sub(r"^TEMP\s*\d*\s*", "", u, flags=re.I).strip()
+        sin_temp = re.sub(r"^\d+\s+", "", sin_temp).strip()
+        for candidato in (sin_temp, sin_prefijo, u):
+            if not candidato or re.match(r"^TEMP\d*$", candidato.replace(" ", "")):
+                continue
+            for needle, zona in ZONA_POR_SEGMENTO_RUTA:
+                if needle in candidato:
+                    return _etiqueta_zona_planilla(zona)
+    return ""
+
+
+def resolver_zona_planilla(puesto: str, zona_explicita: str = "", ruta: str = "", observaciones: str = "") -> str:
+    """
+    Zona comercial — prioriza observación/ruta:
+    1) Inferir desde observaciones o ruta (Temp 2 Florida → FLORIDA)
+    2) Segmento de ruta si no es marcador TEMP
+    3) Zona SIRT explícita si no es TEMP
+    4) Catálogo de plazas como respaldo
+    5) SIN ZONA
+    """
+    textos = [
+        str(observaciones or "").strip(),
+        str(ruta or "").strip(),
+        str(puesto or "").strip(),
+    ]
+    for t in textos:
+        if not t:
+            continue
+        inferred = inferir_zona_desde_ruta(t)
+        if inferred:
+            return inferred
+        if "/" in t:
+            po = parse_puesto_operacion(t)
+            zseg = str(po.get("zona") or "").strip()
+            if zseg and not es_destino_marcador_temprana(zseg):
+                return _etiqueta_zona_planilla(zseg)
+
+    z = str(zona_explicita or "").strip()
+    if z and not es_destino_marcador_temprana(z):
+        inferred = inferir_zona_desde_ruta(z)
+        if inferred:
+            return inferred
+        return _etiqueta_zona_planilla(z)
+
+    desde_cat = zona_desde_catalogo_plazas(puesto) or zona_desde_catalogo_plazas(ruta)
+    if desde_cat:
+        return desde_cat
+    return "SIN ZONA"
+
+
 def normalizar_zona_planilla(zona: str) -> str:
+    """Compat: limpia marcadores TEMP sin catálogo."""
     z = str(zona or "").strip()
     if not z or es_destino_marcador_temprana(z):
         return "SIN ZONA"
-    return z
+    return _etiqueta_zona_planilla(z)
 
 
 # Joins de ruta (puesto/zona). Sin filtrar por fecha de programación.
@@ -317,7 +472,7 @@ def _ruta_cruda_desde_campos(con_destino: str, observaciones: str) -> str:
 
 
 def resolver_logistica_pieza(row: dict, turno_calendario: Optional[str] = None) -> dict:
-    """Arma puesto/zona/turno como el Gestor de Vísceras."""
+    """Arma puesto/zona/turno como el Gestor de Vísceras (zona desde observación/ruta)."""
     con_dest = str(row.get("destino") or row.get("con_destino") or "").strip()
     obs = str(row.get("observaciones") or "").strip()
     suc = str(row.get("sucursal_origen") or row.get("sucursal") or "").strip()
@@ -328,14 +483,14 @@ def resolver_logistica_pieza(row: dict, turno_calendario: Optional[str] = None) 
     if ruta_cruda:
         po = parse_puesto_operacion(ruta_cruda)
         puesto = po["codigo"] or formatear_codigo_sucursal(suc)
-        zona = po["zona"] or zona_db
         direccion = po["direccion"] or dir_db
         turno = po["turno"] or (turno_calendario or "")
+        zona = resolver_zona_planilla(puesto, zona_db or po.get("zona") or "", ruta_cruda, obs)
     else:
         puesto = formatear_codigo_sucursal(suc) or suc
-        zona = zona_db
         direccion = dir_db
         turno = turno_calendario or ""
+        zona = resolver_zona_planilla(puesto, zona_db, "", obs)
 
     ruta = construir_ruta(puesto, zona, direccion, turno)
     po2 = parse_puesto_operacion(ruta)
@@ -345,6 +500,7 @@ def resolver_logistica_pieza(row: dict, turno_calendario: Optional[str] = None) 
         "direccion": direccion,
         "turno_ruta": turno,
         "ruta": ruta,
+        "observaciones": obs,
         "etiqueta": po2["etiqueta"] or (f"{puesto} · {zona}" if puesto or zona else "Sin ruta"),
         "clave": po2["clave"] or "SIN RUTA",
     }
@@ -602,7 +758,7 @@ def consultar_salidas_fisicas(fecha_filtro: str) -> dict:
             LEFT JOIN organizaciones.sucursal s ON s.id = ppel.id_local
             LEFT JOIN trazabilidad_proceso.destino de ON de.id = s.id_destino
             WHERE mov.fecha_salida IS NOT NULL
-              AND mov.fecha_salida::date = %s::date
+              AND mov.fecha_salida::date >= (%s::date - 2)
             ORDER BY
                 p.id_producto, p.id_parte_producto,
                 mov.fecha_ingreso DESC NULLS LAST,
@@ -618,7 +774,14 @@ def consultar_salidas_fisicas(fecha_filtro: str) -> dict:
     for r in rows:
         id_tipo = int(r.get("id_tipo") or 0)
         fs = r.get("fecha_salida")
-        adicional = es_salida_adicional_por_hora(fs, corte)
+        # Antes del día programado = despacho anticipado (normal); después = adicional
+        dia_salida = str(fs or "")[:10]
+        if dia_salida and dia_salida < fecha_filtro:
+            adicional = False
+        elif dia_salida > fecha_filtro:
+            adicional = True
+        else:
+            adicional = es_salida_adicional_por_hora(fs, corte)
         item = {
             "fecha_salida": str(fs) if fs is not None else "",
             "fecha_ingreso": str(r.get("fecha_ingreso") or ""),
@@ -1793,14 +1956,15 @@ def get_planilla_opl(
             COUNT(*) FILTER (WHERE u.id_tipo_parte_producto = {ID_MC1} AND u.fecha_salida IS NULL) AS mc1_pend,
             COUNT(*) FILTER (WHERE u.id_tipo_parte_producto = {ID_MC2} AND u.fecha_salida IS NULL) AS mc2_pend,
             COUNT(*) FILTER (WHERE u.fecha_salida IS NULL) AS total_pend,
-            COUNT(*) FILTER (WHERE u.id_tipo_parte_producto = {ID_MC1} AND u.fecha_salida::date = %s::date) AS mc1_sal,
-            COUNT(*) FILTER (WHERE u.id_tipo_parte_producto = {ID_MC2} AND u.fecha_salida::date = %s::date) AS mc2_sal,
-            COUNT(*) FILTER (WHERE u.fecha_salida::date = %s::date) AS total_sal
+            COUNT(*) FILTER (WHERE u.id_tipo_parte_producto = {ID_MC1} AND u.fecha_salida::date >= (%s::date - 2)) AS mc1_sal,
+            COUNT(*) FILTER (WHERE u.id_tipo_parte_producto = {ID_MC2} AND u.fecha_salida::date >= (%s::date - 2)) AS mc2_sal,
+            COUNT(*) FILTER (WHERE u.fecha_salida::date >= (%s::date - 2)) AS total_sal
         FROM ultimo_movimiento u
         LEFT JOIN trazabilidad_proceso.producto_empresa pe
           ON pe.id_producto::text = u.id_producto AND pe.activo = true
         LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
-        WHERE u.fecha_salida IS NULL OR u.fecha_salida::date = %s::date
+        -- >= fecha: el turno cruza medianoche y lo pistoleado de madrugada sigue siendo del día programado
+        WHERE u.fecha_salida IS NULL OR u.fecha_salida::date >= (%s::date - 2)
         GROUP BY e3.nombre
         ORDER BY total_pend DESC
     """
@@ -1995,11 +2159,16 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
             continue
         cantidad = 0.5
         total_opl += cantidad
-        zona = normalizar_zona_planilla(r.get("zona") or "SIN ZONA")
         puesto = formatear_codigo_sucursal(r.get("puesto") or "") or "—"
-        ruta = r.get("ruta") or construir_ruta(puesto, zona, r.get("direccion") or "", turno or "")
+        obs = str(r.get("observaciones") or "").strip()
+        ruta = (
+            r.get("ruta")
+            or _ruta_cruda_desde_campos(r.get("con_destino") or r.get("destino") or "", obs)
+            or construir_ruta(puesto, r.get("zona") or "", r.get("direccion") or "", turno or "")
+        )
+        zona = resolver_zona_planilla(puesto, r.get("zona") or "", ruta, obs)
         temprana = es_puesto_temprana(puesto, ruta)
-        clave = r.get("clave") or f"{puesto}|{zona.upper()}"
+        clave = f"{puesto}|{zona.upper()}"
         if zona not in zonas_map:
             zonas_map[zona] = {"total": 0.0, "puestos_map": {}}
         zonas_map[zona]["total"] += cantidad
@@ -2011,7 +2180,7 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
             pm[clave]["temprana"] = True
         puestos_flat.append({
             "puesto": ruta,
-            "etiqueta": r.get("etiqueta") or (f"{puesto} · {zona}" if puesto and zona else puesto or zona),
+            "etiqueta": f"{puesto} · {zona}" if puesto and zona else (puesto or zona),
             "sucursal": puesto,
             "zona": zona,
             "cantidad": cantidad,
@@ -2107,7 +2276,7 @@ def get_planilla_puntos(
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
     opl_key = (opl or "").strip() or "TODOS"
-    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v2_temp")
+    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v4_zona_obs")
     hit = cache_get(ck)
     if hit is not None:
         return hit
@@ -2375,6 +2544,15 @@ def post_opl_asignar(propietario: str, opl: str):
     """Asigna propietario → OPL e invalida caché de progreso."""
     res = apps_script_local.upsertOpl(propietario, opl)
     cache_invalidate_fecha(None)
+    return res
+
+
+@app.post("/api/asignado/recalcular")
+def post_asignado_recalcular(fecha: Optional[str] = None):
+    """Reinicia la meta congelada del día (p. ej. tras cancelaciones reales)."""
+    fecha_filtro = fecha or date.today().isoformat()
+    res = apps_script_local.recalcular_asignado_congelado(fecha_filtro)
+    cache_invalidate_fecha(fecha_filtro)
     return res
 
 

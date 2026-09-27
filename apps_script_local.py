@@ -150,8 +150,8 @@ def actualizar_asignado_congelado(fecha, turno, snapshot):
     Reglas estilo Vísceras:
     - Si asignan más → el congelado sube.
     - Si pistolean → no cambia (pend baja, sal sube, suma igual).
-    - Si baja el total vivo → el congelado baja (cancelación /
-      una salida marcada deja de contar en el día).
+    - Nunca baja solo: para bajarlo hay que usar recalcular_asignado_congelado.
+    - Un snapshot vacío (BD caída / consulta fallida) no toca lo guardado.
     """
     state = _load_state()
     key = _clave_asignado(fecha, turno)
@@ -166,10 +166,10 @@ def actualizar_asignado_congelado(fecha, turno, snapshot):
     prev_medias = int(_num(prev.get("medias")))
     prev_opl = prev.get("por_opl") or {}
 
-    # Universo asignado = pend + sal. El pistoleo lo deja igual.
+    if vivo_medias <= 0 and prev_medias > 0:
+        return prev
+
     if vivo_medias > prev_medias:
-        medias, mc1, mc2 = vivo_medias, vivo_mc1, vivo_mc2
-    elif vivo_medias < prev_medias:
         medias, mc1, mc2 = vivo_medias, vivo_mc1, vivo_mc2
     elif prev_medias:
         medias = prev_medias
@@ -186,8 +186,6 @@ def actualizar_asignado_congelado(fecha, turno, snapshot):
         v_m = int(_num(v.get("medias")))
         p_m = int(_num(p.get("medias")))
         if v_m > p_m:
-            m, a, b = v_m, int(_num(v.get("mc1"))), int(_num(v.get("mc2")))
-        elif v_m < p_m:
             m, a, b = v_m, int(_num(v.get("mc1"))), int(_num(v.get("mc2")))
         elif p_m:
             m = p_m
@@ -214,6 +212,17 @@ def actualizar_asignado_congelado(fecha, turno, snapshot):
     state["asignado_congelado"] = bag
     _save_state(state)
     return nuevo
+
+
+def recalcular_asignado_congelado(fecha):
+    """Borra la meta congelada de la fecha (todos los turnos); la próxima consulta la fija con el vivo."""
+    state = _load_state()
+    bag = state.setdefault("asignado_congelado", {})
+    prefijo = f"{_as_str(fecha)}|"
+    borrados = {k: bag.pop(k) for k in [k for k in bag if k.startswith(prefijo)]}
+    state["asignado_congelado"] = bag
+    _save_state(state)
+    return {"success": True, "borrados": list(borrados)}
 
 
 def get_asignado_congelado(fecha, turno=None):
