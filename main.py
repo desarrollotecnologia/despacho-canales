@@ -58,7 +58,7 @@ def resolver_turno(fecha_str: Optional[str], turno: Optional[str]) -> Optional[s
 
 TURNOS_CODIGO = ("DxL", "LxM", "MxM", "MxJ", "JxV", "VxS", "SxD")
 
-# Corte horario: pistoleo ≥ esta hora = salida adicional (desglose).
+# Corte horario: canal cuya salida se ASIGNA desde esta hora = adicional.
 # Override: CANALES_SALIDA_ADICIONAL_HORA / CANALES_SALIDA_ADICIONAL_MINUTO
 # Pendientes y progreso cuentan normales + adicionales por igual.
 def get_salida_adicional_corte():
@@ -79,37 +79,6 @@ def get_salida_adicional_corte():
 def get_salida_adicional_corte_label() -> str:
     c = get_salida_adicional_corte()
     return f"{c['hora']:02d}:{c['minuto']:02d}"
-
-
-def parse_hora_desde_celda(celda) -> Optional[tuple]:
-    """Devuelve (h, m) si la celda trae hora; None si no."""
-    if celda is None or celda == "":
-        return None
-    if isinstance(celda, datetime):
-        return (celda.hour, celda.minute)
-    s = str(celda).strip()
-    if not s:
-        return None
-    m = re.search(r"(?:^|[T\s])(\d{1,2}):(\d{2})(?::\d{2})?", s)
-    if m:
-        return (int(m.group(1)), int(m.group(2)))
-    try:
-        d = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        return (d.hour, d.minute)
-    except Exception:
-        return None
-
-
-def es_salida_adicional_por_hora(celda, corte=None) -> bool:
-    """
-    Salida física adicional: fecha_salida con hora >= corte (defecto 15:20).
-    Sin hora → no se marca adicional.
-    """
-    hm = parse_hora_desde_celda(celda)
-    if not hm:
-        return False
-    corte = corte or get_salida_adicional_corte()
-    return (hm[0] * 60 + hm[1]) >= (int(corte["hora"]) * 60 + int(corte["minuto"]))
 
 
 # Destinos/puestos de stock interno (no despacho a plaza), igual idea que Gestor Vísceras
@@ -709,141 +678,163 @@ def enriquecer_codigo(row: dict) -> dict:
     return row
 
 
-def consultar_salidas_fisicas(fecha_filtro: str) -> dict:
+def _fmt_hora_local(valor) -> str:
+    if isinstance(valor, datetime):
+        return valor.strftime("%d/%m %H:%M")
+    return str(valor or "")
+
+
+def consultar_asignadas_dia(fecha_filtro: str) -> dict:
     """
-    Salidas físicas del día **programado** (MC1/MC2).
-    Parte en normales (< corte) vs adicionales (≥ corte, defecto 15:20).
-    El progreso / pendientes cuentan las dos: aquí solo se desglosa.
+    Medias asignadas (programadas) para la fecha, con la hora en que se
+    registró la asignación en SIRT (ppel.fecha_registro + hora_registro).
+
+    Adicional = canal cuya salida se ASIGNÓ a partir del corte (15:20) del
+    día programado. La hora de pistoleo no decide: el turno de canales sale
+    de noche y con esa regla todo quedaba como adicional. Al depender de la
+    asignación, el conteo no baja cuando la canal se despacha.
+
+    Estado por el último movimiento de cava: abierto = en cava; cerrado =
+    despachada. Un traslado entre cavas deja un movimiento abierto, así que
+    no cuenta como salida.
     """
     corte = get_salida_adicional_corte()
     corte_lbl = get_salida_adicional_corte_label()
-    sql = f"""
+    corte_ts = datetime.combine(
+        date.fromisoformat(fecha_filtro),
+        datetime.min.time().replace(hour=int(corte["hora"]), minute=int(corte["minuto"])),
+    )
+    sql = """
         WITH programadas AS (
-            SELECT DISTINCT
+            SELECT
                 pp.id_producto::text AS id_producto,
-                pp.id AS id_parte_producto,
-                pp.id_tipo_parte_producto
+                pp.id AS id_parte,
+                pp.id_tipo_parte_producto AS id_tipo,
+                MIN(ppel.fecha_registro + ppel.hora_registro) AS registro,
+                MIN(ppel.id_local) AS id_local
             FROM trazabilidad_proceso.parte_producto pp
+            JOIN trazabilidad_proceso.parte_producto_empresa ppe
+              ON ppe.id_parte_producto = pp.id
+             AND ppe.id_producto::text = pp.id_producto::text
+            JOIN trazabilidad_proceso.parte_producto_empresa_local ppel
+              ON ppel.id_parte_producto_empresa = ppe.id
+             AND ppel.fecha_programacion_despacho IS NOT NULL
+             AND ppel.fecha_programacion_despacho::date = %s::date
             WHERE pp.id_tipo_parte_producto IN %s
-              {SQL_EXISTS_PROGRAMADO}
+            GROUP BY 1, 2, 3
         ),
-        ultimo AS (
-            SELECT DISTINCT ON (p.id_producto, p.id_parte_producto)
-                p.id_producto AS codigo,
-                p.id_tipo_parte_producto AS id_tipo,
-                tpp.nombre AS tipo_nombre,
-                COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') AS propietario,
-                c.nombre AS cava,
-                r.nombre AS riel,
-                mov.fecha_ingreso,
+        ult AS (
+            SELECT DISTINCT ON (p.id_producto, p.id_parte)
+                p.*,
                 mov.fecha_salida,
-                COALESCE(NULLIF(TRIM(de.nombre), ''), NULLIF(TRIM(s.nombre), ''), '') AS zona
+                c.nombre AS cava
             FROM programadas p
             JOIN trazabilidad_proceso.parte_producto_cava_riel mov
-              ON mov.id_parte_producto = p.id_parte_producto
+              ON mov.id_parte_producto = p.id_parte
              AND mov.id_producto::text = p.id_producto
-            JOIN trazabilidad_proceso.tipo_parte_producto tpp
-              ON tpp.id = p.id_tipo_parte_producto
             LEFT JOIN trazabilidad_proceso.cava c ON c.id = mov.id_cava
-            LEFT JOIN trazabilidad_proceso.riel r ON r.id = mov.id_riel
-            LEFT JOIN trazabilidad_proceso.producto_empresa pe
-              ON pe.id_producto::text = p.id_producto AND pe.activo = true
-            LEFT JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
-            LEFT JOIN trazabilidad_proceso.parte_producto_empresa ppe
-              ON ppe.id_producto::text = p.id_producto
-             AND ppe.id_parte_producto = p.id_parte_producto
-            LEFT JOIN trazabilidad_proceso.parte_producto_empresa_local ppel
-              ON ppel.id_parte_producto_empresa = ppe.id
-             AND ppel.fecha_programacion_despacho::date = %s::date
-            LEFT JOIN organizaciones.sucursal s ON s.id = ppel.id_local
-            LEFT JOIN trazabilidad_proceso.destino de ON de.id = s.id_destino
-            WHERE mov.fecha_salida IS NOT NULL
-              AND mov.fecha_salida::date >= (%s::date - 2)
-            ORDER BY
-                p.id_producto, p.id_parte_producto,
-                mov.fecha_ingreso DESC NULLS LAST,
-                mov.id DESC
+            ORDER BY p.id_producto, p.id_parte, mov.fecha_ingreso DESC NULLS LAST, mov.id DESC
         )
-        SELECT * FROM ultimo
-        ORDER BY fecha_salida DESC NULLS LAST, codigo
+        SELECT
+            u.id_producto, u.id_tipo, u.registro, u.fecha_salida, u.cava,
+            COALESCE(NULLIF(TRIM(prop.nombre), ''), 'Sin propietario') AS propietario,
+            COALESCE(NULLIF(TRIM(de.nombre), ''), NULLIF(TRIM(s.nombre), ''), '') AS zona
+        FROM ult u
+        LEFT JOIN LATERAL (
+            SELECT e3.nombre
+            FROM trazabilidad_proceso.producto_empresa pe
+            JOIN organizaciones.empresa e3 ON e3.id = pe.id_empresa
+            WHERE pe.id_producto::text = u.id_producto AND pe.activo = true
+            LIMIT 1
+        ) prop ON true
+        LEFT JOIN organizaciones.sucursal s ON s.id = u.id_local
+        LEFT JOIN trazabilidad_proceso.destino de ON de.id = s.id_destino
+        -- misma ventana que el progreso: salidas hasta 2 días antes del programado
+        WHERE u.fecha_salida IS NULL OR u.fecha_salida::date >= (%s::date - 2)
     """
-    rows = serializable(
-        safe_query(sql, (IDS_CANAL, fecha_filtro, fecha_filtro, fecha_filtro), "salidas_fisicas")
-    )
+    rows = safe_query(sql, (fecha_filtro, IDS_CANAL, fecha_filtro), "asignadas_dia")
+
+    # Una canal (MC1 + MC2) se clasifica entera: primera asignación del animal.
+    registro_animal = {}
+    for r in rows:
+        reg = r.get("registro")
+        cod = str(r.get("id_producto") or "")
+        if reg is not None and (cod not in registro_animal or reg < registro_animal[cod]):
+            registro_animal[cod] = reg
+
     filas = []
     for r in rows:
         id_tipo = int(r.get("id_tipo") or 0)
+        cod = str(r.get("id_producto") or "")
+        reg = registro_animal.get(cod)
+        adicional = bool(reg is not None and reg >= corte_ts)
         fs = r.get("fecha_salida")
-        # Antes del día programado = despacho anticipado (normal); después = adicional
-        dia_salida = str(fs or "")[:10]
-        if dia_salida and dia_salida < fecha_filtro:
-            adicional = False
-        elif dia_salida > fecha_filtro:
-            adicional = True
-        else:
-            adicional = es_salida_adicional_por_hora(fs, corte)
+        prop = r.get("propietario") or ""
         item = {
-            "fecha_salida": str(fs) if fs is not None else "",
-            "fecha_ingreso": str(r.get("fecha_ingreso") or ""),
-            "codigo": codigo_completo_canal(r.get("codigo") or "", id_tipo),
+            "codigo": codigo_completo_canal(cod, id_tipo),
             "id_tipo": id_tipo,
             "tipo": tipo_canal_label(id_tipo),
-            "tipo_nombre": r.get("tipo_nombre") or "",
-            "propietario": r.get("propietario") or "",
-            "cava": r.get("cava") or "",
-            "riel": r.get("riel") or "",
+            "propietario": prop,
+            "opl": resolver_opl_de_propietario(prop),
             "zona": r.get("zona") or "",
-            "puesto": "",
+            "cava": r.get("cava") or "",
+            "horaAsignacion": _fmt_hora_local(reg),
+            "registroAsignacion": reg.isoformat() if isinstance(reg, datetime) else "",
+            "fecha_salida": fs.isoformat() if isinstance(fs, datetime) else "",
+            "horaSalida": _fmt_hora_local(fs) if fs is not None else "",
+            "despachada": fs is not None,
+            "estado": "Despachada" if fs is not None else "En cava",
             "adicional": adicional,
             "tipoSalida": "adicional" if adicional else "normal",
-            "corteAdicional": corte_lbl,
         }
-        enriquecer_codigo(item)
-        item["opl"] = resolver_opl_de_propietario(item.get("propietario") or "")
         filas.append(item)
 
-    normales = [f for f in filas if not f["adicional"]]
-    adicionales = [f for f in filas if f["adicional"]]
-    n_nor = len(normales)
-    n_adi = len(adicionales)
+    filas.sort(key=lambda f: (
+        0 if f["adicional"] else 1,
+        "" if not f["registroAsignacion"] else f["registroAsignacion"],
+        f["codigo"],
+    ))
+    filas_adi = [f for f in filas if f["adicional"]]
+    adi_desp = sum(1 for f in filas_adi if f["despachada"])
+    n_tot = len(filas)
+    n_adi = len(filas_adi)
+    n_nor = n_tot - n_adi
+    n_pend = sum(1 for f in filas if not f["despachada"])
     return {
         "success": True,
         "fecha": fecha_filtro,
         "corteAdicional": corte_lbl,
-        "soloProgramadas": True,
-        "totalFilas": len(filas),
+        "adicionalesPorAsignacion": True,
+        "totalFilas": n_tot,
         "totalNormales": n_nor,
         "totalAdicionales": n_adi,
-        "totalCanalesNormales": round(n_nor * 0.5, 2),
         "totalMediasNormales": n_nor,
-        "totalCanalesAdicionales": round(n_adi * 0.5, 2),
         "totalMediasAdicionales": n_adi,
-        "totalCanalesSalida": round(len(filas) * 0.5, 2),
+        "totalMediasAsignadas": n_tot,
+        "totalCanalesNormales": round(n_nor * 0.5, 2),
+        "totalCanalesAdicionales": round(n_adi * 0.5, 2),
+        "totalCanalesAsignadas": round(n_tot * 0.5, 2),
+        # alias usado por la pantalla anterior
+        "totalCanalesSalida": round(n_tot * 0.5, 2),
+        "totalCanalesAdicionalesDespachadas": round(adi_desp * 0.5, 2),
+        "totalCanalesAdicionalesPendientes": round((n_adi - adi_desp) * 0.5, 2),
+        "totalCanalesPendientes": round(n_pend * 0.5, 2),
+        "totalCanalesDespachadas": round((n_tot - n_pend) * 0.5, 2),
         "filas": filas,
-        "filasNormales": normales,
-        "filasAdicionales": adicionales,
         "nota": (
-            f"Normales (< {corte_lbl}) + Adicionales (≥ {corte_lbl}) = total salidas. "
-            "Ambas cuentan en el progreso / pendientes."
+            f"Normales = asignadas antes de las {corte_lbl}; adicionales = asignadas "
+            f"desde las {corte_lbl}. Normales + adicionales = total asignado."
         ),
     }
 
 
-def contar_adicionales_dashboard(fecha_filtro: str) -> dict:
-    """Desglose visual: antes / adicionales / total (progreso usa el total)."""
-    ck = ("salidas_fisicas", fecha_filtro, "v2_prog")
+def obtener_asignadas_dia(fecha_filtro: str) -> dict:
+    ck = ("asignadas_dia", fecha_filtro, "v1")
     out = cache_get(ck)
     if out is None:
-        out = consultar_salidas_fisicas(fecha_filtro)
+        out = consultar_asignadas_dia(fecha_filtro)
         cache_set(ck, out)
-    return {
-        "totalCanalesAdicionales": out.get("totalCanalesAdicionales") or 0,
-        "totalMediasAdicionales": out.get("totalMediasAdicionales") or 0,
-        "totalCanalesNormales": out.get("totalCanalesNormales") or 0,
-        "totalMediasNormales": out.get("totalMediasNormales") or 0,
-        "totalCanalesSalida": out.get("totalCanalesSalida") or 0,
-        "corteAdicional": out.get("corteAdicional") or get_salida_adicional_corte_label(),
-    }
+    return out
 
 
 def _nombres_opl_conocidos():
@@ -1920,7 +1911,7 @@ def get_planilla_opl(
     turno = resolver_turno(fecha_filtro, turno)
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
-    ck = ("planilla_opl", fecha_filtro, turno, "prog_v4_adi_split")
+    ck = ("planilla_opl", fecha_filtro, turno, "prog_v5_adi_asignacion")
     hit = cache_get(ck)
     if hit is not None:
         return hit
@@ -2062,12 +2053,13 @@ def get_planilla_opl(
 
     todos_opl = []
     for opl, b in by_opl.items():
+        # Despachadas = pistoleo real; pendientes = aún en cava. Derivarlas de
+        # la meta congelada (meta − pendientes) inflaba despachadas cuando la
+        # meta subía o un propietario cambiaba de OPL.
         pend = b["pend"]
+        sal = b["sal"]
+        total = pend + sal
         cong = por_opl_cong.get(opl) or {}
-        total = int(cong.get("medias") or (b["pend"] + b["sal"]))
-        # Estilo Vísceras: despachados = asignado congelado − pendientes
-        pend = min(total, pend)
-        sal = max(0, total - pend)
         pct = round((sal / total) * 100) if total else 0
         if pend > 0:
             pct = min(99, pct)
@@ -2082,7 +2074,7 @@ def get_planilla_opl(
             "total_medias": total,
             "pendientes_medias": pend,
             "despachados_medias": sal,
-            "asignado_medias": total,
+            "asignado_medias": int(cong.get("medias") or total),
         })
     todos_opl.sort(key=lambda x: (-x["pendientes"], -x["total"], x["opl"]))
     progreso_activos = [x for x in todos_opl if x["pendientes"] > 0]
@@ -2114,7 +2106,7 @@ def get_planilla_opl(
     elif t_ini > 0:
         totales["progreso_global"] = 100
 
-    adi = contar_adicionales_dashboard(fecha_filtro)
+    adi = obtener_asignadas_dia(fecha_filtro)
     payload = {
         "fecha": fecha_filtro,
         "turno": turno or turno_de_fecha(fecha_filtro),
@@ -2125,12 +2117,16 @@ def get_planilla_opl(
         "operacionFinalizada": bool(todos_opl) and not progreso_activos,
         "unidad": "canales",
         "success": True,
-        # Desglose horario: progreso / pendientes cuentan AMBAS
+        # Antes del corte + adicionales = total asignado (por hora de asignación)
+        "adicionalesPorAsignacion": True,
         "totalCanalesNormales": adi.get("totalCanalesNormales") or 0,
         "totalMediasNormales": adi.get("totalMediasNormales") or 0,
         "totalCanalesAdicionales": adi.get("totalCanalesAdicionales") or 0,
         "totalMediasAdicionales": adi.get("totalMediasAdicionales") or 0,
-        "totalCanalesSalidaDia": adi.get("totalCanalesSalida") or 0,
+        "totalCanalesAsignadasDia": adi.get("totalCanalesAsignadas") or 0,
+        "totalCanalesSalidaDia": adi.get("totalCanalesAsignadas") or 0,
+        "totalCanalesAdicionalesDespachadas": adi.get("totalCanalesAdicionalesDespachadas") or 0,
+        "totalCanalesAdicionalesPendientes": adi.get("totalCanalesAdicionalesPendientes") or 0,
         "corteAdicional": adi.get("corteAdicional") or get_salida_adicional_corte_label(),
     }
     cache_set(ck, payload)
@@ -2349,18 +2345,35 @@ def excel_planilla_particulares(
     fecha: Optional[str] = None,
     turno: Optional[str] = None,
     refresh: Optional[str] = None,
+    opls: Optional[str] = None,
 ):
     """
     Excel multi-hoja de OPLs particulares.
     Solo pendientes (sin fecha_salida): a medida que pistolean, se van quitando.
+    `opls` (JSON) = OPLs marcados en pantalla; sin él se usa la selección guardada,
+    que es compartida entre usuarios y puede traer OPLs de otra jornada.
     """
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
 
-    cfg = apps_script_local.getOplsParticulares()
-    seleccion = [str(x).strip() for x in (cfg.get("opls") or []) if str(x).strip()]
+    origen = None
+    if opls:
+        try:
+            import json
+            parsed = json.loads(opls)
+            if isinstance(parsed, list) and parsed:
+                origen = parsed
+        except ValueError:
+            origen = None
+    if origen is None:
+        origen = apps_script_local.getOplsParticulares().get("opls") or []
+    seleccion = []
+    for x in origen:
+        o = str(x or "").strip()
+        if o and o.upper() not in {s.upper() for s in seleccion}:
+            seleccion.append(o)
     if not seleccion:
         raise HTTPException(
             status_code=400,
@@ -2394,22 +2407,17 @@ def excel_planilla_particulares(
 # SALIDAS FÍSICAS — normales vs adicionales por hora
 # ═══════════════════════════════════════════════════════
 @app.get("/api/salidas_fisicas")
-def api_salidas_fisicas(fecha: Optional[str] = None, refresh: Optional[str] = None):
+@app.get("/api/asignadas_dia")
+def api_asignadas_dia(fecha: Optional[str] = None, refresh: Optional[str] = None):
     """
-    Pistoleo del día (fecha_salida). Clasifica normal / adicional por hora
-    (≥ CANALES_SALIDA_ADICIONAL_HORA:MINUTO, defecto 15:20).
-    No escribe tipo en SIRT ni cambia pendientes.
+    Canales asignadas del día: normales (asignadas antes del corte) y
+    adicionales (asignadas desde CANALES_SALIDA_ADICIONAL_HORA:MINUTO,
+    defecto 15:20), con estado En cava / Despachada. Solo lectura.
     """
     fecha_filtro = fecha or date.today().isoformat()
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
-    ck = ("salidas_fisicas", fecha_filtro, "v2_prog")
-    hit = cache_get(ck)
-    if hit is not None:
-        return hit
-    payload = consultar_salidas_fisicas(fecha_filtro)
-    cache_set(ck, payload)
-    return payload
+    return obtener_asignadas_dia(fecha_filtro)
 
 
 # ═══════════════════════════════════════════════════════
