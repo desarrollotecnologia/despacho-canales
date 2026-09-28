@@ -5,7 +5,7 @@ v1.0 — Medias canales: Media Canal 1 (sufijo -1001) y Media Canal 2 (sufijo -1
 """
 from fastapi import FastAPI, HTTPException, Header, Request, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -521,6 +521,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+OFFICIAL_HOST = (os.getenv("OFFICIAL_HOST") or "").strip()
+OFFICIAL_PORT = os.getenv("APP_PORT", "8012")
+OFFICIAL_BASE_URL = f"http://{OFFICIAL_HOST}:{OFFICIAL_PORT}" if OFFICIAL_HOST else ""
+
+
+@app.middleware("http")
+async def redirect_to_official_host(request: Request, call_next):
+    """Fuerza el enlace fijo de LAN (mismo patrón que las otras apps Colbeef)."""
+    if not OFFICIAL_BASE_URL:
+        return await call_next(request)
+    if request.url.path.startswith("/api/"):
+        return await call_next(request)
+    host_only = (request.headers.get("host") or "").split(":")[0].lower()
+    if host_only in ("localhost", "127.0.0.1"):
+        target = request.url.path
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+        return RedirectResponse(url=f"{OFFICIAL_BASE_URL}{target}", status_code=302)
+    return await call_next(request)
 
 DB_CONFIG = {
     "host":            os.getenv("POSTGRES_HOST", "10.64.1.47"),
@@ -1862,7 +1882,7 @@ def get_salidas(fecha: Optional[str] = None, dias: int = 1, turno: Optional[str]
             EXTRACT(EPOCH FROM (ppcr.fecha_salida - ppcr.fecha_ingreso))/3600 AS horas_en_cava
         FROM trazabilidad_proceso.parte_producto pp
         JOIN trazabilidad_proceso.tipo_parte_producto tpp ON tpp.id = pp.id_tipo_parte_producto
-        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id
+        JOIN trazabilidad_proceso.parte_producto_cava_riel ppcr ON ppcr.id_parte_producto = pp.id AND ppcr.id_producto = pp.id_producto
         LEFT JOIN trazabilidad_proceso.cava c ON c.id = ppcr.id_cava
         LEFT JOIN trazabilidad_proceso.riel r ON r.id = ppcr.id_riel
         LEFT JOIN trazabilidad_proceso.producto p ON p.id::text = pp.id_producto::text
@@ -2592,5 +2612,5 @@ def root():
 if __name__ == "__main__":
     import uvicorn
     host = os.getenv("APP_HOST", "0.0.0.0")
-    port = int(os.getenv("APP_PORT", "8000"))
+    port = int(os.getenv("APP_PORT", "8012"))
     uvicorn.run("main:app", host=host, port=port, reload=True)
