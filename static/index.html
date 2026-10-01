@@ -2306,10 +2306,13 @@ async function cargarModalParticulares() {
 }
 
 function toggleParticularesTodos(el) {
+  // Leer antes del bucle: cada toggle resincroniza esta casilla y cambiaría el.checked
+  const marcar = el.checked;
   document.querySelectorAll('.part-opl-check').forEach(chk => {
-    chk.checked = el.checked;
+    chk.checked = marcar;
     toggleParticularCheck(chk);
   });
+  sincronizarParticularesTodos();
 }
 
 function sincronizarParticularesTodos() {
