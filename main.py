@@ -1335,11 +1335,42 @@ def _sanear_nombre_hoja(nombre: str, usados: set) -> str:
     return candidato
 
 
-def _escribir_hoja_excel_opl(ws, opl: str, fecha: str, turno, filas: List[dict]):
+def mapa_asignacion_dia(fecha: str) -> dict:
+    """Código de media → {adicional, hora} según la hora de asignación en SIRT."""
+    out = {}
+    for f in obtener_asignadas_dia(fecha).get("filas") or []:
+        cod = str(f.get("codigo") or "").strip()
+        if cod:
+            out[cod] = {"adicional": bool(f.get("adicional")), "hora": f.get("horaAsignacion") or ""}
+    return out
+
+
+def _info_asignacion(r: dict, asignacion: Optional[dict]) -> dict:
+    if not asignacion:
+        return {}
+    for k in ("codigo_completo", "codigo_sufijo", "codigo"):
+        cod = str(r.get(k) or "").strip()
+        if cod and cod in asignacion:
+            return asignacion[cod]
+    return {}
+
+
+def _escribir_hoja_excel_opl(
+    ws,
+    opl: str,
+    fecha: str,
+    turno,
+    filas: List[dict],
+    asignacion: Optional[dict] = None,
+    incluir_opl: bool = False,
+    titulo_hoja: Optional[str] = None,
+):
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
 
     verde = PatternFill("solid", fgColor="259C39")
     verde_claro = PatternFill("solid", fgColor="E8F5E9")
+    azul_adicional = PatternFill("solid", fgColor="CFE8FF")
     blanco = Font(color="FFFFFF", bold=True, name="Calibri", size=11)
     titulo = Font(color="FFFFFF", bold=True, name="Calibri", size=16)
     normal = Font(name="Calibri", size=11)
@@ -1350,56 +1381,63 @@ def _escribir_hoja_excel_opl(ws, opl: str, fecha: str, turno, filas: List[dict])
         bottom=Side(style="thin", color="C8E6C9"),
     )
 
-    ws.merge_cells("A1:F1")
-    ws["A1"] = f"OPL {opl}"
+    columnas = []
+    if incluir_opl:
+        columnas.append(("OPL", 18, lambda r, a: r.get("opl") or ""))
+    columnas += [
+        ("Código", 22, lambda r, a: r.get("codigo") or ""),
+        ("Propietario/Cliente", 36, lambda r, a: r.get("propietario") or ""),
+        ("Zona / Destino", 22, lambda r, a: r.get("zona") or r.get("destino") or ""),
+        ("Puesto", 12, lambda r, a: r.get("puesto") or ""),
+        ("Cava", 16, lambda r, a: r.get("cava") or ""),
+        ("Riel", 14, lambda r, a: r.get("riel") or ""),
+        ("Tipo", 12, lambda r, a: "Adicional" if a.get("adicional") else "Normal"),
+        ("Hora asignación", 16, lambda r, a: a.get("hora") or ""),
+    ]
+    ncol = len(columnas)
+    ultima = get_column_letter(ncol)
+
+    ws.merge_cells(f"A1:{ultima}1")
+    ws["A1"] = titulo_hoja or f"OPL {opl}"
     ws["A1"].font = titulo
     ws["A1"].fill = verde
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
-    for col in range(2, 7):
+    for col in range(2, ncol + 1):
         ws.cell(1, col).fill = verde
     ws.row_dimensions[1].height = 28
 
+    infos = [_info_asignacion(r, asignacion) for r in filas]
+    n_adi = sum(1 for a in infos if a.get("adicional"))
     turno_txt = turno or "Todos"
-    ws.merge_cells("A2:F2")
+    ws.merge_cells(f"A2:{ultima}2")
     ws["A2"] = (
         f"Medias canales pendientes · {fecha} · turno {turno_txt} · {len(filas)} registros"
+        f" · {n_adi} adicionales · Fila azul = adicional (asignada desde las "
+        f"{get_salida_adicional_corte_label()})"
     )
     ws["A2"].font = Font(name="Calibri", size=10, italic=True, color="374151")
     ws["A2"].alignment = Alignment(horizontal="center")
     ws.row_dimensions[2].height = 18
 
-    headers = ["Código", "Propietario/Cliente", "Zona / Destino", "Puesto", "Cava", "Riel"]
-    for i, h in enumerate(headers, 1):
+    for i, (h, ancho, _) in enumerate(columnas, 1):
         cell = ws.cell(3, i, h)
         cell.font = blanco
         cell.fill = verde
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = thin
+        ws.column_dimensions[get_column_letter(i)].width = ancho
 
-    for idx, r in enumerate(filas, 4):
-        vals = [
-            r.get("codigo") or "",
-            r.get("propietario") or "",
-            r.get("zona") or r.get("destino") or "",
-            r.get("puesto") or "",
-            r.get("cava") or "",
-            r.get("riel") or "",
-        ]
-        for col, val in enumerate(vals, 1):
-            cell = ws.cell(idx, col, val)
+    for idx, (r, a) in enumerate(zip(filas, infos), 4):
+        fill = azul_adicional if a.get("adicional") else (verde_claro if idx % 2 == 0 else None)
+        for col, (_, _, fn) in enumerate(columnas, 1):
+            cell = ws.cell(idx, col, fn(r, a))
             cell.font = normal
             cell.border = thin
-            if idx % 2 == 0:
-                cell.fill = verde_claro
+            if fill:
+                cell.fill = fill
 
-    ws.column_dimensions["A"].width = 22
-    ws.column_dimensions["B"].width = 36
-    ws.column_dimensions["C"].width = 22
-    ws.column_dimensions["D"].width = 12
-    ws.column_dimensions["E"].width = 16
-    ws.column_dimensions["F"].width = 14
     ws.freeze_panes = "A4"
-    ws.auto_filter.ref = f"A3:F{max(3, 3 + len(filas))}"
+    ws.auto_filter.ref = f"A3:{ultima}{max(3, 3 + len(filas))}"
     ws.page_setup.orientation = "landscape"
     ws.page_setup.fitToPage = True
     ws.page_setup.fitToWidth = 1
@@ -1420,7 +1458,7 @@ def construir_excel_opl(opl: str, fecha: str, turno, filas: List[dict]) -> Bytes
     wb = Workbook()
     ws = wb.active
     ws.title = _sanear_nombre_hoja(opl or "OPL", set())
-    _escribir_hoja_excel_opl(ws, opl, fecha, turno, filas)
+    _escribir_hoja_excel_opl(ws, opl, fecha, turno, filas, asignacion=mapa_asignacion_dia(fecha))
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -1429,8 +1467,9 @@ def construir_excel_opl(opl: str, fecha: str, turno, filas: List[dict]) -> Bytes
 
 def construir_excel_particulares(fecha: str, turno, por_opl: dict) -> BytesIO:
     """
-    Un Excel con una hoja por OPL particular.
-    Solo incluye lo pendiente (sin pistolear) de cada OPL.
+    Un Excel con una hoja por OPL particular (solo pendientes).
+    Con 2 o más OPLs se agrega primero la hoja GENERAL con todos, ordenada por OPL.
+    Las adicionales (asignadas desde el corte) van en azul claro.
     """
     try:
         from openpyxl import Workbook
@@ -1440,9 +1479,32 @@ def construir_excel_particulares(fecha: str, turno, por_opl: dict) -> BytesIO:
             detail="Falta openpyxl. En el servidor ejecuta: pip install openpyxl",
         )
 
+    asignacion = mapa_asignacion_dia(fecha)
     wb = Workbook()
     usados = set()
     primero = True
+
+    if len(por_opl) >= 2:
+        general = []
+        for opl, filas in por_opl.items():
+            for r in filas:
+                item = dict(r)
+                item["opl"] = item.get("opl") or opl
+                general.append(item)
+        general.sort(key=lambda x: (
+            str(x.get("opl") or "").upper(),
+            str(x.get("zona") or "").upper(),
+            str(x.get("puesto") or ""),
+            str(x.get("codigo") or ""),
+        ))
+        ws = wb.active
+        ws.title = _sanear_nombre_hoja("GENERAL", usados)
+        _escribir_hoja_excel_opl(
+            ws, "GENERAL", fecha, turno, general,
+            asignacion=asignacion, incluir_opl=True, titulo_hoja="GENERAL · Todos los OPL",
+        )
+        primero = False
+
     for opl, filas in por_opl.items():
         titulo = _sanear_nombre_hoja(opl, usados)
         if primero:
@@ -1451,13 +1513,13 @@ def construir_excel_particulares(fecha: str, turno, por_opl: dict) -> BytesIO:
             primero = False
         else:
             ws = wb.create_sheet(titulo)
-        _escribir_hoja_excel_opl(ws, opl, fecha, turno, filas)
+        _escribir_hoja_excel_opl(ws, opl, fecha, turno, filas, asignacion=asignacion)
 
     if primero:
         # Sin datos: hoja vacía informativa
         ws = wb.active
         ws.title = "Sin pendientes"
-        _escribir_hoja_excel_opl(ws, "PARTICULARES", fecha, turno, [])
+        _escribir_hoja_excel_opl(ws, "PARTICULARES", fecha, turno, [], asignacion=asignacion)
 
     buf = BytesIO()
     wb.save(buf)

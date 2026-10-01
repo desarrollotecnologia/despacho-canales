@@ -769,7 +769,8 @@
     <p style="font-size:0.84rem;color:var(--gris);margin-bottom:0.8rem;line-height:1.4;">
       Marca los OPLs que quieras como <strong>particulares</strong>. El Excel tendrá
       <strong>una hoja por OPL</strong> y solo lo <strong>pendiente</strong>
-      (lo pistoleado se va quitando en cada descarga).
+      (lo pistoleado se va quitando en cada descarga). Con 2 o más OPLs se agrega la hoja
+      <strong>GENERAL</strong>; las adicionales salen en <span style="background:#CFE8FF;padding:0 4px;border-radius:3px;">azul claro</span>.
     </p>
     <div id="particularesLista" style="max-height:320px;overflow:auto;border:1px solid var(--vc);border-radius:10px;padding:0.6rem 0.8rem;margin-bottom:1rem;background:#f8fbff;">
       <div class="poc-empty">Cargando OPLs…</div>
@@ -2281,7 +2282,13 @@ async function cargarModalParticulares() {
       return;
     }
 
-    box.innerHTML = resumen.map(r => {
+    const totalCan = resumen.reduce((s, r) => s + Number(r.totalCanales != null ? r.totalCanales : (r.total_partes || 0)), 0);
+    const todos = `<label style="display:flex;align-items:center;gap:0.6rem;padding:0.45rem 0.2rem;border-bottom:2px solid #dbe7f5;cursor:pointer;">
+        <input type="checkbox" id="partOplTodos" onchange="toggleParticularesTodos(this)" style="width:16px;height:16px;">
+        <span style="flex:1;font-weight:800;color:var(--vp);">Seleccionar todos</span>
+        <span style="font-size:0.78rem;color:var(--gris);">${resumen.length} OPL · ${fmtD(totalCan)} can. pend.</span>
+      </label>`;
+    box.innerHTML = todos + resumen.map(r => {
       const opl = r.opl || '';
       const canales = r.totalCanales != null ? r.totalCanales : (r.total_partes || 0);
       const checked = guardados.has(String(opl).toUpperCase()) ? 'checked' : '';
@@ -2292,9 +2299,26 @@ async function cargarModalParticulares() {
         <span style="font-size:0.78rem;color:var(--gris);">${fmtD(canales)} can. pend.</span>
       </label>`;
     }).join('');
+    sincronizarParticularesTodos();
   } catch (e) {
     if (box) box.innerHTML = `<div class="poc-empty" style="color:#991b1b;">Error: ${escHtml(e.message)}</div>`;
   }
+}
+
+function toggleParticularesTodos(el) {
+  document.querySelectorAll('.part-opl-check').forEach(chk => {
+    chk.checked = el.checked;
+    toggleParticularCheck(chk);
+  });
+}
+
+function sincronizarParticularesTodos() {
+  const todos = $('partOplTodos');
+  if (!todos) return;
+  const checks = [...document.querySelectorAll('.part-opl-check')];
+  const marcados = checks.filter(c => c.checked).length;
+  todos.checked = checks.length > 0 && marcados === checks.length;
+  todos.indeterminate = marcados > 0 && marcados < checks.length;
 }
 
 function toggleParticularCheck(el) {
@@ -2306,6 +2330,7 @@ function toggleParticularCheck(el) {
     if (String(x).toUpperCase() === up) _particularesSeleccion.delete(x);
   }
   if (el.checked) _particularesSeleccion.add(opl);
+  sincronizarParticularesTodos();
 }
 
 function _oplsParticularesActuales() {
