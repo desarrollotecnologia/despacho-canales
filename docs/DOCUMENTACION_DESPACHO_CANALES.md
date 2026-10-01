@@ -37,7 +37,7 @@ Lee la información directamente de la base de datos **SIRT** (PostgreSQL) en **
 - El **progreso por Operador Logístico (OPL)**.
 - La **planilla de puntos** (por puesto / zona) para logística, con Excel por OPL.
 - El **inventario de canales en cava** (cava, riel, propietario).
-- La separación **normales vs. adicionales** (asignadas después de la hora de corte, 15:20 por defecto).
+- La separación **normales vs. adicionales** (asignadas después de la hora de corte, 15:30 por defecto).
 - Las **tempranas** (puestos que salen primero).
 
 La aplicación **nunca escribe en SIRT**. Lo único que guarda es configuración y estado propio en un archivo JSON local.
@@ -155,7 +155,7 @@ Si `OFFICIAL_HOST` está definido, un *middleware* redirige las visitas hechas a
 | `APP_PORT` | `8012` | Puerto HTTP |
 | `OFFICIAL_HOST` | `192.168.20.205` (en .bat) | Host oficial para la redirección |
 | `CANALES_SALIDA_ADICIONAL_HORA` | `15` | Hora de corte de adicionales |
-| `CANALES_SALIDA_ADICIONAL_MINUTO` | `20` | Minuto de corte de adicionales |
+| `CANALES_SALIDA_ADICIONAL_MINUTO` | `30` | Minuto de corte de adicionales |
 | `CANALES_PUESTOS_TEMPRANAS` | `NSF,6505,ARIR,LHMV,WMERCAN` | Puestos tempranos (separados por coma) |
 | `USABILITY_ADMIN_PASSWORD` | (interno) | Clave del panel de usabilidad |
 
@@ -279,7 +279,7 @@ Por OPL, las despachadas son el **pistoleo real** (no meta − pendientes).
 
 ### 7.5 Adicionales (hora de corte)
 
-- **Corte:** 15:20 por defecto (`CANALES_SALIDA_ADICIONAL_HORA/MINUTO`).
+- **Corte:** 15:30 por defecto (`CANALES_SALIDA_ADICIONAL_HORA/MINUTO`).
 - **Regla vigente:** una canal es **adicional** si su **asignación** en SIRT (`ppel.fecha_registro + hora_registro`) se hizo **a partir del corte del día programado**. Antes del corte es **normal**.
 - La canal (MC1 + MC2) se clasifica **completa** según la primera asignación del animal.
 - **Normales + adicionales = total asignado.** El progreso cuenta las dos.
@@ -325,7 +325,7 @@ Orden de resolución (`resolver_zona_planilla`):
 |---|---|
 | **Asignadas** | Meta congelada en canales y medias, MC1/MC2, bloque de **Adicionales** y botón **↻ Recalcular meta**. |
 | **Progreso OPL** | Barras por OPL con % y canales pendientes. "Ver detalle" abre el modal OPL. |
-| **Total canales a despachar** | Pendientes en cava; desglose "Antes 15:20 + Adic. = Total asignado"; despachadas y meta. |
+| **Total canales a despachar** | Pendientes en cava; desglose "Antes 15:30 + Adic. = Total asignado"; despachadas y meta. |
 | **Progreso de la operación** | Barra global: "X despachadas de Y asignadas (normales + adicionales) — Z pendientes". |
 | **Módulos del sistema** | Accesos a Despachos, Planilla de Puntos y Canales en Cava. |
 
@@ -459,7 +459,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    A[Media programada<br/>para la fecha] --> B{Hora de asignación<br/>del animal >= 15:20?}
+    A[Media programada<br/>para la fecha] --> B{Hora de asignación<br/>del animal >= 15:30?}
     B -->|Sí| C[ADICIONAL]
     B -->|No| D[NORMAL]
     A --> E{¿Puesto temprano o<br/>marcador TEMP?}
@@ -725,7 +725,7 @@ stateDiagram-v2
 
     note right of Programada
         Normal o adicional según
-        la hora de asignación (15:20)
+        la hora de asignación (15:30)
     end note
 ```
 
@@ -776,7 +776,7 @@ flowchart TB
 3. La meta baja al total real y el progreso queda correcto.
 Si se pulsa antes de quitarlas en SIRT, la meta vuelve a quedar con ellas.
 
-**Se reasignan canales a otra fecha.** Aparecen como asignadas y pendientes en la nueva fecha. Si la asignación se hace desde las 15:20 de ese día, cuentan como adicionales.
+**Se reasignan canales a otra fecha.** Aparecen como asignadas y pendientes en la nueva fecha. Si la asignación se hace desde las 15:30 de ese día, cuentan como adicionales.
 
 **Canales despachadas la noche anterior o de madrugada.** Cuentan como despachadas del día programado gracias a la ventana de 2 días.
 
@@ -812,7 +812,7 @@ Si se pulsa antes de quitarlas en SIRT, la meta vuelve a quedar con ellas.
 | **Pendiente** | Asignada que sigue en cava (último movimiento sin salida). |
 | **Despachada** | Asignada con salida registrada (pistoleo). |
 | **Asignado congelado / meta** | Total asignado del día que solo sube; base del progreso. |
-| **Adicional** | Canal asignada desde la hora de corte (15:20) del día programado. |
+| **Adicional** | Canal asignada desde la hora de corte (15:30) del día programado. |
 | **Temprana** | Pieza de un puesto de salida temprana o con marcador TEMP. |
 | **Puesto** | Código de la sucursal de entrega (ej. E23G, 6505). |
 | **Zona** | Ciudad o sector de entrega (ej. GIRÓN, FLORIDA). |
@@ -842,6 +842,7 @@ Las entradas del 03/09 al 21/09 se resumen a partir de los mensajes de commit. L
 | 28/09/2026 | `be7e9eb` | michelrodriguez05 | Adicionales por **hora de asignación** en SIRT (no por hora de pistoleo); endpoint `/api/asignadas_dia`; despachadas por OPL = pistoleo real. |
 | 28/09/2026 | `a2671ae` | analistatic-coder | Puerto fijo **8012**, URL de red `192.168.20.205`, redirección al host oficial y ajuste del join de salidas para el servidor de planta. |
 | 30/09/2026 | — | — | Documentación técnica completa con diagramas de flujo y UML (este documento). |
+| 01/10/2026 | — | — | Excel de particulares: opción **Seleccionar todos**, hoja **GENERAL** (con 2 o más OPL, ordenada por OPL, con filtro), columnas **Tipo** y **Hora asignación**, adicionales en **azul claro**. Hora de corte de adicionales cambiada de 15:20 a **15:30**. |
 
 ### 16.2 Incidencias y decisiones
 

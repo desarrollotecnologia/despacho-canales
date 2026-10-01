@@ -67,9 +67,9 @@ def get_salida_adicional_corte():
     except ValueError:
         hora = 15
     try:
-        minuto = int(os.getenv("CANALES_SALIDA_ADICIONAL_MINUTO", "20"))
+        minuto = int(os.getenv("CANALES_SALIDA_ADICIONAL_MINUTO", "30"))
     except ValueError:
-        minuto = 20
+        minuto = 30
     return {
         "hora": max(0, min(23, hora)),
         "minuto": max(0, min(59, minuto)),
@@ -709,7 +709,7 @@ def consultar_asignadas_dia(fecha_filtro: str) -> dict:
     Medias asignadas (programadas) para la fecha, con la hora en que se
     registró la asignación en SIRT (ppel.fecha_registro + hora_registro).
 
-    Adicional = canal cuya salida se ASIGNÓ a partir del corte (15:20) del
+    Adicional = canal cuya salida se ASIGNÓ a partir del corte (15:30) del
     día programado. La hora de pistoleo no decide: el turno de canales sale
     de noche y con esa regla todo quedaba como adicional. Al depender de la
     asignación, el conteo no baja cuando la canal se despacha.
@@ -2494,7 +2494,7 @@ def api_asignadas_dia(fecha: Optional[str] = None, refresh: Optional[str] = None
     """
     Canales asignadas del día: normales (asignadas antes del corte) y
     adicionales (asignadas desde CANALES_SALIDA_ADICIONAL_HORA:MINUTO,
-    defecto 15:20), con estado En cava / Despachada. Solo lectura.
+    defecto 15:30), con estado En cava / Despachada. Solo lectura.
     """
     fecha_filtro = fecha or date.today().isoformat()
     if es_refresh(refresh):
