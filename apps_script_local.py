@@ -11,7 +11,22 @@ DATA_DIR = Path(__file__).resolve().parent / "local_data"
 STATE_PATH = DATA_DIR / "canales_state.json"
 
 OPL_DEFAULT = "TRANSCARNES"
-OPL_EXCEPCIONES_DEFAULT = []  # Se pobla dinámicamente desde la BD
+OPL_EXCEPCIONES_DEFAULT = [
+    ["AVILA MONSALVE REINALDO", "DRA CAVA", 0],
+    ["BENITEZ GARNICA CEFERINO", "EDGAR AM", 0],
+    ["CALIXTO ARDILA JAIME", "DRA CAVA", 0],
+    ["CARNES SANTACRUZ S.A.S", "CSZ B/GA", 0],
+    ["CRUZ LEONIDAS", "CAVA WO", 0],
+    ["DRISTRIBUDORA DE CARNES AJR S.A.S", "CAVA AJR", 0],
+    ["DISTRIBUIDORA DE CARNES AJR S.A.S", "CAVA AJR", 0],
+    ["INVERSIONES ZULUAGA RUEDA S.A.S.", "MLT. GUARIN", 0],
+    ["JAIMES BERMUDEZ JOSE MARIA", "MLT. GUARIN", 0],
+    ["SANCHEZ CALDERON MIREYA", "CAVA MIREYA", 0],
+    ["SUPERMERCADOS MAS POR MENOS S.A.S.", "MLT. GUARIN", 0],
+    ["TECNOLOGIAS AGROPECUARIAS DE COLOMBIA S.A.S.", "CAVA T.A", 0],
+    ["ROMERO OSORIO JOHN IGNACIO", "SMOYA", 0],
+    ["COLBEEF S.A.S", "MLT. GUARIN", 0],
+]
 
 TURNOS = ["SxD", "VxS", "JxV", "MxJ", "MxM", "LxM", "DxL"]
 
@@ -26,6 +41,14 @@ def _blank_state():
         "opl_progreso": [],
         "historico": [],
         "operacion_finalizada": False,
+        # Asignado congelado estilo Vísceras: meta del día por fecha/turno.
+        # Solo sube si asignan más; solo baja si el total vivo (pend+sal) baja
+        # (cancelación / se quita la asignación o una salida deja de contar).
+        "asignado_congelado": {},
+        # OPLs marcados como particulares para Excel multi-hoja.
+        "opls_particulares": [],
+        # Adicionales del día (Excel), estilo Vísceras Estado_Cavas.
+        "adicionales_por_fecha": {},
     }
 
 
@@ -40,6 +63,9 @@ def _load_state():
     base = _blank_state()
     for key, value in base.items():
         state.setdefault(key, value)
+    if not state.get("opl_config"):
+        state["opl_config"] = OPL_EXCEPCIONES_DEFAULT.copy()
+        _save_state(state)
     return state
 
 
@@ -100,6 +126,254 @@ def eliminarOpl(rowIdx):
     if 0 <= idx < len(state.get("opl_config", [])):
         state["opl_config"].pop(idx)
         _save_state(state)
+    return {"success": True}
+
+
+# ═══════════════════════════════════════════════════════
+# ASIGNADO CONGELADO — meta del día (estilo Vísceras)
+# ═══════════════════════════════════════════════════════
+def _clave_asignado(fecha, turno=None):
+    t = _as_str(turno) or "Todos"
+    return f"{_as_str(fecha)}|{t}"
+
+
+def actualizar_asignado_congelado(fecha, turno, snapshot):
+    """
+    Actualiza la meta congelada del día.
+
+    snapshot vivo = pendientes + salidas actuales:
+      {
+        "medias": int, "mc1": int, "mc2": int,
+        "por_opl": { "OPL": {"medias": n, "mc1": n, "mc2": n} }
+      }
+
+    Reglas estilo Vísceras:
+    - Si asignan más → el congelado sube.
+    - Si pistolean → no cambia (pend baja, sal sube, suma igual).
+    - Nunca baja solo: para bajarlo hay que usar recalcular_asignado_congelado.
+    - Un snapshot vacío (BD caída / consulta fallida) no toca lo guardado.
+    """
+    state = _load_state()
+    key = _clave_asignado(fecha, turno)
+    bag = state.setdefault("asignado_congelado", {})
+    prev = bag.get(key) or {}
+
+    vivo_medias = int(_num(snapshot.get("medias")))
+    vivo_mc1 = int(_num(snapshot.get("mc1")))
+    vivo_mc2 = int(_num(snapshot.get("mc2")))
+    vivo_opl = snapshot.get("por_opl") or {}
+
+    prev_medias = int(_num(prev.get("medias")))
+    prev_opl = prev.get("por_opl") or {}
+
+    if vivo_medias <= 0 and prev_medias > 0:
+        return prev
+
+    if vivo_medias > prev_medias:
+        medias, mc1, mc2 = vivo_medias, vivo_mc1, vivo_mc2
+    elif prev_medias:
+        medias = prev_medias
+        mc1 = int(_num(prev.get("mc1"))) or vivo_mc1
+        mc2 = int(_num(prev.get("mc2"))) or vivo_mc2
+    else:
+        medias, mc1, mc2 = vivo_medias, vivo_mc1, vivo_mc2
+
+    por_opl = {}
+    opl_keys = set(prev_opl.keys()) | set(vivo_opl.keys())
+    for opl in opl_keys:
+        v = vivo_opl.get(opl) or {}
+        p = prev_opl.get(opl) or {}
+        v_m = int(_num(v.get("medias")))
+        p_m = int(_num(p.get("medias")))
+        if v_m > p_m:
+            m, a, b = v_m, int(_num(v.get("mc1"))), int(_num(v.get("mc2")))
+        elif p_m:
+            m = p_m
+            a = int(_num(p.get("mc1"))) or int(_num(v.get("mc1")))
+            b = int(_num(p.get("mc2"))) or int(_num(v.get("mc2")))
+        else:
+            m, a, b = v_m, int(_num(v.get("mc1"))), int(_num(v.get("mc2")))
+        if m > 0 or v_m > 0 or p_m > 0:
+            por_opl[opl] = {"medias": m, "mc1": a, "mc2": b}
+
+    nuevo = {
+        "fecha": _as_str(fecha),
+        "turno": _as_str(turno) or "Todos",
+        "medias": medias,
+        "mc1": mc1,
+        "mc2": mc2,
+        "canales": medias * 0.5,
+        "por_opl": por_opl,
+        "actualizado": _now(),
+        "vivo_medias": vivo_medias,
+        "prev_medias": prev_medias,
+    }
+    bag[key] = nuevo
+    state["asignado_congelado"] = bag
+    _save_state(state)
+    return nuevo
+
+
+def recalcular_asignado_congelado(fecha):
+    """Borra la meta congelada de la fecha (todos los turnos); la próxima consulta la fija con el vivo."""
+    state = _load_state()
+    bag = state.setdefault("asignado_congelado", {})
+    prefijo = f"{_as_str(fecha)}|"
+    borrados = {k: bag.pop(k) for k in [k for k in bag if k.startswith(prefijo)]}
+    state["asignado_congelado"] = bag
+    _save_state(state)
+    return {"success": True, "borrados": list(borrados)}
+
+
+def get_asignado_congelado(fecha, turno=None):
+    state = _load_state()
+    return (state.get("asignado_congelado") or {}).get(_clave_asignado(fecha, turno))
+
+
+# ═══════════════════════════════════════════════════════
+# OPLS PARTICULARES — selección para Excel multi-hoja
+# ═══════════════════════════════════════════════════════
+def getOplsParticulares():
+    state = _load_state()
+    lista = [_as_str(x) for x in (state.get("opls_particulares") or []) if _as_str(x)]
+    # únicos preservando orden
+    vistos = set()
+    out = []
+    for opl in lista:
+        key = opl.upper()
+        if key in vistos:
+            continue
+        vistos.add(key)
+        out.append(opl)
+    return {"success": True, "opls": out}
+
+
+def setOplsParticulares(opls):
+    if not isinstance(opls, list):
+        return {"success": False, "message": "opls debe ser una lista"}
+    limpios = []
+    vistos = set()
+    for item in opls:
+        opl = _as_str(item)
+        if not opl:
+            continue
+        key = opl.upper()
+        if key in vistos:
+            continue
+        vistos.add(key)
+        limpios.append(opl)
+    state = _load_state()
+    state["opls_particulares"] = limpios
+    _save_state(state)
+    return {"success": True, "opls": limpios}
+
+
+# ═══════════════════════════════════════════════════════
+# ADICIONALES — salidas extra del día (estilo Vísceras)
+# ═══════════════════════════════════════════════════════
+def getAdicionales(fecha):
+    state = _load_state()
+    bag = state.get("adicionales_por_fecha") or {}
+    filas = bag.get(_as_str(fecha)) or []
+    return {
+        "success": True,
+        "fecha": _as_str(fecha),
+        "total": len(filas),
+        "filas": filas,
+    }
+
+
+def reemplazarAdicionales(fecha, filas):
+    state = _load_state()
+    bag = state.setdefault("adicionales_por_fecha", {})
+    bag[_as_str(fecha)] = filas or []
+    state["adicionales_por_fecha"] = bag
+    _save_state(state)
+    return getAdicionales(fecha)
+
+
+def agregarAdicionales(fecha, nuevas):
+    """Agrega adicionales evitando duplicados por código."""
+    state = _load_state()
+    bag = state.setdefault("adicionales_por_fecha", {})
+    key = _as_str(fecha)
+    actuales = list(bag.get(key) or [])
+    vistos = {_as_str(r.get("codigo")).upper() for r in actuales if _as_str(r.get("codigo"))}
+    agregados = 0
+    ignorados = 0
+    for row in nuevas or []:
+        codigo = _as_str(row.get("codigo"))
+        if not codigo:
+            continue
+        cup = codigo.upper()
+        if cup in vistos:
+            ignorados += 1
+            continue
+        vistos.add(cup)
+        actuales.append(row)
+        agregados += 1
+    bag[key] = actuales
+    state["adicionales_por_fecha"] = bag
+    _save_state(state)
+    return {
+        "success": True,
+        "fecha": key,
+        "agregados": agregados,
+        "ignorados": ignorados,
+        "total": len(actuales),
+        "filas": actuales,
+    }
+
+
+def quitarAdicionalesPorCodigos(fecha, codigos):
+    state = _load_state()
+    bag = state.setdefault("adicionales_por_fecha", {})
+    key = _as_str(fecha)
+    actuales = list(bag.get(key) or [])
+    quitar = {_as_str(c).upper() for c in (codigos or []) if _as_str(c)}
+    if not quitar:
+        return {"success": True, "eliminados": 0, "total": len(actuales), "filas": actuales}
+    queda = [r for r in actuales if _as_str(r.get("codigo")).upper() not in quitar]
+    eliminados = len(actuales) - len(queda)
+    bag[key] = queda
+    state["adicionales_por_fecha"] = bag
+    _save_state(state)
+    return {"success": True, "eliminados": eliminados, "total": len(queda), "filas": queda}
+
+
+def actualizarDestinoAdicionales(fecha, cambios):
+    """cambios: [{codigo, zona|destino}]"""
+    state = _load_state()
+    bag = state.setdefault("adicionales_por_fecha", {})
+    key = _as_str(fecha)
+    actuales = list(bag.get(key) or [])
+    mapa = {
+        _as_str(c.get("codigo")).upper(): _as_str(c.get("zona") or c.get("destino"))
+        for c in (cambios or [])
+        if _as_str(c.get("codigo"))
+    }
+    actualizados = 0
+    for row in actuales:
+        cup = _as_str(row.get("codigo")).upper()
+        if cup in mapa and mapa[cup]:
+            row["zona"] = mapa[cup]
+            row["destino"] = mapa[cup]
+            actualizados += 1
+    bag[key] = actuales
+    state["adicionales_por_fecha"] = bag
+    _save_state(state)
+    return {"success": True, "actualizados": actualizados, "total": len(actuales), "filas": actuales}
+
+
+def limpiarAdicionales(fecha=None):
+    state = _load_state()
+    bag = state.setdefault("adicionales_por_fecha", {})
+    if fecha:
+        bag.pop(_as_str(fecha), None)
+    else:
+        bag.clear()
+    state["adicionales_por_fecha"] = bag
+    _save_state(state)
     return {"success": True}
 
 

@@ -16,28 +16,27 @@ Control de medias canales: despachos y operadores logísticos (OPL) en tiempo re
 ### URLs
 
 - En este PC: http://localhost:8000
-- Desde la red: http://IP-DE-ESTE-PC:8000
+- Servidor de planta (205): http://192.168.20.205:8012/
+- Desde la red (otro puerto): http://IP-DE-ESTE-PC:PUERTO
 
 Log del servidor: `logs/server.log`
 
 ## Módulos
 
-### 📋 Despachos
-- Lista de canales agrupadas por destino
-- Columnas: Destino, MC1, MC2, Total Partes, Canales (0.5 c/u)
-- Filtro por turno (DxL, LxM, MxM, etc.)
-- Clic en fila → detalle con código+sufijo, propietario, cava, riel
-- Descarga CSV e impresión
+Solo tres módulos:
 
-### 👷 Planilla OPL
-- Tablero de operadores logísticos en tiempo real
-- Barras de progreso: salidas pistoleadas vs pendientes
-- Cada media canal = 0.5 → par completo = 1.0
-- Clic en tarjeta OPL → lista completa con código+sufijo, cava, riel
-- Descarga CSV individual por OPL
+### 📋 Despachos
+- Lista por puesto y zona (ruta tipo `09404/Floridablanca/.../JxV/`)
+- Columnas: Puesto, Zona, Código, Propietario, MC1, MC2, Total partes (cada media = 0.5)
+- Filtro por turno e impresión
+
+### 📌 Planilla de Puntos
+- Distribución por OPL: vista por puesto o por zona (como Gestor Vísceras)
+- Resumen general con participación
+- Excel de detalle por OPL
 
 ### 🏭 Canales en Cava
-- Inventario completo con código (sufijo MC1/MC2), propietario, cava, riel
+- Inventario completo: código con sufijo, propietario, cava y riel
 - Buscador en tiempo real
 
 ## Configuración `.env`

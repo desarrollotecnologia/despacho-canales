@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Colbeef · Despacho de Canales</title>
-  <style>
+  <link rel="icon" type="image/png" href="/static/favicon.png?v=7">
+  <link rel="shortcut icon" href="/favicon.ico?v=7">
+  <link rel="apple-touch-icon" href="/static/favicon.png?v=7">  <style>
     :root{
       --vp:#1a6fc4;--vh:#2563eb;--vs:#60a5fa;--vc:#bfdbfe;
       --rojo:#dc2626;--fondo:#f0f6ff;--blanco:#ffffff;--gris:#6b7280;
@@ -17,7 +19,10 @@
     /* HEADER */
     .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:2.5rem;flex-wrap:wrap;gap:1rem;}
     .logo-area{display:flex;align-items:center;gap:1rem;}
-    .logo-icon{font-size:2.5rem;background:var(--vp);color:white;width:60px;height:60px;display:flex;align-items:center;justify-content:center;border-radius:18px;box-shadow:var(--sombra);}
+    .btn-volver-portal{width:42px;height:42px;border-radius:12px;border:1.5px solid var(--vc);background:#fff;color:var(--vp);font-size:1.25rem;font-weight:700;cursor:pointer;flex-shrink:0;box-shadow:var(--sombra);display:inline-flex;align-items:center;justify-content:center;text-decoration:none;}
+    .btn-volver-portal:hover{background:var(--vc);color:var(--vh);}
+    .logo-icon{width:60px;height:60px;display:flex;align-items:center;justify-content:center;border-radius:14px;background:transparent;box-shadow:none;padding:0;overflow:visible;cursor:pointer;}
+    .logo-icon img{width:56px;height:56px;display:block;object-fit:contain;}
     .logo-text h1{font-size:1.8rem;font-weight:700;letter-spacing:-0.5px;}
     .logo-text p{color:var(--gris);font-size:0.9rem;}
     .header-right{display:flex;align-items:center;gap:0.8rem;flex-wrap:wrap;}
@@ -30,15 +35,161 @@
     #fechaSelect{padding:0.4rem 0.8rem;border:2px solid var(--vc);border-radius:10px;font-size:0.88rem;background:white;cursor:pointer;}
     #fechaSelect:focus{outline:none;border-color:var(--vp);}
 
-    /* RESUMEN TARJETAS */
-    .resumen-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1.5rem;margin-bottom:2.5rem;}
-    .tarjeta-resumen{background:var(--blanco);border-radius:var(--radio);padding:1.5rem;box-shadow:var(--sombra);border:1px solid rgba(96,165,250,0.2);transition:transform 0.2s;position:relative;overflow:hidden;}
+    /* RESUMEN — 3 tarjetas estilo Vísceras */
+    .home-top-row{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:1.5rem;
+      margin-bottom:2.5rem;
+      align-items:stretch;
+      width:100%;
+    }
+    .tarjeta-resumen{
+      background:var(--blanco);
+      border-radius:var(--radio);
+      padding:1.5rem;
+      box-shadow:var(--sombra);
+      border:1px solid rgba(96,165,250,0.2);
+      transition:transform 0.2s;
+      position:relative;
+      overflow:hidden;
+      min-height:160px;
+    }
     .tarjeta-resumen:hover{transform:translateY(-4px);}
-    .tarjeta-resumen::before{content:'';position:absolute;top:0;left:0;width:100%;height:5px;background:linear-gradient(90deg,var(--vp),var(--vs));}
-    .resumen-label{font-size:0.78rem;text-transform:uppercase;letter-spacing:1px;color:var(--gris);margin-bottom:0.5rem;}
-    .resumen-valor{font-size:2.8rem;font-weight:800;color:var(--vp);line-height:1;}
-    .resumen-sub{font-size:0.78rem;color:var(--gris);margin-top:0.4rem;}
-    .resumen-icon{position:absolute;right:1rem;bottom:1rem;font-size:3rem;opacity:0.1;color:var(--vp);}
+    .tarjeta-resumen::before{
+      content:'';
+      position:absolute;top:0;left:0;width:100%;height:5px;
+      background:linear-gradient(90deg,var(--vp),var(--vs));
+    }
+    .resumen-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:1px;
+      color:var(--gris);
+      margin-bottom:0.5rem;
+      font-weight:600;
+    }
+    .resumen-valor{
+      font-size:2.6rem;
+      font-weight:800;
+      color:var(--vp);
+      line-height:1;
+      letter-spacing:-0.5px;
+    }
+    .resumen-valor.accent-pend{color:#dc2626;}
+    .resumen-valor.accent-ok{color:#16a34a;}
+    .resumen-sub{
+      font-size:0.78rem;
+      color:var(--gris);
+      margin-top:0.4rem;
+      line-height:1.3;
+    }
+    .resumen-icon{
+      position:absolute;right:1rem;bottom:1rem;
+      font-size:3rem;opacity:0.1;color:var(--vp);
+    }
+    .tarjeta-split{display:flex;gap:0;align-items:stretch;}
+    .split-left{flex:1.1;padding-right:1rem;border-right:2px solid var(--vc);}
+    .split-right{flex:1;padding-left:1rem;}
+    .split-label{
+      font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;
+      color:var(--gris);margin-bottom:0.3rem;font-weight:600;
+    }
+    .split-valor{font-size:2.2rem;font-weight:800;color:var(--vp);line-height:1;}
+    .split-valor.rojo{color:#dc2626;}
+    .split-valor.teal{color:#0f766e;}
+    .split-sub{font-size:0.72rem;color:var(--gris);margin-top:0.3rem;line-height:1.25;}
+    .dash-meta-line{
+      margin-top:0.65rem;font-size:0.8rem;color:var(--gris);
+    }
+    .dash-meta-line strong{color:#1f2937;}
+
+    .progreso-opl-card{
+      background:var(--blanco);
+      border-radius:var(--radio);
+      box-shadow:var(--sombra);
+      border:1px solid rgba(96,165,250,0.2);
+      overflow:hidden;
+      position:relative;
+      width:100%;
+      max-width:none;
+      flex:none;
+      min-width:0;
+      min-height:160px;
+      display:flex;
+      flex-direction:column;
+      transition:transform 0.2s;
+    }
+    .progreso-opl-card:hover{transform:translateY(-4px);}
+    .progreso-opl-card::before{
+      content:'';
+      position:absolute;top:0;left:0;width:100%;height:5px;
+      background:linear-gradient(90deg,var(--vp),var(--vs));
+    }
+    .poc-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:0.5rem;
+      padding:1.15rem 1.3rem 0.55rem;
+      border-bottom:none;
+    }
+    .poc-title{
+      display:flex;
+      align-items:center;
+      gap:0.4rem;
+      font-size:0.8rem;
+      font-weight:700;
+      letter-spacing:1px;
+      color:var(--gris);
+      text-transform:uppercase;
+    }
+    .poc-title .poc-pct{
+      margin-left:0.35rem;
+      color:var(--vp);
+      font-weight:800;
+      font-size:0.85rem;
+      letter-spacing:0;
+      text-transform:none;
+    }
+    .poc-detalle{
+      background:none;border:none;cursor:pointer;
+      font-size:0.72rem;font-weight:700;color:#9ca3af;
+      letter-spacing:0.4px;text-transform:uppercase;
+      padding:0.2rem 0;
+    }
+    .poc-detalle:hover{color:var(--vp);}
+    .poc-body{padding:0.35rem 1.3rem 0.5rem;flex:1;}
+    .poc-row{margin-bottom:0.7rem;}
+    .poc-row-top{
+      display:flex;align-items:center;justify-content:space-between;
+      gap:0.4rem;margin-bottom:0.22rem;
+    }
+    .poc-nombre{
+      font-size:0.85rem;font-weight:800;color:#1e3a5f;
+      text-transform:uppercase;letter-spacing:0.2px;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55%;
+    }
+    .poc-meta{display:flex;align-items:center;gap:0.45rem;flex-shrink:0;}
+    .poc-pct-row{font-size:0.78rem;color:#9ca3af;font-weight:600;}
+    .poc-pend{font-size:0.78rem;font-weight:700;color:#dc2626;}
+    .poc-pend.ok{color:#16a34a;}
+    .poc-bar{background:#e5e7eb;height:6px;border-radius:10px;overflow:hidden;}
+    .poc-bar > div{height:100%;border-radius:10px;transition:width 0.45s ease;}
+    .poc-more{
+      text-align:center;font-size:0.75rem;font-weight:700;
+      color:var(--vp);padding:0.4rem 0.85rem 0.9rem;cursor:pointer;
+    }
+    .poc-more:hover{text-decoration:underline;}
+    .poc-empty{color:var(--gris);font-size:0.88rem;padding:0.6rem 0;}
+    .badge-opl{display:inline-block;background:#dbeafe;color:var(--vp);padding:0.15rem 0.55rem;border-radius:20px;font-size:0.72rem;font-weight:700;}
+    .badge-opl.default{background:#e0f2fe;color:#0369a1;}
+    .opl-select{padding:0.3rem 0.45rem;border:1.5px solid var(--vc);border-radius:8px;font-size:0.8rem;background:white;max-width:140px;}
+    .opl-modal-row{margin-bottom:0.7rem;padding-bottom:0.55rem;border-bottom:1px solid #f1f5f9;}
+    .opl-modal-row:last-child{border-bottom:none;}
+    @media(max-width:980px){
+      .home-top-row{grid-template-columns:1fr;}
+    }
     .tarjeta-opl{cursor:pointer;min-width:260px;}
     .tarjeta-opl:hover{transform:translateY(-4px);border-color:var(--vh);}
     .opl-mini-item{display:flex;align-items:center;gap:0.5rem;margin-bottom:0.55rem;}
@@ -60,6 +211,30 @@
     .modulo-nombre{font-size:1.4rem;font-weight:700;color:var(--vp);margin-bottom:0.5rem;}
     .modulo-desc{color:var(--gris);font-size:0.95rem;margin-bottom:1.2rem;line-height:1.4;}
     .modulo-badge{display:inline-block;background:var(--vc);color:var(--vp);padding:0.3rem 1rem;border-radius:30px;font-size:0.75rem;font-weight:600;text-transform:uppercase;}
+
+    /* REETIQUETADO */
+    .et-scan{display:flex;gap:0.8rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;}
+    .et-scan .search-bar{max-width:420px;}
+    .et-scan .search-bar input{font-size:1.05rem;font-weight:600;letter-spacing:0.03em;}
+    .et-opciones{display:flex;gap:1.2rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;color:var(--gris);margin-bottom:1.2rem;}
+    .et-opciones input[type=number]{width:60px;padding:0.25rem 0.4rem;border:2px solid var(--vc);border-radius:8px;}
+    .et-grid{display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1.5rem;}
+    .et-card{display:flex;flex-direction:column;gap:0.6rem;}
+    .et-label{width:366px;height:244px;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:var(--sombra);padding:8px 12px;font-family:Arial,Helvetica,sans-serif;color:#000;display:flex;flex-direction:column;}
+    .et-top{display:flex;justify-content:space-between;border-bottom:2px solid #000;padding-bottom:5px;}
+    .et-barras{background:repeating-linear-gradient(90deg,#000 0 2px,#fff 2px 3px,#000 3px 4px,#fff 4px 7px,#000 7px 10px,#fff 10px 12px);}
+    .et-top .et-barras{width:210px;height:42px;}
+    .et-cuarto{font-size:13px;font-weight:700;margin-top:2px;}
+    .et-ubic{font-size:22px;font-weight:800;line-height:1.15;text-align:left;min-width:100px;}
+    .et-puesto{font-size:21px;font-weight:800;margin-top:5px;}
+    .et-bottom .et-barras{width:315px;height:58px;margin:3px 0;}
+    .et-animal{font-size:32px;font-weight:800;line-height:1;}
+    .et-tipo{font-size:17px;font-weight:700;margin-top:3px;}
+    .et-meta{font-size:0.78rem;color:var(--gris);line-height:1.4;}
+    .et-meta strong{color:#1f2937;}
+    .et-aviso{color:#b45309;font-weight:600;}
+    .btn-et{background:none;border:1px solid var(--vc);border-radius:8px;cursor:pointer;padding:0.15rem 0.45rem;font-size:0.95rem;}
+    .btn-et:hover{background:var(--vc);}
 
     /* VISTAS DETALLE */
     .view-detail{display:none;background:var(--blanco);border-radius:var(--radio);padding:2rem;box-shadow:var(--sombra);margin-top:1rem;}
@@ -89,6 +264,27 @@
     .btn-sm-secondary{background:var(--vc);color:var(--vp);}
     .btn-sm-danger{background:#fee2e2;color:#991b1b;}
 
+    /* Salidas físicas — normales vs adicionales */
+    .badge-adicional{display:inline-block;font-size:0.62rem;background:#1e3a5f;color:#fff;border-radius:3px;padding:0 5px;margin-left:0.35rem;vertical-align:middle;white-space:nowrap;line-height:1.35;}
+    .fila-adicional{background:#f0f7ff;}
+    .adicionales-panel{border:1px solid #bfdbfe;background:#f8fbff;border-radius:8px;padding:0.85rem 1rem;margin:0.75rem 0 1rem;}
+    .adicionales-panel h4{margin:0 0 0.35rem;color:#1e3a5f;font-size:0.92rem;}
+    .adicionales-kpis{display:flex;flex-wrap:wrap;gap:1rem 1.5rem;font-size:0.82rem;margin-bottom:0.65rem;}
+    .adicionales-kpis strong{font-size:1.05rem;}
+    .adicionales-filtros{display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.55rem;}
+    .adicionales-filtros button{padding:0.28rem 0.7rem;font-size:0.78rem;border-radius:4px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;}
+    .adicionales-filtros button.active{background:#1e3a5f;color:#fff;border-color:#1e3a5f;}
+    .ux-collapsible{margin:0.75rem 0 1rem;border:1px solid rgba(96,165,250,0.3);border-radius:8px;background:#fff;overflow:hidden;}
+    .ux-collapsible > summary{cursor:pointer;padding:0.7rem 1rem;font-weight:700;color:var(--vp);list-style:none;user-select:none;}
+    .ux-collapsible > summary::-webkit-details-marker{display:none;}
+    .ux-collapsible-body{padding:0 1rem 1rem;}
+
+    /* Tempranas (planilla) — igual idea que Vísceras */
+    .planilla-row-temprana{background:#fef2f2 !important;border-left:3px solid #dc2626;}
+    .planilla-row-temprana td:first-child{color:#dc2626;font-weight:700;}
+    .planilla-row-temprana td:last-child{color:#dc2626;font-weight:700;}
+    .badge-temprana{display:inline-block;font-size:0.62rem;background:#dc2626;color:#fff;border-radius:3px;padding:0 5px;margin-right:0.35rem;vertical-align:middle;white-space:nowrap;line-height:1.35;font-weight:700;}
+
     /* STATS */
     .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:1.5rem;}
     .stat-card{background:var(--fondo);border-radius:12px;padding:1.2rem 1rem;border:1px solid rgba(96,165,250,0.25);text-align:center;position:relative;overflow:hidden;}
@@ -104,6 +300,12 @@
     .turno-btn.sugerido{border-color:#93c5fd;background:#eff6ff;}
     .turno-btn.selected{border-color:var(--vp);background:var(--vp);color:white;}
     .turno-btn.sugerido:not(.selected)::after{content:'fecha';font-size:0.62rem;color:var(--vp);margin-left:0.2rem;opacity:0.8;}
+    .opl-chip{display:inline-flex;align-items:center;gap:0.4rem;padding:0.45rem 0.85rem;border-radius:30px;border:2px solid var(--vc);background:white;cursor:pointer;font-size:0.82rem;font-weight:700;color:var(--vp);}
+    .opl-chip:hover{border-color:var(--vp);background:#eff6ff;}
+    .opl-chip.selected{background:var(--vp);color:white;border-color:var(--vp);}
+    .opl-chip .chip-dl{background:rgba(255,255,255,0.25);border:none;border-radius:20px;padding:0.1rem 0.4rem;cursor:pointer;font-size:0.78rem;}
+    .opl-chip:not(.selected) .chip-dl{background:#dbeafe;color:var(--vp);}
+    .resumen-bar{background:#eff6ff;border:1px solid var(--vc);border-radius:12px;padding:0.7rem 1rem;font-size:0.88rem;color:var(--vp);font-weight:600;margin-bottom:1rem;}
 
     /* TABLAS */
     .table-wrap{overflow-x:auto;border-radius:12px;border:1px solid var(--vc);margin-top:1rem;}
@@ -115,6 +317,11 @@
     tbody tr:nth-child(even){background:var(--fondo);}
     tbody tr.total-row{background:#eff6ff;font-weight:700;border-top:2px solid var(--vp);}
     tbody tr.clickable:hover{background:#dbeafe;cursor:pointer;}
+    tbody tr.desp-row{user-select:none;}
+    tbody tr.desp-row.expandible td:nth-child(1){color:var(--vp);font-weight:600;}
+    tbody tr.desp-child{background:#f8fafc;}
+    tbody tr.desp-child td:first-child{color:var(--gris);font-size:0.82rem;padding-left:1.6rem;}
+    tbody tr.desp-child code{font-size:0.82rem;}
     tbody td{padding:0.75rem 1rem;}
     tbody td.num{text-align:center;}
     .empty-state{text-align:center;padding:3rem;color:var(--gris);}
@@ -174,6 +381,7 @@
     .alert.show{display:block;}
     .alert-warn{background:#fef3c7;color:#92400e;border:1px solid #fde68a;}
     .alert-error{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;}
+    .alert-success{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;}
 
     @media(max-width:700px){
       body{padding:1rem;}
@@ -188,14 +396,18 @@
   <!-- HEADER -->
   <div class="header">
     <div class="logo-area">
-      <div class="logo-icon">🥩</div>
+      <a id="btnVolverPortal" class="btn-volver-portal" href="http://192.168.20.205:8501/?session=active" onclick="return volverPortalPrincipal(event)" title="Volver al programa principal">←</a>
+      <div class="logo-icon" id="logoIconGestor" title="Colbeef · Despacho de Canales">
+        <img src="/static/logo-canal.png?v=7" alt="Despacho de Canales" width="56" height="56">
+      </div>
       <div class="logo-text">
         <h1><span style="color:var(--vp)">Col</span><span style="color:var(--rojo)">beef</span> · Despacho de Canales</h1>
-        <p>Control de medias canales · Despachos y OPL en tiempo real</p>
+        <p>Control de medias canales · Despachos, planilla de puntos e inventario en cava</p>
       </div>
     </div>
     <div class="header-right">
       <input type="date" id="fechaSelect" title="Seleccionar fecha" onchange="onFechaChange()">
+      <span class="db-badge" id="usuarioBadge">👤 …</span>
       <span class="db-badge" id="dbBadge">⏳ BD: sirt</span>
       <button class="btn-refresh" onclick="actualizarTodo()">🔄 Actualizar</button>
     </div>
@@ -215,77 +427,115 @@
   <!-- ══════ VISTA PRINCIPAL ══════ -->
   <div id="viewMain">
 
-    <!-- TARJETAS RESUMEN -->
-    <div class="resumen-grid" id="resumenGrid">
+    <!-- Fila superior estilo Vísceras: Asignadas | OPL | Pendientes -->
+    <div class="home-top-row">
+      <!-- Tarjeta 1: Asignadas (congelado) + MC1/MC2 -->
       <div class="tarjeta-resumen">
-        <div class="resumen-label">Media Canal 1</div>
-        <div class="resumen-valor" id="numMC1">—</div>
-        <div class="resumen-sub">sufijo -1001 (izquierda)</div>
-        <div class="resumen-icon">◀</div>
-      </div>
-      <div class="tarjeta-resumen">
-        <div class="resumen-label">Media Canal 2</div>
-        <div class="resumen-valor" id="numMC2">—</div>
-        <div class="resumen-sub">sufijo -1002 (derecha)</div>
-        <div class="resumen-icon">▶</div>
-      </div>
-      <div class="tarjeta-resumen">
-        <div class="resumen-label">Canales Completas</div>
-        <div class="resumen-valor" id="numCanalesComp">—</div>
-        <div class="resumen-sub">MC1 + MC2 = 1 canal</div>
-        <div class="resumen-icon">🐄</div>
-      </div>
-      <div class="tarjeta-resumen">
-        <div class="resumen-label">Total Partes en Cava</div>
-        <div class="resumen-valor" id="numTotal">—</div>
-        <div class="resumen-sub">medias canales activas</div>
-        <div class="resumen-icon">📦</div>
-      </div>
-      <div class="tarjeta-resumen tarjeta-opl" onclick="irModulo('opl')" title="Click para ver detalle de cada OPL">
-        <div class="resumen-label">🚚 Progreso OPL <span style="font-size:0.65rem;opacity:0.7;">▼ ver detalle</span></div>
-        <div id="dashOplMini">
-          <div style="color:var(--gris);font-size:0.82rem;margin-top:0.5rem;">Cargando operadores...</div>
+        <div class="tarjeta-split">
+          <div class="split-left">
+            <div class="split-label">📤 Asignadas</div>
+            <div class="split-valor" id="numAsignadas">—</div>
+            <div class="split-sub">Congelado · no baja al pistolear</div>
+            <div class="split-sub" id="numAsignadasMedias" style="margin-top:0.45rem;font-weight:700;color:var(--vp);"></div>
+            <button type="button" onclick="recalcularAsignado()" title="Usar solo si cancelaron canales: vuelve a fijar la meta con lo asignado actual en SIRT" style="margin-top:0.45rem;font-size:0.7rem;padding:0.2rem 0.5rem;border:1px solid var(--vp);background:transparent;color:var(--vp);border-radius:6px;cursor:pointer;">↻ Recalcular meta</button>
+          </div>
+          <div class="split-right">
+            <div class="split-label">◀ MC1</div>
+            <div class="split-valor teal" id="numMC1" style="font-size:1.7rem;">—</div>
+            <div class="split-sub">medias izquierda</div>
+            <div style="margin-top:0.55rem;padding-top:0.55rem;border-top:1px solid rgba(96,165,250,0.25);">
+              <div class="split-label">▶ MC2</div>
+              <div class="split-valor teal" id="numMC2" style="font-size:1.7rem;">—</div>
+              <div class="split-sub">medias derecha</div>
+            </div>
+            <div style="margin-top:0.55rem;padding-top:0.55rem;border-top:1px solid rgba(96,165,250,0.25);">
+              <div class="split-label" style="font-size:0.7rem;color:#1e3a5f;">➕ Adicionales</div>
+              <div class="split-valor" id="dashAdicionales" style="font-size:1.4rem;color:#1e3a5f;">—</div>
+              <div class="split-sub" id="dashAdicionalesSub">Asignadas ≥ 15:30</div>
+            </div>
+          </div>
         </div>
+        <div class="resumen-icon">📤</div>
+        <span id="numCanalesComp" style="display:none">—</span>
+        <span id="numTotal" style="display:none">—</span>
+        <span id="numMC1MC2" style="display:none">—</span>
+        <span id="numAsignadasSub" style="display:none"></span>
+      </div>
+
+      <!-- Tarjeta 2: Progreso OPL -->
+      <div class="progreso-opl-card" id="progresoOplCard" onclick="abrirModalOPL()" title="Ver progreso y configuración OPL" style="cursor:pointer;">
+        <div class="poc-head">
+          <div class="poc-title">
+            <span>🚚</span> Progreso OPL
+            <span class="poc-pct" id="progresoPct">0%</span>
+          </div>
+          <button type="button" class="poc-detalle" onclick="event.stopPropagation();abrirModalOPL()" title="Ver detalle">Ver detalle</button>
+        </div>
+        <div class="poc-body" id="progresoOplLista">
+          <div class="poc-empty">Cargando progreso…</div>
+        </div>
+        <div class="poc-more" id="progresoOplMas" style="display:none;" onclick="event.stopPropagation();abrirModalOPL()"></div>
+        <span id="progSal" style="display:none">0</span>
+        <span id="progPend" style="display:none">0</span>
+        <span id="progCanSal" style="display:none">0.0</span>
         <div class="resumen-icon">🚚</div>
       </div>
+
+      <!-- Tarjeta 3: Pendientes a despachar -->
+      <div class="tarjeta-resumen">
+        <div class="resumen-label">🚛 Total canales a despachar</div>
+        <div class="resumen-valor accent-pend" id="numPendientes">—</div>
+        <div class="resumen-sub" id="dashDespTurno">Pendientes en cava (incluye adicionales)</div>
+        <div class="dash-meta-line">
+          Antes <span class="corte-lbl">15:30</span>: <strong id="dashAntesCorte">—</strong>
+          + Adic.: <strong id="dashAdicTotal">—</strong>
+          = Total asignado: <strong id="dashTotalAsignado">—</strong>
+        </div>
+        <div class="dash-meta-line" style="margin-top:0.2rem;">
+          Despachadas: <strong id="numDespachadas">0</strong>
+          &nbsp;·&nbsp; Meta asignadas: <strong id="numPendientesVs">—</strong>
+        </div>
+        <div class="resumen-sub" id="numDespachadasPct" style="margin-top:0.35rem;"></div>
+        <div class="resumen-icon">🚛</div>
+      </div>
     </div>
 
-    <!-- OPL mini resumen (clickable) -->
+    <!-- Barra de avance global (igual que Vísceras) -->
     <div class="progreso-card">
       <div class="progreso-header">
-        <span>📊 Progreso de la operación</span>
-        <span id="progresoPct">0%</span>
+        <span>Progreso de la operación</span>
+        <span id="progresoPorcentaje">0%</span>
       </div>
-      <div class="barra-exterior">
-        <div class="barra-interior" id="barraProgreso" style="width:0%"></div>
-      </div>
-      <div style="display:flex;gap:1.5rem;margin-top:0.8rem;flex-wrap:wrap;">
-        <span style="font-size:0.8rem;color:var(--gris)">✅ Despachadas: <strong id="progSal">0</strong> partes</span>
-        <span style="font-size:0.8rem;color:var(--gris)">⏳ Pendientes: <strong id="progPend">0</strong> partes</span>
-        <span style="font-size:0.8rem;color:var(--gris)">🐄 Canales despachadas: <strong id="progCanSal">0.0</strong></span>
-      </div>
+      <div class="barra-exterior"><div class="barra-interior" id="progresoBarra" style="width:0%"></div></div>
+      <p style="margin-top:0.9rem;color:#4b5563;font-size:0.9rem;" id="progresoMeta">Cargando…</p>
     </div>
 
-    <!-- MÓDULOS -->
+    <!-- MÓDULOS — solo Despachos, Planilla de Puntos y Canales en Cava -->
     <div class="modulos-titulo">📂 Módulos del sistema</div>
     <div class="modulos-grid">
       <div class="modulo-card" onclick="irModulo('despachos')">
         <div class="modulo-icono">📋</div>
         <div class="modulo-nombre">Despachos</div>
-        <div class="modulo-desc">Lista de canales agrupadas por destino con MC1, MC2 y total. Selecciona turno y descarga por cliente.</div>
+        <div class="modulo-desc">Lista por puesto y zona: un código, MC1, MC2 y total (cada media = 0.5). Doble clic para desglosar.</div>
         <span class="modulo-badge">Lista de despacho</span>
       </div>
-      <div class="modulo-card" onclick="irModulo('opl')">
-        <div class="modulo-icono">👷</div>
-        <div class="modulo-nombre">Planilla OPL</div>
-        <div class="modulo-desc">Tablero de operadores logísticos con progreso en tiempo real. Barras de avance por cada OPL y descarga individual.</div>
-        <span class="modulo-badge">Operadores logísticos</span>
+      <div class="modulo-card" onclick="irModulo('planilla')">
+        <div class="modulo-icono">📌</div>
+        <div class="modulo-nombre">Planilla de Puntos</div>
+        <div class="modulo-desc">Distribución de puestos por zona y OPL, igual que Gestor Vísceras. Vista por puesto o por zona.</div>
+        <span class="modulo-badge">Logística</span>
       </div>
       <div class="modulo-card" onclick="irModulo('cavas')">
         <div class="modulo-icono">🏭</div>
         <div class="modulo-nombre">Canales en Cava</div>
         <div class="modulo-desc">Inventario completo de medias canales en cava: código con sufijo, propietario, cava y riel.</div>
         <span class="modulo-badge">Inventario</span>
+      </div>
+      <div class="modulo-card" onclick="irModulo('etiquetas')">
+        <div class="modulo-icono">🏷️</div>
+        <div class="modulo-nombre">Reetiquetado</div>
+        <div class="modulo-desc">Pistolea o escribe el código de la media canal e imprime la segunda etiqueta en la Zebra ZT231.</div>
+        <span class="modulo-badge">Etiquetas</span>
       </div>
     </div>
 
@@ -305,11 +555,12 @@
   <!-- ══════ VISTA DESPACHOS ══════ -->
   <div class="view-detail" id="viewDespachos">
     <button class="back-btn" onclick="irMain()">← Volver al inicio</button>
-    <h2 style="color:var(--vp);margin-bottom:1.5rem;">📋 Despachos de Canales</h2>
+    <h2 style="color:var(--vp);margin-bottom:0.4rem;">📋 Despachos de Canales</h2>
+    <p id="despTurnoInfo" style="font-size:0.88rem;color:var(--gris);margin-bottom:1.2rem;"></p>
 
     <!-- Selector turno -->
     <!-- Selector turno -->
-    <p style="font-size:0.85rem;color:var(--gris);margin-bottom:0.8rem;">El turno se asigna según la fecha (marcado como <strong>fecha</strong>). Puedes cambiarlo a mano.</p>
+    <p style="font-size:0.85rem;color:var(--gris);margin-bottom:0.8rem;">Solo canales con <strong>fecha de programación</strong> del día. El turno se marca según la fecha; puedes cambiarlo a mano.</p>
     <div class="turno-btns" id="turnoBtns">
       <button class="turno-btn" data-turno="" onclick="selTurno(this,'')">🔵 Todos</button>
       <button class="turno-btn" data-turno="DxL" onclick="selTurno(this,'DxL')"><span>Dom→Lun</span> DxL</button>
@@ -321,6 +572,49 @@
       <button class="turno-btn" data-turno="SxD" onclick="selTurno(this,'SxD')"><span>Sáb→Dom</span> SxD</button>
     </div>
 
+    <details class="ux-collapsible" open>
+      <summary>Canales asignadas del día — normales vs adicionales (asignadas ≥ 15:30)</summary>
+      <div class="ux-collapsible-body">
+        <div class="adicionales-panel">
+          <h4>Asignación del día · corte adicionales <span id="corteAdicionalLbl">15:30</span></h4>
+          <p style="margin:0 0 0.55rem;font-size:0.78rem;color:#64748b;line-height:1.35;">
+            Cuenta la <strong>hora en que se asignó la salida</strong> en SIRT, no la hora de pistoleo:
+            asignada antes de las <strong>15:30</strong> = normal · desde las <strong>15:30</strong> = adicional.
+            <strong>Normales + Adicionales = total asignado</strong>. Las dos cuentan en el progreso y en pendientes.
+          </p>
+          <div class="adicionales-kpis">
+            <div>Normales<br><strong id="kpiSalNormales">—</strong></div>
+            <div>Adicionales<br><strong id="kpiSalAdicionales" style="color:#1e3a5f;">—</strong></div>
+            <div>Total asignado<br><strong id="kpiSalTotal">—</strong></div>
+            <div>Adicionales en cava<br><strong id="kpiSalAdiPend" style="color:#dc2626;">—</strong></div>
+          </div>
+          <div class="adicionales-filtros">
+            <button type="button" class="active" id="filtroSalTodas" onclick="filtrarSalidasFisicas('todas')">Todas</button>
+            <button type="button" id="filtroSalNormales" onclick="filtrarSalidasFisicas('normales')">Normales</button>
+            <button type="button" id="filtroSalAdicionales" onclick="filtrarSalidasFisicas('adicionales')">Solo adicionales</button>
+            <button type="button" class="btn btn-secondary" style="padding:0.28rem 0.7rem;font-size:0.78rem;" onclick="cargarVistaSalidasFisicas()">🔄 Actualizar</button>
+          </div>
+          <div class="table-wrap" style="max-height:260px;margin-top:0;">
+            <table style="font-size:0.82rem;">
+              <thead>
+                <tr>
+                  <th>Hora asignación</th>
+                  <th>Código</th>
+                  <th>Propietario</th>
+                  <th>OPL / Zona</th>
+                  <th>Estado</th>
+                  <th>Tipo</th>
+                </tr>
+              </thead>
+              <tbody id="tablaSalidasFisicas">
+                <tr><td colspan="6" class="empty-state">Se cargará al abrir el módulo.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </details>
+
     <!-- Stats -->
     <div class="stats-grid" id="despStats"></div>
 
@@ -328,10 +622,11 @@
     <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
       <div class="search-bar">
         <span class="s-icon">🔍</span>
-        <input id="searchDesp" type="text" placeholder="Buscar destino..." oninput="filtrarDespachos()">
+        <input id="searchDesp" type="text" placeholder="Buscar puesto, zona o código..." oninput="filtrarDespachos()">
       </div>
-      <button class="btn btn-secondary btn-sm" onclick="cargarDespachos()">🔄 Refrescar</button>
+      <button class="btn btn-secondary btn-sm" onclick="cargarDespachos(true)">🔄 Refrescar</button>
       <button class="btn btn-primary btn-sm" onclick="imprimirTablaDespachos()">🖨️ Imprimir</button>
+      <span style="font-size:0.78rem;color:var(--gris)">Agrupado por puesto/zona (ej. 9404 · Floridablanca). Doble clic para desglosar.</span>
     </div>
 
     <!-- Tabla despachos -->
@@ -339,15 +634,17 @@
       <table id="tablaDespachos">
         <thead>
           <tr>
-            <th>Destino / Cliente</th>
+            <th>Puesto</th>
+            <th>Zona / Destino</th>
+            <th>Código</th>
+            <th>Propietario</th>
             <th class="num">MC1</th>
             <th class="num">MC2</th>
-            <th class="num">Total Partes</th>
-            <th class="num">Canales (0.5 c/u)</th>
+            <th class="num">Total partes</th>
           </tr>
         </thead>
         <tbody id="tablaDespachosCuerpo">
-          <tr><td colspan="5" class="empty-state">Selecciona turno y haz clic en Refrescar</td></tr>
+          <tr><td colspan="7" class="empty-state">Selecciona turno y haz clic en Refrescar</td></tr>
         </tbody>
       </table>
     </div>
@@ -360,7 +657,7 @@
     <p style="color:var(--gris);font-size:0.88rem;margin-bottom:1.5rem;">Progreso en tiempo real — cada media canal vale <strong>0.5</strong>. Las salidas se actualizan al pistolar.</p>
 
     <!-- Selector turno OPL -->
-    <p style="font-size:0.85rem;color:var(--gris);margin-bottom:0.8rem;">Mismo turno de la fecha seleccionada. Puedes cambiarlo a mano.</p>
+    <p style="font-size:0.85rem;color:var(--gris);margin-bottom:0.8rem;">Solo piezas programadas para la fecha. Mismo turno del día; puedes cambiarlo a mano.</p>
     <div class="turno-btns" id="turnoBtnsOpl">
       <button class="turno-btn" data-turno="" onclick="selTurnoOpl(this,'')">🔵 Todos</button>
       <button class="turno-btn" data-turno="DxL" onclick="selTurnoOpl(this,'DxL')"><span>Dom→Lun</span> DxL</button>
@@ -376,7 +673,7 @@
     <div class="stats-grid" id="oplStats"></div>
 
     <div style="display:flex;gap:0.8rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
-      <button class="btn btn-secondary btn-sm" onclick="cargarOpl()">🔄 Refrescar progreso</button>
+      <button class="btn btn-secondary btn-sm" onclick="cargarOpl(true)">🔄 Refrescar progreso</button>
       <span style="font-size:0.8rem;color:var(--gris)">Haz clic en una tarjeta de OPL para ver el detalle y descargar</span>
     </div>
 
@@ -396,7 +693,7 @@
         <span class="s-icon">🔍</span>
         <input id="searchCavas" type="text" placeholder="Buscar código, cava, riel..." oninput="filtrarCavas()">
       </div>
-      <button class="btn btn-secondary btn-sm" onclick="cargarCavas()">🔄 Refrescar</button>
+      <button class="btn btn-secondary btn-sm" onclick="cargarCavas(true)">🔄 Refrescar</button>
       <button class="btn btn-primary btn-sm" onclick="imprimirCavas()">🖨️ Imprimir</button>
     </div>
 
@@ -411,13 +708,112 @@
             <th>Destino</th>
             <th class="num">Tipo</th>
             <th>Ingreso Cava</th>
+            <th>Etiqueta</th>
           </tr>
         </thead>
         <tbody id="tablaCavasCuerpo">
-          <tr><td colspan="7" class="empty-state">Cargando...</td></tr>
+          <tr><td colspan="8" class="empty-state">Cargando...</td></tr>
         </tbody>
       </table>
     </div>
+  </div>
+
+  <!-- ══════ VISTA REETIQUETADO ══════ -->
+  <div class="view-detail" id="viewEtiquetas">
+    <button class="back-btn" onclick="irMain()">← Volver al inicio</button>
+    <h2 style="color:var(--vp);margin-bottom:0.4rem;">🏷️ Reetiquetado de Media Canal</h2>
+    <p style="color:var(--gris);font-size:0.88rem;margin-bottom:1.2rem;">
+      Pistolea el código de barras (ej. <code>2609-11032-1001</code>) o escribe solo el animal (<code>2609-11032</code>) para las dos medias.
+      Etiqueta 7.62 × 5.08 cm · Zebra ZT231 203 dpi.
+    </p>
+
+    <div class="et-scan">
+      <div class="search-bar">
+        <span class="s-icon">🔫</span>
+        <input id="etCodigo" type="text" placeholder="Código de la media canal..." autocomplete="off"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();buscarEtiqueta();}">
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="buscarEtiqueta()">🔍 Ver etiqueta</button>
+      <button class="btn btn-primary btn-sm" id="etBtnImprimir" onclick="imprimirEtiquetasActuales()" disabled>🖨️ Imprimir</button>
+      <button class="btn btn-secondary btn-sm" id="etBtnZpl" onclick="descargarZplActual()" disabled>⬇️ ZPL</button>
+    </div>
+
+    <div class="et-opciones">
+      <label><input type="checkbox" id="etAutoImprimir"> Imprimir al pistolear</label>
+      <label>Copias <input type="number" id="etCopias" min="1" max="20" value="1"></label>
+      <span id="etImpresora"></span>
+    </div>
+
+    <div class="et-grid" id="etPreview">
+      <div class="empty-state" style="width:100%;">Pistolea un código para ver la etiqueta.</div>
+    </div>
+
+    <h3 style="color:var(--vp);font-size:1rem;margin-bottom:0.6rem;">Impresas en esta sesión</h3>
+    <div class="table-wrap" style="max-height:260px;">
+      <table style="font-size:0.85rem;">
+        <thead><tr><th>Hora</th><th>Código</th><th>Ubicación</th><th>Puesto / turno</th><th class="num">Copias</th></tr></thead>
+        <tbody id="etHistorial"><tr><td colspan="5" class="empty-state">Aún no se ha impreso nada.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════ VISTA PLANILLA DE PUNTOS (estilo Gestor Vísceras) ══════ -->
+  <div class="view-detail" id="viewPlanilla">
+    <button class="back-btn" onclick="irMain()">← Volver al inicio</button>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem;margin-bottom:1.2rem;">
+      <div>
+        <h2 style="color:var(--vp);margin-bottom:0.2rem;">📋 Planilla de Puntos por OPL</h2>
+        <p style="color:var(--gris);font-size:0.84rem;">Medias canales: vista por <strong>puesto</strong> (operación) o por <strong>zona</strong> (resumen comercial)</p>
+      </div>
+      <div style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-secondary" id="btnProcesarPlanilla" onclick="procesarPlanilla(true)" style="padding:0.5rem 1.1rem;font-size:0.85rem;">⚙️ Procesar Planilla</button>
+        <button class="btn btn-primary" id="btnExcelOpl" onclick="descargarExcelOplActivo()" style="padding:0.5rem 1.1rem;font-size:0.85rem;" title="Excel del OPL seleccionado (solo pendientes)">📥 Exportar Excel OPL</button>
+        <button class="btn btn-secondary" id="btnParticulares" onclick="abrirModalParticulares()" style="padding:0.5rem 1.1rem;font-size:0.85rem;background:#ff9800;color:#fff;" title="Elegir OPLs y descargar Excel multi-hoja solo con lo pendiente">📥 Descargar particulares</button>
+      </div>
+    </div>
+    <div class="alert" id="planillaAlert"></div>
+
+    <p style="font-size:0.85rem;color:var(--gris);margin-bottom:0.8rem;">Solo canales programados para la fecha. El turno se marca según el día; puedes cambiarlo a mano.</p>
+    <div class="turno-btns" id="turnoBtnsPlanilla">
+      <button class="turno-btn" data-turno="" onclick="selTurnoPlanilla(this,'')">🔵 Todos</button>
+      <button class="turno-btn" data-turno="DxL" onclick="selTurnoPlanilla(this,'DxL')"><span>Dom→Lun</span> DxL</button>
+      <button class="turno-btn" data-turno="LxM" onclick="selTurnoPlanilla(this,'LxM')"><span>Lun→Mar</span> LxM</button>
+      <button class="turno-btn" data-turno="MxM" onclick="selTurnoPlanilla(this,'MxM')"><span>Mar→Mié</span> MxM</button>
+      <button class="turno-btn" data-turno="MxJ" onclick="selTurnoPlanilla(this,'MxJ')"><span>Mié→Jue</span> MxJ</button>
+      <button class="turno-btn" data-turno="JxV" onclick="selTurnoPlanilla(this,'JxV')"><span>Jue→Vie</span> JxV</button>
+      <button class="turno-btn" data-turno="VxS" onclick="selTurnoPlanilla(this,'VxS')"><span>Vie→Sáb</span> VxS</button>
+      <button class="turno-btn" data-turno="SxD" onclick="selTurnoPlanilla(this,'SxD')"><span>Sáb→Dom</span> SxD</button>
+    </div>
+
+    <div style="background:var(--blanco);border-radius:var(--radio);padding:1rem 1.2rem;box-shadow:var(--sombra);border:1px solid rgba(96,165,250,0.2);margin-bottom:1.2rem;">
+      <div style="font-weight:600;color:var(--vp);font-size:0.85rem;margin-bottom:0.5rem;">Operador Logístico</div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;" id="planillaOplBtns">
+        <span style="color:var(--gris);font-size:0.82rem;">Procesa la planilla para ver los OPLs.</span>
+      </div>
+      <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:2px dashed var(--vc);display:flex;justify-content:center;">
+        <button type="button" onclick="mostrarResumenGeneralPlanilla()" style="
+          background:#ff9800;color:white;border:none;padding:0.6rem 1.8rem;border-radius:40px;
+          font-size:0.9rem;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:0.5rem;
+          box-shadow:0 2px 8px rgba(0,0,0,0.1);">📊 VER RESUMEN GENERAL</button>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:center;gap:0.5rem;margin-bottom:0.75rem;flex-wrap:wrap;">
+      <button type="button" class="btn btn-primary" id="btnPlanillaVistaPuestos" style="padding:0.4rem 1rem;font-size:0.82rem;" onclick="setPlanillaVista('puestos')">📍 Por puesto</button>
+      <button type="button" class="btn btn-secondary" id="btnPlanillaVistaZonas" style="padding:0.4rem 1rem;font-size:0.82rem;" onclick="setPlanillaVista('zonas')">🗺️ Por zona</button>
+    </div>
+
+    <div style="text-align:center;margin-bottom:1rem;">
+      <h3 id="planillaTitulo" style="font-size:1.15rem;font-weight:700;color:var(--vp);">LISTA DE PUESTOS: CANALES DE SALIDA DE CAVA</h3>
+      <div id="planillaSubtitulo" style="font-size:0.8rem;color:var(--gris);margin-top:3px;"></div>
+    </div>
+
+    <div id="planillaGrid" class="planilla-zonas-grid" style="display:flex;flex-wrap:wrap;gap:0.65rem;justify-content:center;align-items:flex-start;margin-bottom:1.5rem;">
+      <div style="width:100%;text-align:center;padding:3rem;color:var(--gris);font-size:0.9rem;">
+        Presiona <strong>⚙️ Procesar Planilla</strong> para generar la distribución.
+      </div>
+    </div>
+    <div id="planillaResumen" style="display:flex;justify-content:center;"></div>
   </div>
 
 </div><!-- /container -->
@@ -433,12 +829,96 @@
   </div>
 </div>
 
+<!-- MODAL PARTICULARES -->
+<div class="modal-overlay" id="modalParticulares">
+  <div class="modal-box" style="max-width:560px;">
+    <div class="modal-header">
+      <div class="modal-title">📥 Particulares · Excel multi-hoja</div>
+      <button class="modal-close" onclick="cerrarModalParticulares()" aria-label="Cerrar">✕</button>
+    </div>
+    <p style="font-size:0.84rem;color:var(--gris);margin-bottom:0.8rem;line-height:1.4;">
+      Marca los OPLs que quieras como <strong>particulares</strong>. El Excel tendrá
+      <strong>una hoja por OPL</strong> y solo lo <strong>pendiente</strong>
+      (lo pistoleado se va quitando en cada descarga). Con 2 o más OPLs se agrega la hoja
+      <strong>GENERAL</strong>; las adicionales salen en <span style="background:#CFE8FF;padding:0 4px;border-radius:3px;">azul claro</span>.
+    </p>
+    <div id="particularesLista" style="max-height:320px;overflow:auto;border:1px solid var(--vc);border-radius:10px;padding:0.6rem 0.8rem;margin-bottom:1rem;background:#f8fbff;">
+      <div class="poc-empty">Cargando OPLs…</div>
+    </div>
+    <div style="display:flex;gap:0.6rem;flex-wrap:wrap;justify-content:flex-end;">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="cerrarModalParticulares()">Cancelar</button>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="guardarParticularesSeleccion(false)">💾 Guardar selección</button>
+      <button type="button" class="btn btn-primary btn-sm" style="background:#ff9800;border:none;" onclick="guardarYDescargarParticulares()">📥 Guardar y descargar</button>
+    </div>
+    <div class="alert" id="particularesAlert" style="margin-top:0.8rem;"></div>
+  </div>
+</div>
+
+<!-- MODAL PROGRESO / CONFIG OPL -->
+<div class="modal-overlay" id="modalOPL">
+  <div class="modal-box" style="max-width:640px;">
+    <div class="modal-header">
+      <div class="modal-title">🚚 Progreso por Operador Logístico</div>
+      <button class="modal-close" onclick="cerrarModalOPL()" aria-label="Cerrar">✕</button>
+    </div>
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem;border-bottom:2px solid var(--vc);padding-bottom:0.5rem;">
+      <button class="tab-btn active" id="oplModalTab1" onclick="switchOplTab('oplModalProgreso',this)">📊 Progreso</button>
+      <button class="tab-btn" id="oplModalTab2" onclick="switchOplTab('oplModalConfig',this);cargarConfigOPLModal()">⚙️ Configuración</button>
+    </div>
+    <div id="oplModalProgreso">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.9rem;flex-wrap:wrap;gap:0.5rem;">
+        <span style="font-size:0.82rem;color:var(--gris);" id="oplModalFecha"></span>
+        <button class="btn btn-primary btn-sm" type="button" onclick="recalcularOPLModal()">🔄 Recalcular ahora</button>
+      </div>
+      <div class="alert" id="oplModalAlert"></div>
+      <div id="oplModalProgresoContainer"><p class="empty-state" style="padding:1rem;">Cargando...</p></div>
+    </div>
+    <div id="oplModalConfig" style="display:none;">
+      <div class="alert" id="oplModalConfigAlert"></div>
+      <p style="font-size:0.8rem;color:var(--gris);margin-bottom:0.6rem;">Asigna cada propietario a un OPL. El avance de barras usa pistoleo (<code>fecha_salida</code>).</p>
+      <div class="table-wrap" style="margin-top:0;max-height:280px;overflow-y:auto;">
+        <table style="font-size:0.85rem;">
+          <thead><tr>
+            <th>Propietario</th>
+            <th class="num">Canales</th>
+            <th>OPL actual</th>
+            <th>Cambiar a</th>
+          </tr></thead>
+          <tbody id="oplModalPropBody">
+            <tr><td colspan="4" class="empty-state">Abra esta pestaña para cargar…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--vc);">
+        <p style="font-size:0.82rem;font-weight:600;color:var(--vp);margin-bottom:0.6rem;">➕ Agregar / actualizar asignación manual</p>
+        <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+          <input type="text" id="oplModalNewProp" placeholder="Propietario" style="flex:2;min-width:160px;padding:0.45rem 0.7rem;border:2px solid var(--vc);border-radius:8px;">
+          <input type="text" id="oplModalNewOpl" list="oplModalOplList" placeholder="OPL (ej: TRANSCARNES)" style="flex:1;min-width:120px;padding:0.45rem 0.7rem;border:2px solid var(--vc);border-radius:8px;">
+          <datalist id="oplModalOplList"></datalist>
+          <button class="btn btn-primary btn-sm" type="button" onclick="guardarOPLModal()">💾 Guardar</button>
+        </div>
+        <p style="font-size:0.75rem;color:var(--gris);margin-top:0.4rem;">Sin asignación → <strong>TRANSCARNES</strong></p>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ═══════════════════════════════════════════════════
 // ESTADO GLOBAL
 // ═══════════════════════════════════════════════════
+// Día operativo en hora local (toISOString es UTC y en Colombia salta al día
+// siguiente desde las 19:00). Antes de las 4:00 sigue siendo el día anterior:
+// el turno de canales se despacha de noche y termina de madrugada.
+const DIA_OPERATIVO_CORTE_HORA = 4;
+function hoyLocalISO() {
+  const d = new Date();
+  if (d.getHours() < DIA_OPERATIVO_CORTE_HORA) d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 const S = {
-  fecha: new Date().toISOString().slice(0,10),
+  fecha: hoyLocalISO(),
   turnoDesp: '',
   turnoOpl: '',
   dashData: null,
@@ -468,7 +948,7 @@ function turnoDeFecha(fechaStr) {
 
 function marcarTurnoSugerido() {
   const t = turnoDeFecha(getFecha());
-  document.querySelectorAll('#turnoBtns .turno-btn, #turnoBtnsOpl .turno-btn').forEach(btn => {
+  document.querySelectorAll('#turnoBtns .turno-btn, #turnoBtnsOpl .turno-btn, #turnoBtnsPlanilla .turno-btn').forEach(btn => {
     btn.classList.toggle('sugerido', btn.dataset.turno === t);
   });
 }
@@ -477,10 +957,8 @@ function aplicarTurnoDeFecha() {
   const t = turnoDeFecha(getFecha());
   turnoDesp = t;
   turnoOpl = t;
-  document.querySelectorAll('#turnoBtns .turno-btn').forEach(btn => {
-    btn.classList.toggle('selected', btn.dataset.turno === t);
-  });
-  document.querySelectorAll('#turnoBtnsOpl .turno-btn').forEach(btn => {
+  turnoPlanilla = t;
+  document.querySelectorAll('#turnoBtns .turno-btn, #turnoBtnsOpl .turno-btn, #turnoBtnsPlanilla .turno-btn').forEach(btn => {
     btn.classList.toggle('selected', btn.dataset.turno === t);
   });
   marcarTurnoSugerido();
@@ -496,14 +974,28 @@ function onFechaChange() {
 // ═══════════════════════════════════════════════════
 // UTILIDADES
 // ═══════════════════════════════════════════════════
+let _spinN = 0, _spinT = null;
 const API = (path) => `/api${path}`;
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString('es-CO'));
 const fmtD = (n) => (n == null ? '—' : Number(n).toFixed(1));
 const fmtPct = (n) => `${Math.round(n || 0)}%`;
 
-function showSpinner() { $('spinnerOverlay').classList.add('show'); }
-function hideSpinner() { $('spinnerOverlay').classList.remove('show'); }
+function showSpinner() {
+  _spinN++;
+  if (_spinN > 1) return;
+  _spinT = setTimeout(() => {
+    const el = $('spinnerOverlay');
+    if (el && _spinN > 0) el.classList.add('show');
+  }, 280);
+}
+function hideSpinner() {
+  _spinN = Math.max(0, _spinN - 1);
+  if (_spinN > 0) return;
+  if (_spinT) { clearTimeout(_spinT); _spinT = null; }
+  const el = $('spinnerOverlay');
+  if (el) el.classList.remove('show');
+}
 function alertWarn(msg){ const a=$('alertGlobal'); a.textContent=msg; a.className='alert alert-warn show'; setTimeout(()=>a.classList.remove('show'),6000); }
 function alertErr(msg) { const a=$('alertGlobal'); a.textContent=msg; a.className='alert alert-error show'; setTimeout(()=>a.classList.remove('show'),8000); }
 
@@ -513,21 +1005,38 @@ async function apiFetch(url) {
   return r.json();
 }
 
+/** Invalida caché del servidor para la fecha actual (Refrescar → datos frescos de SIRT). */
+async function invalidarCache() {
+  const fecha = getFecha();
+  try {
+    await fetch(API(`/cache/invalidate?fecha=${encodeURIComponent(fecha)}`), { method: 'POST' });
+  } catch (_) { /* si falla, igual se intenta cargar */ }
+}
+
 function getFecha() {
   return $('fechaSelect').value || S.fecha;
+}
+
+async function recalcularAsignado() {
+  const fecha = getFecha();
+  if (!confirm(`¿Recalcular la meta de Asignadas del ${fecha}?\n\nSolo úsalo si cancelaron canales. La meta se vuelve a fijar con lo asignado actualmente en SIRT.`)) return;
+  try {
+    const r = await fetch(API(`/asignado/recalcular?fecha=${encodeURIComponent(fecha)}`), { method: 'POST' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    await actualizarDashboard();
+  } catch (e) {
+    alert('No se pudo recalcular: ' + e.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════
 // NAVEGACIÓN
 // ═══════════════════════════════════════════════════
 function showView(id) {
-  ['viewMain','viewDespachos','viewOpl','viewCavas'].forEach(v => {
+  ['viewMain','viewDespachos','viewOpl','viewCavas','viewPlanilla','viewEtiquetas'].forEach(v => {
     const el = $(v);
     if (el) el.classList.remove('active');
   });
-  $('viewMain').style.display = 'none';
-  const views = ['viewDespachos','viewOpl','viewCavas'];
-  views.forEach(v => { const el=$(v); if(el) el.classList.remove('active'); });
   if (id === 'main') {
     $('viewMain').style.display = '';
   } else {
@@ -542,23 +1051,70 @@ function irMain() {
 }
 
 function irModulo(m) {
+  if (window.ColbeefUsage) ColbeefUsage.track('module_open', m, 'Abrir módulo');
   marcarTurnoSugerido();
   if (m === 'despachos') { showView('viewDespachos'); cargarDespachos(); }
-  else if (m === 'opl')  { showView('viewOpl');       cargarOpl(); }
+  else if (m === 'planilla') { showView('viewPlanilla'); cargarPlanillaPuntos(); }
   else if (m === 'cavas'){ showView('viewCavas');     cargarCavas(); }
+  else if (m === 'etiquetas') { showView('viewEtiquetas'); setTimeout(() => $('etCodigo').focus(), 50); }
+}
+
+// ═══════════════════════════════════════════════════
+// VOLVER AL PORTAL PRINCIPAL (igual que Gestor Vísceras)
+// ═══════════════════════════════════════════════════
+window.COLBEEF_PORTAL_RETURN = window.COLBEEF_PORTAL_RETURN || 'http://192.168.20.205:8501/?session=active';
+
+function usuarioActualPortal() {
+  try {
+    return (
+      (window.ColbeefUsage && window.ColbeefUsage.usuario) ||
+      localStorage.getItem('colbeef_usuario') ||
+      new URLSearchParams(location.search).get('usuario') ||
+      ''
+    );
+  } catch (_) {
+    return '';
+  }
+}
+
+function enlacePortalPrincipal() {
+  var url = window.COLBEEF_PORTAL_RETURN || 'http://192.168.20.205:8501/?session=active';
+  try {
+    var u = new URL(url, location.origin);
+    var user = String(usuarioActualPortal() || '').trim();
+    if (user && user !== 'anonimo') u.searchParams.set('usuario', user);
+    return u.toString();
+  } catch (_) {
+    return url;
+  }
+}
+
+function volverPortalPrincipal(event) {
+  if (event && event.preventDefault) event.preventDefault();
+  try {
+    if (window.ColbeefUsage && window.ColbeefUsage.track) {
+      window.ColbeefUsage.track('portal_back', 'despacho-canales', 'Volver al programa principal');
+    }
+  } catch (_) {}
+  location.assign(enlacePortalPrincipal());
+  return false;
 }
 
 // ═══════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', () => {
-  const hoy = new Date().toISOString().slice(0,10);
+  const hoy = hoyLocalISO();
   $('fechaSelect').value = hoy;
   S.fecha = hoy;
   aplicarTurnoDeFecha();
   $('viewMain').style.display = '';
+  const btnVolver = $('btnVolverPortal');
+  if (btnVolver) btnVolver.href = enlacePortalPrincipal();
   pingBD();
   actualizarDashboard();
+  iniciarPollHome();
+  if (window.ColbeefUsage) ColbeefUsage.init({ page: 'despacho-canales' });
 });
 
 async function pingBD() {
@@ -587,34 +1143,125 @@ async function actualizarTodo() {
   await actualizarDashboard();
 }
 
+/** Actualiza barra global + % en tarjeta OPL (misma métrica que Vísceras). */
+function actualizarBarraProgreso(tot, operacionFinalizada) {
+  tot = tot || {};
+  const pct = tot.progreso_global || 0;
+  if ($('progresoPct')) $('progresoPct').textContent = fmtPct(pct);
+  if ($('progresoPorcentaje')) $('progresoPorcentaje').textContent = fmtPct(pct);
+  if ($('progresoBarra')) $('progresoBarra').style.width = pct + '%';
+  if ($('progresoMeta')) {
+    if (operacionFinalizada) {
+      $('progresoMeta').textContent = '✅ Operación finalizada — todas las canales programadas fueron pistoleadas';
+    } else {
+      const asignado = tot.asignado_canales != null
+        ? tot.asignado_canales
+        : ((tot.canales_sal || 0) + (tot.canales_pend || 0));
+      const pend = tot.canales_pend || 0;
+      const sal = tot.canales_sal != null ? tot.canales_sal : Math.max(0, asignado - pend);
+      const nor = tot._canalesNormales;
+      const adi = tot._canalesAdicionales;
+      if (!asignado) {
+        $('progresoMeta').textContent = 'Sin canales programadas / despachadas para esta fecha';
+      } else if (nor != null && adi != null) {
+        $('progresoMeta').textContent =
+          `${fmtD(sal)} despachadas de ${fmtD(asignado)} asignadas (${fmtD(nor)} antes + ${fmtD(adi)} adicionales) — ${fmtD(pend)} pendientes en cava`;
+      } else {
+        $('progresoMeta').textContent =
+          `${fmtD(sal)} despachadas de ${fmtD(asignado)} asignadas (congelado) — ${fmtD(pend)} pendientes`;
+      }
+    }
+  }
+}
+
 // ═══════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════
-async function actualizarDashboard() {
+async function actualizarDashboard(silent, forceRefresh) {
   const fecha = getFecha();
   try {
-    showSpinner();
+    if (!silent) showSpinner();
+    if (forceRefresh) await invalidarCache();
     const [dash, planilla] = await Promise.all([
-      apiFetch(API(`/dashboard?fecha=${fecha}`)),
-      apiFetch(API(`/planilla_opl?fecha=${fecha}&turno=${encodeURIComponent(turnoOpl || turnoDeFecha(fecha))}`)),
+      apiFetch(API(`/dashboard?fecha=${fecha}&turno=${encodeURIComponent(turnoDeFecha(fecha))}`)),
+      apiFetch(API(`/planilla_opl?fecha=${fecha}&turno=${encodeURIComponent(turnoDeFecha(fecha))}`)),
     ]);
     S.dashData = dash;
     S.planillaData = planilla;
 
-    $('numMC1').textContent = fmt(dash.mc1);
-    $('numMC2').textContent = fmt(dash.mc2);
-    $('numCanalesComp').textContent = fmtD(dash.canales_completas);
-    $('numTotal').textContent = fmt(dash.total_partes);
-
-    // Progreso global + mini OPL (tiempo real)
-    const tot = planilla.totales;
+    // Resumen estilo Vísceras (3 tarjetas):
+    // Asignadas+MC | Progreso OPL | Pendientes a despachar
+    const tot = planilla.totales || {};
+    const mc1Asignadas = tot.mc1_asignado != null
+      ? tot.mc1_asignado
+      : ((tot.mc1_pend || 0) + (tot.mc1_sal || 0));
+    const mc2Asignadas = tot.mc2_asignado != null
+      ? tot.mc2_asignado
+      : ((tot.mc2_pend || 0) + (tot.mc2_sal || 0));
+    const mediasAsignadas = tot.asignado_medias != null
+      ? tot.asignado_medias
+      : (mc1Asignadas + mc2Asignadas);
+    const canalesAsignadas = tot.asignado_canales != null
+      ? tot.asignado_canales
+      : (mediasAsignadas * 0.5);
+    const canalesPend = tot.canales_pend != null ? tot.canales_pend : ((tot.pend_total || 0) * 0.5);
+    const canalesSal = tot.canales_sal != null
+      ? tot.canales_sal
+      : Math.max(0, canalesAsignadas - canalesPend);
     const pct = tot.progreso_global || 0;
-    $('progresoPct').textContent = fmtPct(pct);
-    $('barraProgreso').style.width = pct + '%';
-    $('progSal').textContent = fmt(tot.sal_total);
-    $('progPend').textContent = fmt(tot.pend_total);
-    $('progCanSal').textContent = fmtD(tot.canales_sal);
-    renderDashOplMini(planilla);
+    const turnoTxt = planilla.turno || turnoDeFecha(fecha);
+
+    if ($('numAsignadas')) $('numAsignadas').textContent = fmtD(canalesAsignadas);
+    if ($('numAsignadasMedias')) $('numAsignadasMedias').textContent = `${fmt(mediasAsignadas)} medias`;
+    if ($('numPendientes')) $('numPendientes').textContent = fmtD(canalesPend);
+    if ($('dashDespTurno')) $('dashDespTurno').textContent = `Turno ${turnoTxt} · ${fecha}`;
+    if ($('numPendientesVs')) $('numPendientesVs').textContent = fmtD(canalesAsignadas);
+    if ($('numDespachadas')) $('numDespachadas').textContent = fmtD(canalesSal);
+    // Antes del corte + adicionales (por hora de asignación) = total asignado
+    const adiCanales = planilla.totalCanalesAdicionales != null ? Number(planilla.totalCanalesAdicionales) : null;
+    const norCanales = planilla.totalCanalesNormales != null ? Number(planilla.totalCanalesNormales) : null;
+    const adiMedias = planilla.totalMediasAdicionales != null ? Number(planilla.totalMediasAdicionales) : 0;
+    const adiDesp = Number(planilla.totalCanalesAdicionalesDespachadas || 0);
+    const totAsigDia = planilla.totalCanalesAsignadasDia != null
+      ? Number(planilla.totalCanalesAsignadasDia)
+      : ((norCanales || 0) + (adiCanales || 0));
+    const corteAdi = planilla.corteAdicional || '15:30';
+    document.querySelectorAll('.corte-lbl').forEach(el => { el.textContent = corteAdi; });
+    if ($('dashAntesCorte')) $('dashAntesCorte').textContent = norCanales != null ? fmtD(norCanales) : '—';
+    if ($('dashAdicTotal')) $('dashAdicTotal').textContent = adiCanales != null ? fmtD(adiCanales) : '—';
+    if ($('dashTotalAsignado')) $('dashTotalAsignado').textContent = fmtD(totAsigDia);
+    if ($('numDespachadasPct')) {
+      $('numDespachadasPct').textContent = canalesAsignadas
+        ? `${fmtPct(pct)} del asignado · normales y adicionales cuentan igual`
+        : 'Sin asignación para esta fecha';
+    }
+    if ($('numMC1')) $('numMC1').textContent = fmt(mc1Asignadas);
+    if ($('numMC2')) $('numMC2').textContent = fmt(mc2Asignadas);
+    if ($('numMC1MC2')) $('numMC1MC2').textContent = `${fmt(mc1Asignadas)} / ${fmt(mc2Asignadas)}`;
+    if ($('numCanalesComp')) $('numCanalesComp').textContent = fmtD(canalesAsignadas);
+    if ($('numTotal')) $('numTotal').textContent = fmt(mediasAsignadas);
+    if ($('dashAdicionales')) {
+      $('dashAdicionales').textContent = adiCanales != null ? fmtD(adiCanales) : '—';
+    }
+    if ($('dashAdicionalesSub')) {
+      $('dashAdicionalesSub').textContent = adiCanales != null
+        ? `Asignadas ≥ ${corteAdi} · ${fmt(adiMedias)} medias · ${fmtD(adiDesp)} ya salieron`
+        : `Asignadas ≥ ${corteAdi}`;
+    }
+    // Pasar desglose a la barra de progreso
+    tot._canalesNormales = norCanales;
+    tot._canalesAdicionales = adiCanales;
+    if ($('numPuestosDash')) {
+      const nP = (dash.top_destinos && dash.top_destinos.length) || 0;
+      $('numPuestosDash').textContent = fmt(nP);
+    }
+
+    // Progreso global + ficha OPL
+    actualizarBarraProgreso(tot, planilla.operacionFinalizada);
+    if ($('progSal')) $('progSal').textContent = fmt(tot.sal_total);
+    if ($('progPend')) $('progPend').textContent = fmt(tot.pend_total);
+    if ($('progCanSal')) $('progCanSal').textContent = fmtD(tot.canales_sal);
+    renderProgresoOplHome(planilla);
 
     // Cavas mini
     if (dash.cavas && dash.cavas.length) {
@@ -643,55 +1290,384 @@ async function actualizarDashboard() {
   } catch(e) {
     alertErr('Error al cargar dashboard: ' + e.message);
   } finally {
-    hideSpinner();
+    if (!silent) hideSpinner();
   }
 }
 
-function renderDashOplMini(planilla) {
-  const box = $('dashOplMini');
+function renderProgresoOplHome(planilla) {
+  const box = $('progresoOplLista');
+  const mas = $('progresoOplMas');
   if (!box) return;
-  const lista = (planilla && planilla.data) || [];
-  const tot = (planilla && planilla.totales) || {};
-  if (!lista.length) {
-    box.innerHTML = '<div style="color:var(--gris);font-size:0.82rem;margin-top:0.4rem;">Sin datos — no hay canales pendientes de despacho</div>';
+
+  if (planilla && planilla.operacionFinalizada) {
+    box.innerHTML = `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;">
+      <span style="font-size:1.5rem;">✅</span>
+      <div><div style="font-size:0.85rem;font-weight:800;color:#16a34a;">Operación finalizada</div>
+      <div style="font-size:0.72rem;color:var(--gris);">Todos los OPL despachados (pistoleo)</div></div>
+    </div>`;
+    if (mas) mas.style.display = 'none';
     return;
   }
-  const sorted = lista.slice().sort((a,b) => (b.total_pendiente||0) - (a.total_pendiente||0));
+
+  let sorted = (planilla && planilla.todosOPL) || [];
+  if (!sorted.length) {
+    // Fallback: agrupar desde data por propietario
+    const lista = (planilla && planilla.data) || [];
+    const byOpl = {};
+    lista.forEach(r => {
+      const key = (r.opl || r.propietario || 'SIN OPL').trim() || 'SIN OPL';
+      const b = byOpl[key] || { opl: key, pendientes: 0, despachados: 0, progreso: 0, pend: 0, sal: 0 };
+      b.pend = (b.pend || 0) + Number(r.total_pendiente || 0);
+      b.sal = (b.sal || 0) + Number(r.total_despachado || 0);
+      byOpl[key] = b;
+    });
+    sorted = Object.values(byOpl).map(b => {
+      const total = b.pend + b.sal;
+      let pct = total ? Math.round((b.sal / total) * 100) : 0;
+      if (b.pend > 0) pct = Math.min(99, pct);
+      else if (total > 0) pct = 100;
+      return { opl: b.opl, pendientes: b.pend * 0.5, despachados: b.sal * 0.5, progreso: pct, _pendMedias: b.pend };
+    }).sort((a, b) => b.pendientes - a.pendientes);
+  } else {
+    sorted = sorted.slice().sort((a, b) => (b.pendientes || 0) - (a.pendientes || 0));
+  }
+
+  if (!sorted.length) {
+    box.innerHTML = '<div class="poc-empty">Sin despachos en curso para esta fecha</div>';
+    if (mas) mas.style.display = 'none';
+    return;
+  }
+
   const mostrar = sorted.slice(0, 5);
   const extra = sorted.length > 5 ? sorted.length - 5 : 0;
-  const canalesProg = tot.canales_pend != null ? Number(tot.canales_pend).toFixed(1) : '0';
-  const t = planilla.turno || turnoOpl || turnoDeFecha(getFecha());
-  const tNom = NOMBRE_TURNO[t] || t;
-  let html = `<div style="font-size:0.75rem;color:var(--gris);margin:0.2rem 0 0.55rem;">${canalesProg} canales programadas del turno ${t} (${tNom})</div>`;
+  let html = '';
   mostrar.forEach(p => {
-    const pct = Math.min(100, p.progreso_pct || 0);
-    const barColor = pct >= 100 ? '#16a34a' : (pct < 30 ? '#dc2626' : 'var(--vp)');
-    const pend = p.canales_pendiente != null ? Number(p.canales_pendiente).toFixed(1) : '0';
-    const pendTxt = (p.total_pendiente||0) > 0
-      ? `<span style="color:#dc2626;font-weight:700;font-size:0.72rem;">${pend} pend.</span>`
-      : '<span style="color:#16a34a;font-size:0.72rem;">✅</span>';
-    const nombre = (p.propietario || 'SIN PROPIETARIO');
-    html += `<div style="margin-bottom:0.45rem;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.18rem;">
-        <span style="font-size:0.76rem;font-weight:700;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px;">${escHtml(nombre)}</span>
-        <span style="font-size:0.72rem;color:var(--gris);margin:0 4px;">${pct}%</span>
-        ${pendTxt}
+    const pct = Math.min(100, p.progreso != null ? p.progreso : (p.pct || 0));
+    const barColor = pct >= 100 ? '#16a34a' : (pct < 30 ? '#dc2626' : '#2563eb');
+    const pendCan = Number(p.pendientes || 0);
+    const pendHtml = pendCan > 0
+      ? `<span class="poc-pend">${pendCan % 1 ? pendCan.toFixed(1) : pendCan} c. pend.</span>`
+      : `<span class="poc-pend ok">✅ listo</span>`;
+    html += `<div class="poc-row">
+      <div class="poc-row-top">
+        <span class="poc-nombre" title="${escHtml(p.opl)}">${escHtml(p.opl)}</span>
+        <div class="poc-meta">
+          <span class="poc-pct-row">${pct}%</span>
+          ${pendHtml}
+        </div>
       </div>
-      <div style="background:#e5e7eb;height:6px;border-radius:10px;overflow:hidden;">
-        <div style="height:100%;border-radius:10px;background:${barColor};width:${Math.max(pct,3)}%;transition:width 0.5s ease;"></div>
-      </div>
+      <div class="poc-bar"><div style="width:${Math.max(pct, pct > 0 ? 4 : 0)}%;background:${barColor};"></div></div>
     </div>`;
   });
-  if (extra > 0) {
-    html += `<div class="opl-ver-mas">+ ${extra} más — clic para ver todo</div>`;
-  }
   box.innerHTML = html;
+  if (mas) {
+    if (extra > 0) {
+      mas.style.display = '';
+      mas.textContent = `+ ${extra} más — clic para ver todo`;
+    } else {
+      mas.style.display = 'none';
+    }
+  }
 }
+
+function renderDashOplMini(planilla) { renderProgresoOplHome(planilla); }
+
+let _homePoll = null;
+let _oplModalTimer = null;
+window._oplModalPropList = [];
+
+function iniciarPollHome() {
+  if (_homePoll) return;
+  _homePoll = setInterval(() => {
+    const main = $('viewMain');
+    if (!main || main.style.display === 'none') return;
+    if ($('modalOPL') && $('modalOPL').classList.contains('show')) return;
+    actualizarDashboard(true, true);
+  }, 25000);
+}
+
+function abrirModalOPL() {
+  const m = $('modalOPL');
+  if (!m) return;
+  m.classList.add('show');
+  switchOplTab('oplModalProgreso', $('oplModalTab1'));
+  recalcularOPLModal();
+  clearInterval(_oplModalTimer);
+  _oplModalTimer = setInterval(() => {
+    if (m.classList.contains('show')) recalcularOPLModal(true);
+  }, 20000);
+}
+
+function cerrarModalOPL() {
+  const m = $('modalOPL');
+  if (m) m.classList.remove('show');
+  clearInterval(_oplModalTimer);
+  _oplModalTimer = null;
+}
+
+function switchOplTab(panelId, btn) {
+  ['oplModalProgreso', 'oplModalConfig'].forEach(id => {
+    const el = $(id);
+    if (el) el.style.display = 'none';
+  });
+  ['oplModalTab1', 'oplModalTab2'].forEach(id => {
+    const el = $(id);
+    if (el) el.classList.remove('active');
+  });
+  const panel = $(panelId);
+  if (panel) panel.style.display = 'block';
+  if (btn) btn.classList.add('active');
+}
+
+function showOplModalAlert(id, type, msg) {
+  const el = $(id);
+  if (!el) return;
+  el.className = 'alert alert-' + type + ' show';
+  el.textContent = msg;
+  if (type !== 'error') setTimeout(() => el.classList.remove('show'), 5000);
+}
+
+async function recalcularOPLModal(silent) {
+  const fecha = getFecha();
+  const cont = $('oplModalProgresoContainer');
+  const fechaEl = $('oplModalFecha');
+  try {
+    if (!silent && cont) cont.innerHTML = '<p class="empty-state" style="padding:1rem;">Recalculando…</p>';
+    await invalidarCache();
+    const data = await apiFetch(API(`/planilla_opl?fecha=${fecha}&turno=${encodeURIComponent(turnoDeFecha(fecha))}`));
+    S.planillaData = data;
+    renderProgresoOplHome(data);
+    const tot = data.totales || {};
+    actualizarBarraProgreso(tot, data.operacionFinalizada);
+    if (fechaEl) {
+      const t = data.turno || turnoDeFecha(fecha);
+      fechaEl.textContent = `Fecha ${data.fecha || fecha} · turno ${t} · avance por pistoleo (fecha_salida)`;
+    }
+    renderModalProgresoOPL(data);
+  } catch (e) {
+    if (cont) cont.innerHTML = `<p class="empty-state" style="color:#991b1b;">Error: ${escHtml(e.message)}</p>`;
+  }
+}
+
+function renderModalProgresoOPL(data) {
+  const cont = $('oplModalProgresoContainer');
+  if (!cont) return;
+  const lista = (data.todosOPL && data.todosOPL.length) ? data.todosOPL : (data.progreso || []);
+  if (data.operacionFinalizada) {
+    cont.innerHTML = `<div style="text-align:center;padding:1.5rem;">
+      <div style="font-size:2rem;">✅</div>
+      <div style="font-weight:800;color:#16a34a;margin-top:0.4rem;">Operación finalizada</div>
+      <div style="font-size:0.85rem;color:var(--gris);">Todas las canales programadas fueron pistoleadas</div>
+    </div>`;
+    return;
+  }
+  if (!lista.length) {
+    cont.innerHTML = '<p class="empty-state" style="padding:1rem;">Sin canales programadas / despachadas para esta fecha.</p>';
+    return;
+  }
+  const n = (v) => (v % 1 ? v.toFixed(1) : String(v));
+  let html = `<div class="table-wrap" style="margin-top:0;"><table style="font-size:0.84rem;">
+    <thead><tr>
+      <th>OPL</th><th class="num">Total</th><th class="num">Despachadas</th><th class="num">Pendientes</th><th style="min-width:120px;">Avance</th>
+    </tr></thead><tbody>`;
+  let sumTot = 0, sumDesp = 0, sumPend = 0;
+  lista.forEach(p => {
+    const pend = Number(p.pendientes || 0);
+    const desp = Number(p.despachados || 0);
+    const total = p.total != null ? Number(p.total) : pend + desp;
+    sumTot += total; sumDesp += desp; sumPend += pend;
+    const pct = Math.min(100, p.progreso != null ? p.progreso : (total ? Math.round((desp / total) * 100) : 0));
+    const barColor = pct >= 100 ? '#16a34a' : (pct < 30 ? '#dc2626' : 'var(--vp)');
+    html += `<tr>
+      <td><strong style="color:#1e3a5f;">${escHtml(p.opl)}</strong></td>
+      <td class="num">${n(total)}</td>
+      <td class="num" style="color:#16a34a;font-weight:700;">${n(desp)}</td>
+      <td class="num" style="color:${pend > 0 ? '#dc2626' : '#16a34a'};font-weight:700;">${pend > 0 ? n(pend) : '✅ 0'}</td>
+      <td><div style="display:flex;align-items:center;gap:0.4rem;">
+        <div class="poc-bar" style="flex:1;"><div style="width:${Math.max(pct, pct > 0 ? 4 : 0)}%;background:${barColor};"></div></div>
+        <span style="font-size:0.75rem;color:var(--gris);">${pct}%</span>
+      </div></td>
+    </tr>`;
+  });
+  html += `<tr class="total-row">
+      <td>TOTAL</td><td class="num">${n(sumTot)}</td><td class="num">${n(sumDesp)}</td><td class="num">${n(sumPend)}</td><td></td>
+    </tr></tbody></table></div>
+    <p style="font-size:0.72rem;color:var(--gris);margin-top:0.4rem;">Canales (cada media = 0.5). Despachadas = pistoleadas; pendientes = siguen en cava.</p>`;
+  cont.innerHTML = html;
+}
+
+async function cargarConfigOPLModal() {
+  const fecha = getFecha();
+  const tbody = $('oplModalPropBody');
+  try {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Cargando…</td></tr>';
+    const res = await apiFetch(API(`/opl/propietarios?fecha=${fecha}&turno=${encodeURIComponent(turnoDeFecha(fecha))}`));
+    const opls = res.opls || ['TRANSCARNES'];
+    const dl = $('oplModalOplList');
+    if (dl) dl.innerHTML = opls.map(o => `<option value="${escHtml(o)}">`).join('');
+    window._oplModalPropList = res.resultado || [];
+    if (!window._oplModalPropList.length) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Sin propietarios para esta fecha.</td></tr>';
+      return;
+    }
+    if (tbody) {
+      tbody.innerHTML = window._oplModalPropList.map((r, i) => {
+        const opts = opls.map(o =>
+          `<option value="${escHtml(o)}"${o === r.opl ? ' selected' : ''}>${escHtml(o)}</option>`
+        ).join('');
+        const can = Number(r.canales || 0);
+        return `<tr>
+          <td style="font-size:0.82rem;font-weight:600;">${escHtml(r.propietario)}</td>
+          <td class="num" style="font-size:0.82rem;">${can % 1 ? can.toFixed(1) : can}</td>
+          <td><span class="badge-opl${r.opl === 'TRANSCARNES' ? ' default' : ''}">${escHtml(r.opl)}</span></td>
+          <td><select class="opl-select" data-prop-idx="${i}" onchange="cambiarOPLModalDesdeSelect(this)">${opts}</select></td>
+        </tr>`;
+      }).join('');
+    }
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="empty-state" style="color:#991b1b;">${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+async function cambiarOPLModalDesdeSelect(sel) {
+  const idx = Number(sel.getAttribute('data-prop-idx'));
+  const row = window._oplModalPropList && window._oplModalPropList[idx];
+  if (!row) return;
+  await cambiarOPLModal(row.propietario, sel.value);
+}
+
+async function cambiarOPLModal(prop, opl) {
+  try {
+    const r = await fetch(API(`/opl/asignar?propietario=${encodeURIComponent(prop)}&opl=${encodeURIComponent(opl)}`), { method: 'POST' });
+    const res = await r.json();
+    if (!res.success) { showOplModalAlert('oplModalConfigAlert', 'error', res.message || 'Error al guardar'); return; }
+    showOplModalAlert('oplModalConfigAlert', 'success', `✓ ${prop} → ${opl}`);
+    await recalcularOPLModal(true);
+    await cargarConfigOPLModal();
+  } catch (e) {
+    showOplModalAlert('oplModalConfigAlert', 'error', e.message);
+  }
+}
+
+async function guardarOPLModal() {
+  const prop = ($('oplModalNewProp') && $('oplModalNewProp').value || '').trim();
+  const opl = ($('oplModalNewOpl') && $('oplModalNewOpl').value || '').trim();
+  if (!prop || !opl) { showOplModalAlert('oplModalConfigAlert', 'warn', 'Completa los dos campos.'); return; }
+  try {
+    const r = await fetch(API(`/opl/asignar?propietario=${encodeURIComponent(prop)}&opl=${encodeURIComponent(opl)}`), { method: 'POST' });
+    const res = await r.json();
+    if (!res.success) { showOplModalAlert('oplModalConfigAlert', 'error', res.message || 'Error'); return; }
+    showOplModalAlert('oplModalConfigAlert', 'success', `✓ Guardado: ${prop} → ${opl}`);
+    if ($('oplModalNewProp')) $('oplModalNewProp').value = '';
+    if ($('oplModalNewOpl')) $('oplModalNewOpl').value = '';
+    await cargarConfigOPLModal();
+    await recalcularOPLModal(true);
+  } catch (e) {
+    showOplModalAlert('oplModalConfigAlert', 'error', e.message);
+  }
+}
+
+// Cerrar modal OPL con clic fuera
+document.addEventListener('click', (e) => {
+  const m = $('modalOPL');
+  if (m && e.target === m) cerrarModalOPL();
+});
 
 // ═══════════════════════════════════════════════════
 // MÓDULO DESPACHOS
 // ═══════════════════════════════════════════════════
 let turnoDesp = '';
+window._salidasFisicasCache = { filas: [], filtro: 'todas', corte: '15:30' };
+
+function filtrarSalidasFisicas(modo) {
+  window._salidasFisicasCache.filtro = modo || 'todas';
+  ['filtroSalTodas', 'filtroSalNormales', 'filtroSalAdicionales'].forEach((id) => {
+    const el = $(id);
+    if (el) el.classList.remove('active');
+  });
+  const map = { todas: 'filtroSalTodas', normales: 'filtroSalNormales', adicionales: 'filtroSalAdicionales' };
+  const btn = $(map[modo] || 'filtroSalTodas');
+  if (btn) btn.classList.add('active');
+  renderTablaSalidasFisicas();
+}
+
+function renderTablaSalidasFisicas() {
+  const tbody = $('tablaSalidasFisicas');
+  if (!tbody) return;
+  const cache = window._salidasFisicasCache || { filas: [], filtro: 'todas', corte: '15:30' };
+  let filas = cache.filas || [];
+  const filtro = cache.filtro || 'todas';
+  if (filtro === 'normales') filas = filas.filter((f) => !f.adicional);
+  if (filtro === 'adicionales') filas = filas.filter((f) => f.adicional);
+  if (!filas.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="6" class="empty-state">' +
+      (filtro === 'adicionales'
+        ? `Sin canales asignadas desde las ${escHtml(cache.corte || '15:30')}.`
+        : 'Sin canales asignadas para la fecha.') +
+      '</td></tr>';
+    return;
+  }
+  const MAX = 300;
+  const slice = filas.slice(0, MAX);
+  tbody.innerHTML = slice
+    .map((f) => {
+      const badge = f.adicional
+        ? `<span class="badge-adicional" title="Asignada desde las ${escHtml(cache.corte || '15:30')}">adicional</span>`
+        : '<span style="color:#64748b;font-size:0.72rem;">normal</span>';
+      const estado = f.despachada
+        ? `<span style="color:#16a34a;font-weight:700;">Despachada</span> <span style="color:#64748b;font-size:0.72rem;">${escHtml(f.horaSalida || '')}</span>`
+        : `<span style="color:#dc2626;font-weight:700;">En cava</span> <span style="color:#64748b;font-size:0.72rem;">${escHtml(f.cava || '')}</span>`;
+      return (
+        `<tr class="${f.adicional ? 'fila-adicional' : ''}">` +
+        `<td>${escHtml(f.horaAsignacion || '—')}</td>` +
+        `<td>${escHtml(f.codigo || '')}<div style="color:#64748b;font-size:0.7rem;">${escHtml(f.tipo || '')}</div></td>` +
+        `<td style="max-width:220px;font-size:0.78rem;word-break:break-word;">${escHtml(f.propietario || '')}</td>` +
+        `<td style="font-size:0.78rem;">${escHtml(f.opl || '')}<div style="color:#64748b;font-size:0.7rem;">${escHtml(f.zona || '')}</div></td>` +
+        `<td>${estado}</td>` +
+        `<td>${badge}</td></tr>`
+      );
+    })
+    .join('');
+  if (filas.length > slice.length) {
+    tbody.innerHTML +=
+      `<tr><td colspan="6" class="empty-state" style="font-size:0.78rem;">Mostrando ${slice.length} de ${filas.length}.</td></tr>`;
+  }
+}
+
+async function cargarVistaSalidasFisicas() {
+  const tbody = $('tablaSalidasFisicas');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Consultando asignación…</td></tr>';
+  try {
+    const fecha = getFecha();
+    const res = await apiFetch(API(`/asignadas_dia?fecha=${fecha}`));
+    if (!res || res.success === false) {
+      if (tbody) {
+        tbody.innerHTML =
+          `<tr><td colspan="6" class="empty-state">${escHtml((res && res.message) || 'Error al consultar canales asignadas')}</td></tr>`;
+      }
+      return;
+    }
+    const corte = res.corteAdicional || '15:30';
+    window._salidasFisicasCache = {
+      filas: res.filas || [],
+      filtro: (window._salidasFisicasCache && window._salidasFisicasCache.filtro) || 'todas',
+      corte,
+    };
+    if ($('corteAdicionalLbl')) $('corteAdicionalLbl').textContent = corte;
+    // KPIs en canales (medias × 0.5) para alinear con el tablero
+    const setKpi = (id, v) => { if ($(id)) $(id).textContent = v; };
+    setKpi('kpiSalNormales', res.totalCanalesNormales != null ? fmtD(res.totalCanalesNormales) : (res.totalNormales != null ? res.totalNormales : 0));
+    setKpi('kpiSalAdicionales', res.totalCanalesAdicionales != null ? fmtD(res.totalCanalesAdicionales) : (res.totalAdicionales != null ? res.totalAdicionales : 0));
+    setKpi('kpiSalTotal', res.totalCanalesAsignadas != null ? fmtD(res.totalCanalesAsignadas) : (res.totalFilas != null ? fmtD(res.totalFilas * 0.5) : 0));
+    setKpi('kpiSalAdiPend', fmtD(res.totalCanalesAdicionalesPendientes || 0));
+    renderTablaSalidasFisicas();
+  } catch (e) {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${escHtml(e.message || 'Error')}</td></tr>`;
+    }
+  }
+}
 
 function selTurno(btn, turno) {
   turnoDesp = turno;
@@ -700,12 +1676,21 @@ function selTurno(btn, turno) {
   cargarDespachos();
 }
 
-async function cargarDespachos() {
+function turnoSeleccionado(grupoId) {
+  const sel = document.querySelector(`#${grupoId} .turno-btn.selected`);
+  if (!sel) return turnoDeFecha(getFecha());
+  return sel.dataset.turno || '';
+}
+
+async function cargarDespachos(forceRefresh) {
   const fecha = getFecha();
+  const t = turnoSeleccionado('turnoBtns');
   try {
     showSpinner();
-    const url = turnoDesp
-      ? API(`/despachos?fecha=${fecha}&turno=${turnoDesp}`)
+    if (forceRefresh) await invalidarCache();
+    cargarVistaSalidasFisicas();
+    const url = t
+      ? API(`/despachos?fecha=${fecha}&turno=${encodeURIComponent(t)}`)
       : API(`/despachos?fecha=${fecha}&turno=Todos`);
     const data = await apiFetch(url);
     S.despData = data;
@@ -719,57 +1704,123 @@ async function cargarDespachos() {
 
 function renderDespachos(data) {
   const tot = data.totales || {};
+  const totalPartes = tot.total_partes != null ? tot.total_partes : tot.total_canales;
+  const turno = data.turno;
+  const info = $('despTurnoInfo');
+  if (info) {
+    const nom = NOMBRE_TURNO[turno] || '';
+    info.innerHTML = turno
+      ? `Turno <strong>${escHtml(turno)}</strong>${nom ? ' ('+escHtml(nom)+')' : ''} · fecha ${escHtml(data.fecha || getFecha())}. Ruta tipo <code>09404/Floridablanca/.../${escHtml(turno)}/</code> (puesto · zona).`
+      : `Mostrando todos los turnos · fecha ${escHtml(data.fecha || getFecha())}.`;
+  }
   $('despStats').innerHTML = `
     <div class="stat-card"><div class="stat-label">MC1</div><div class="stat-valor">${fmt(tot.mc1)}</div><div class="stat-sub">Media Canal 1</div></div>
     <div class="stat-card"><div class="stat-label">MC2</div><div class="stat-valor">${fmt(tot.mc2)}</div><div class="stat-sub">Media Canal 2</div></div>
-    <div class="stat-card"><div class="stat-label">Total partes</div><div class="stat-valor">${fmt(tot.total_partes)}</div><div class="stat-sub">pendientes despacho</div></div>
-    <div class="stat-card"><div class="stat-label">Canales completas</div><div class="stat-valor">${fmtD(tot.total_canales)}</div><div class="stat-sub">equivalente (×0.5)</div></div>
-    <div class="stat-card"><div class="stat-label">Puestos</div><div class="stat-valor">${fmt(tot.puestos)}</div><div class="stat-sub">destinos activos</div></div>
+    <div class="stat-card"><div class="stat-label">Total partes</div><div class="stat-valor">${fmtD(totalPartes)}</div><div class="stat-sub">cada media = 0.5</div></div>
+    <div class="stat-card"><div class="stat-label">Puestos</div><div class="stat-valor">${fmt(tot.puestos != null ? tot.puestos : tot.clientes)}</div><div class="stat-sub">zona / destino</div></div>
   `;
 
   const rows = data.data || [];
   if (!rows.length) {
-    $('tablaDespachosCuerpo').innerHTML = '<tr><td colspan="5" class="empty-state">Sin canales para este turno/fecha</td></tr>';
+    $('tablaDespachosCuerpo').innerHTML = '<tr><td colspan="7" class="empty-state">Sin canales para este turno/fecha</td></tr>';
     return;
   }
   let html = '';
-  rows.forEach(r => {
-    const mc1=r.mc1||0, mc2=r.mc2||0, tp=r.total_partes||0, tc=parseFloat(r.total_canales||0);
-    html += `<tr class="clickable" onclick="abrirDetalleDespacho('${escHtml(r.destino)}')">
-      <td>${escHtml(r.destino||'—')}</td>
+  rows.forEach((r, i) => {
+    const mc1 = r.mc1 || 0, mc2 = r.mc2 || 0;
+    const tp = parseFloat(r.total_partes != null ? r.total_partes : r.total_canales || 0);
+    const n = r.total_medias || (mc1 + mc2);
+    const codigo = r.codigo || r.codigo_completo || '—';
+    const extra = n > 1 ? ` <span class="badge badge-canal">+${n - 1}</span>` : '';
+    const hint = n > 1 ? ' title="Doble clic para desglosar este puesto"' : '';
+    html += `<tr class="clickable desp-row${n > 1 ? ' expandible' : ''}" data-idx="${i}" data-n="${n}"${hint} ondblclick="toggleDesgloseDespacho(${i})">
+      <td><strong>${escHtml(r.puesto || '—')}</strong></td>
+      <td>${escHtml(r.zona || r.destino || '—')}${r.direccion ? `<div style="font-size:0.72rem;color:var(--gris)">${escHtml(r.direccion)}</div>` : ''}</td>
+      <td><code>${escHtml(codigo)}</code>${extra}</td>
+      <td>${escHtml(r.propietario || '—')}</td>
       <td class="num"><span class="badge badge-mc1">${fmt(mc1)}</span></td>
       <td class="num"><span class="badge badge-mc2">${fmt(mc2)}</span></td>
-      <td class="num">${fmt(tp)}</td>
-      <td class="num"><strong>${tc.toFixed(1)}</strong></td>
+      <td class="num"><strong>${tp.toFixed(1)}</strong></td>
     </tr>`;
   });
-  // Fila total
   html += `<tr class="total-row">
-    <td>TOTAL (${rows.length} destinos)</td>
+    <td colspan="4">TOTAL (${rows.length} puestos)</td>
     <td class="num">${fmt(tot.mc1)}</td>
     <td class="num">${fmt(tot.mc2)}</td>
-    <td class="num">${fmt(tot.total_partes)}</td>
-    <td class="num">${fmtD(tot.total_canales)}</td>
+    <td class="num">${fmtD(totalPartes)}</td>
   </tr>`;
   $('tablaDespachosCuerpo').innerHTML = html;
 }
 
 function filtrarDespachos() {
   const q = $('searchDesp').value.toLowerCase().trim();
-  document.querySelectorAll('#tablaDespachosCuerpo tr:not(.total-row)').forEach(tr => {
+  document.querySelectorAll('#tablaDespachosCuerpo tr.desp-row').forEach(tr => {
     const txt = tr.textContent.toLowerCase();
-    if (!q) { tr.classList.remove('hl-match','hl-hidden'); return; }
-    if (txt.includes(q)) { tr.classList.add('hl-match'); tr.classList.remove('hl-hidden'); }
-    else { tr.classList.remove('hl-match'); tr.classList.add('hl-hidden'); }
+    const match = !q || txt.includes(q);
+    tr.classList.toggle('hl-match', !!q && match);
+    tr.classList.toggle('hl-hidden', !!q && !match);
+    const idx = tr.dataset.idx;
+    document.querySelectorAll(`#tablaDespachosCuerpo tr.desp-child[data-parent="${idx}"]`).forEach(ch => {
+      if (!match) ch.classList.add('hl-hidden');
+      else if (!q) ch.classList.remove('hl-hidden','hl-match');
+    });
   });
 }
 
-async function abrirDetalleDespacho(destino) {
+async function toggleDesgloseDespacho(idx) {
+  const rows = (S.despData && S.despData.data) || [];
+  const r = rows[idx];
+  if (!r) return;
+  const n = r.total_medias || ((r.mc1 || 0) + (r.mc2 || 0));
+  if (n <= 1) return;
+
+  const parent = document.querySelector(`#tablaDespachosCuerpo tr.desp-row[data-idx="${idx}"]`);
+  if (!parent) return;
+  const abiertas = document.querySelectorAll(`#tablaDespachosCuerpo tr.desp-child[data-parent="${idx}"]`);
+  if (abiertas.length) {
+    abiertas.forEach(ch => ch.remove());
+    parent.classList.remove('expanded');
+    return;
+  }
+
   const fecha = getFecha();
+  const turnoQ = turnoDesp ? `&turno=${encodeURIComponent(turnoDesp)}` : '';
   try {
     showSpinner();
-    const data = await apiFetch(API(`/despachos/detalle?destino=${encodeURIComponent(destino)}&fecha=${fecha}`));
-    renderModalDetalleDespacho(destino, data);
+    const qs = r.clave
+      ? `clave=${encodeURIComponent(r.clave)}`
+      : `puesto=${encodeURIComponent(r.puesto || '')}&zona=${encodeURIComponent(r.zona || '')}`;
+    const data = await apiFetch(API(`/despachos/detalle?${qs}&fecha=${fecha}${turnoQ}`));
+    const items = data.data || [];
+    let html = '';
+    items.forEach(item => {
+      const esMc1 = item.id_tipo === ID_MC1_JS;
+      html += `<tr class="desp-child" data-parent="${idx}">
+        <td></td>
+        <td style="font-size:0.78rem;color:var(--gris)">${escHtml(item.cava || '—')} · ${escHtml(item.riel || '—')}</td>
+        <td>↳ <code>${escHtml(item.codigo || item.codigo_completo || '—')}</code></td>
+        <td>${escHtml(item.propietario || '—')}</td>
+        <td class="num">${esMc1 ? '<span class="badge badge-mc1">1</span>' : '—'}</td>
+        <td class="num">${esMc1 ? '—' : '<span class="badge badge-mc2">1</span>'}</td>
+        <td class="num">0.5</td>
+      </tr>`;
+    });
+    parent.insertAdjacentHTML('afterend', html);
+    parent.classList.add('expanded');
+  } catch(e) {
+    alertErr('Error al desglosar: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
+}
+
+async function abrirDetalleDespacho(propietario) {
+  const fecha = getFecha();
+  const turnoQ = turnoDesp ? `&turno=${encodeURIComponent(turnoDesp)}` : '';
+  try {
+    showSpinner();
+    const data = await apiFetch(API(`/despachos/detalle?propietario=${encodeURIComponent(propietario)}&fecha=${fecha}${turnoQ}`));
+    renderModalDetalleDespacho(propietario, data);
   } catch(e) {
     alertErr('Error al cargar detalle: ' + e.message);
   } finally {
@@ -777,8 +1828,8 @@ async function abrirDetalleDespacho(destino) {
   }
 }
 
-function renderModalDetalleDespacho(destino, data) {
-  $('modalTitulo').textContent = `📋 Detalle · ${destino} · ${data.total} medias canales`;
+function renderModalDetalleDespacho(propietario, data) {
+  $('modalTitulo').textContent = `📋 Detalle · ${propietario} · ${data.total} medias canales`;
   const rows = data.data || [];
   let mc1=0, mc2=0;
   rows.forEach(r => { if(r.id_tipo === ID_MC1_JS) mc1++; else mc2++; });
@@ -789,8 +1840,8 @@ function renderModalDetalleDespacho(destino, data) {
       <span class="badge badge-canal">Canales: ${((mc1+mc2)*0.5).toFixed(1)}</span>
     </div>
     <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
-      <button class="btn btn-primary btn-sm" onclick="imprimirDetalleDespacho('${escHtml(destino)}')">🖨️ Imprimir</button>
-      <button class="btn btn-secondary btn-sm" onclick="descargarCSVDespacho('${escHtml(destino)}')">📥 Descargar CSV</button>
+      <button class="btn btn-primary btn-sm" onclick="imprimirDetalleDespacho('${escHtml(propietario)}')">🖨️ Imprimir</button>
+      <button class="btn btn-secondary btn-sm" onclick="descargarCSVDespacho('${escHtml(propietario)}')">📥 Descargar CSV</button>
     </div>
     <div class="table-wrap">
     <table>
@@ -820,7 +1871,7 @@ function renderModalDetalleDespacho(destino, data) {
   $('modalContenido').innerHTML = html;
   $('modalDetalle').classList.add('show');
   window._modalDetalleData = data;
-  window._modalDestino = destino;
+  window._modalDestino = propietario;
 }
 
 // Placeholder IDs de MC1/MC2 para el modal (se leen del backend)
@@ -839,10 +1890,11 @@ function selTurnoOpl(btn, turno) {
   cargarOpl();
 }
 
-async function cargarOpl() {
+async function cargarOpl(forceRefresh) {
   const fecha = getFecha();
   try {
     showSpinner();
+    if (forceRefresh) await invalidarCache();
     const url = turnoOpl
       ? API(`/planilla_opl?fecha=${fecha}&turno=${turnoOpl}`)
       : API(`/planilla_opl?fecha=${fecha}&turno=Todos`);
@@ -964,11 +2016,13 @@ function renderModalOpl(propietario, data) {
 // ═══════════════════════════════════════════════════
 // MÓDULO CAVAS
 // ═══════════════════════════════════════════════════
-async function cargarCavas() {
+async function cargarCavas(forceRefresh) {
   const fecha = getFecha();
+  const t = turnoOpl || turnoDeFecha(fecha);
   try {
     showSpinner();
-    const data = await apiFetch(API(`/cavas?fecha=${fecha}`));
+    if (forceRefresh) await invalidarCache();
+    const data = await apiFetch(API(`/cavas?fecha=${fecha}&turno=${encodeURIComponent(t)}`));
     S.cavasData = data;
     renderCavas(data);
   } catch(e) {
@@ -981,7 +2035,7 @@ async function cargarCavas() {
 function renderCavas(data) {
   const rows = data.data || [];
   if (!rows.length) {
-    $('tablaCavasCuerpo').innerHTML = '<tr><td colspan="7" class="empty-state">Sin canales en cava para esta fecha</td></tr>';
+    $('tablaCavasCuerpo').innerHTML = '<tr><td colspan="8" class="empty-state">Sin canales en cava para esta fecha</td></tr>';
     return;
   }
   let html = '';
@@ -995,9 +2049,135 @@ function renderCavas(data) {
       <td>${escHtml(r.destino||r.destino_real||'—')}</td>
       <td class="num"><span class="badge ${badge}">${escHtml(r.sufijo||'—')}</span></td>
       <td style="font-size:0.8rem;color:var(--gris)">${(r.fecha_ingreso_cava||'—').slice(0,16)}</td>
+      <td><button class="btn-et" title="Reetiquetar" onclick="abrirReetiquetado('${escHtml(r.codigo||'')}')">🏷️</button></td>
     </tr>`;
   });
   $('tablaCavasCuerpo').innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════
+// REETIQUETADO (Zebra ZPL)
+// ═══════════════════════════════════════════════════
+const ET = { etiquetas: [], codigo: '', historial: [] };
+
+function abrirReetiquetado(codigo) {
+  irModulo('etiquetas');
+  $('etCodigo').value = codigo || '';
+  if (codigo) buscarEtiqueta();
+}
+
+async function apiError(r) {
+  try { const j = await r.json(); return j.detail || `HTTP ${r.status}`; }
+  catch (_) { return `HTTP ${r.status}`; }
+}
+
+async function buscarEtiqueta() {
+  const codigo = $('etCodigo').value.trim();
+  if (!codigo) return;
+  showSpinner();
+  try {
+    const r = await fetch(API(`/etiqueta?codigo=${encodeURIComponent(codigo)}`));
+    if (!r.ok) throw new Error(await apiError(r));
+    const j = await r.json();
+    ET.etiquetas = j.etiquetas || [];
+    ET.codigo = codigo;
+    const imp = j.impresora || {};
+    $('etImpresora').textContent = imp.modo === 'red' ? `Impresora: red ${imp.host}:${imp.puerto}` : `Impresora: ${imp.impresora || '—'}`;
+    renderEtiquetas();
+    if ($('etAutoImprimir').checked) await imprimirEtiquetasActuales();
+  } catch (e) {
+    ET.etiquetas = [];
+    renderEtiquetas();
+    alertErr('Reetiquetado: ' + e.message);
+  } finally {
+    hideSpinner();
+    $('etCodigo').select();
+  }
+}
+
+function renderEtiquetas() {
+  const hay = ET.etiquetas.length > 0;
+  $('etBtnImprimir').disabled = !hay;
+  $('etBtnZpl').disabled = !hay;
+  if (!hay) {
+    $('etPreview').innerHTML = '<div class="empty-state" style="width:100%;">Pistolea un código para ver la etiqueta.</div>';
+    return;
+  }
+  $('etPreview').innerHTML = ET.etiquetas.map(e => `
+    <div class="et-card">
+      <div class="et-label">
+        <div class="et-top">
+          <div>
+            <div class="et-barras" title="${escHtml(e.codigo_barras)}"></div>
+            <div class="et-cuarto">${escHtml(e.cuarto)}</div>
+          </div>
+          <div class="et-ubic">${escHtml(e.ubicacion || '—')}<br>${escHtml(e.cam)}</div>
+        </div>
+        <div class="et-bottom">
+          <div class="et-puesto">${escHtml(e.puesto_turno || '—')}</div>
+          <div class="et-barras" title="${escHtml(e.codigo_barras)}"></div>
+          <div class="et-animal">${escHtml(e.codigo_animal)}</div>
+          <div class="et-tipo">${escHtml(e.tipo)}</div>
+        </div>
+      </div>
+      <div class="et-meta">
+        Código de barras: <strong>${escHtml(e.codigo_barras)}</strong><br>
+        ${escHtml(e.riel || e.cava || 'Sin cava/riel')}${e.fecha_programacion ? ` · programada ${escHtml(e.fecha_programacion)}` : ''}<br>
+        ${e.en_cava ? '' : '<span class="et-aviso">⚠ No está en cava (ya salió o sin ubicación)</span><br>'}
+        ${e.turno ? '' : '<span class="et-aviso">⚠ Sin programación de despacho: no lleva turno</span>'}
+      </div>
+    </div>`).join('');
+}
+
+function copiasEtiqueta() {
+  const n = parseInt($('etCopias').value, 10);
+  return Math.max(1, Math.min(isNaN(n) ? 1 : n, 20));
+}
+
+async function imprimirEtiquetasActuales() {
+  if (!ET.etiquetas.length) return;
+  const codigos = ET.etiquetas.map(e => e.codigo_barras);
+  const copias = copiasEtiqueta();
+  showSpinner();
+  try {
+    const r = await fetch(API('/etiqueta/imprimir'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigos, copias }),
+    });
+    if (!r.ok) throw new Error(await apiError(r));
+    const j = await r.json();
+    const hora = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    ET.etiquetas.forEach(e => ET.historial.unshift({ hora, copias, ...e }));
+    ET.historial = ET.historial.slice(0, 200);
+    renderHistorialEtiquetas();
+    alertWarn(`🖨️ ${j.impresas} etiqueta(s) enviada(s) a ${j.destino}`);
+    if (window.ColbeefUsage) ColbeefUsage.track('etiqueta_print', codigos.join(','), 'Reetiquetado');
+  } catch (e) {
+    alertErr('No se pudo imprimir: ' + e.message);
+  } finally {
+    hideSpinner();
+    $('etCodigo').focus();
+  }
+}
+
+function renderHistorialEtiquetas() {
+  if (!ET.historial.length) {
+    $('etHistorial').innerHTML = '<tr><td colspan="5" class="empty-state">Aún no se ha impreso nada.</td></tr>';
+    return;
+  }
+  $('etHistorial').innerHTML = ET.historial.map(h => `<tr>
+    <td>${escHtml(h.hora)}</td>
+    <td><code style="font-weight:600">${escHtml(h.codigo_barras)}</code></td>
+    <td>${escHtml(h.ubicacion || '—')}</td>
+    <td>${escHtml(h.puesto_turno || '—')}</td>
+    <td class="num">${h.copias}</td>
+  </tr>`).join('');
+}
+
+function descargarZplActual() {
+  if (!ET.codigo) return;
+  window.location.href = API(`/etiqueta/zpl?codigo=${encodeURIComponent(ET.codigo)}&copias=${copiasEtiqueta()}`);
 }
 
 function filtrarCavas() {
@@ -1030,8 +2210,461 @@ function imprimirTablaDespachos() {
 }
 
 function imprimirCavas() {
-  const tabla = document.getElementById('tablaCavas').outerHTML;
-  abrirVentanaImpresion('Inventario Canales en Cava', tabla);
+  const copia = document.getElementById('tablaCavas').cloneNode(true);
+  copia.querySelectorAll('tr').forEach(tr => { if (tr.cells.length === 8) tr.deleteCell(7); });
+  abrirVentanaImpresion('Inventario Canales en Cava', copia.outerHTML);
+}
+
+// ═══════════════════════════════════════════════════
+// PLANILLA DE PUNTOS POR OPL (estilo Gestor Vísceras)
+// ═══════════════════════════════════════════════════
+let turnoPlanilla = '';
+let _planillaOplActivo = '';
+let _planillaData = null;
+let _planillaVista = 'puestos';
+
+function selTurnoPlanilla(btn, turno) {
+  turnoPlanilla = turno;
+  document.querySelectorAll('#turnoBtnsPlanilla .turno-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  procesarPlanilla();
+}
+
+function planillaTurnoQ() {
+  return turnoPlanilla
+    ? `turno=${encodeURIComponent(turnoPlanilla)}`
+    : 'turno=Todos';
+}
+
+async function procesarPlanilla(forceRefresh) {
+  const btn = $('btnProcesarPlanilla');
+  const fecha = getFecha();
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Procesando...'; }
+  try {
+    showSpinner();
+    if (forceRefresh) await invalidarCache();
+    const data = await apiFetch(API(`/planilla_puntos?fecha=${fecha}&${planillaTurnoQ()}`));
+    _planillaData = data;
+    renderOplChipsPlanilla(data);
+    const alert = $('planillaAlert');
+    if (alert) {
+      alert.className = 'alert alert-success show';
+      alert.textContent = `✅ ${fmtD(data.totalGlobal != null ? data.totalGlobal : data.total_partes)} canales · turno ${data.turno || '—'} · ${data.fecha || fecha}`;
+      setTimeout(() => alert.classList.remove('show'), 4000);
+    }
+    const chips = document.querySelectorAll('#planillaOplBtns .opl-chip');
+    if (chips.length && !_planillaOplActivo) {
+      chips[0].click();
+    } else if (_planillaOplActivo) {
+      await cargarDatosPlanilla(_planillaOplActivo);
+    } else {
+      renderPlanilla(data);
+    }
+  } catch (e) {
+    alertErr('Error al procesar planilla: ' + e.message);
+  } finally {
+    hideSpinner();
+    if (btn) { btn.disabled = false; btn.textContent = '⚙️ Procesar Planilla'; }
+  }
+}
+
+async function cargarPlanillaPuntos() {
+  await procesarPlanilla();
+}
+
+function renderOplChipsPlanilla(data) {
+  const cont = $('planillaOplBtns');
+  const opls = data.opls || [];
+  const resumen = data.resumen || [];
+  const countBy = {};
+  resumen.forEach(r => { countBy[r.opl] = r.total_partes != null ? r.total_partes : (r.total_medias || 0) * 0.5; });
+  if (!opls.length) {
+    cont.innerHTML = '<span style="color:var(--gris);font-size:0.82rem;">No hay OPLs para este turno.</span>';
+    return;
+  }
+  cont.innerHTML = opls.map(opl => {
+    const n = countBy[opl] != null ? countBy[opl] : 0;
+    const sel = opl === _planillaOplActivo ? ' selected' : '';
+    return `<button class="opl-chip${sel}" data-opl="${escHtml(opl)}" onclick="seleccionarOPLPlanilla(this)">
+      ${escHtml(opl)} <span style="opacity:.75;font-weight:600;">${fmtD(n)}</span>
+    </button>`;
+  }).join('');
+}
+
+async function seleccionarOPLPlanilla(btn) {
+  document.querySelectorAll('#planillaOplBtns .opl-chip').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  _planillaOplActivo = btn.getAttribute('data-opl') || '';
+  await cargarDatosPlanilla(_planillaOplActivo);
+}
+
+async function cargarDatosPlanilla(opl) {
+  const fecha = getFecha();
+  const grid = $('planillaGrid');
+  if (grid) grid.innerHTML = '<div style="width:100%;text-align:center;padding:2rem;color:var(--gris);">⏳ Cargando...</div>';
+  try {
+    const data = await apiFetch(API(`/planilla_puntos?fecha=${fecha}&${planillaTurnoQ()}&opl=${encodeURIComponent(opl)}`));
+    _planillaData = data;
+    renderPlanilla(data);
+  } catch (e) {
+    alertErr('Error cargando OPL: ' + e.message);
+  }
+}
+
+function setPlanillaVista(modo) {
+  _planillaVista = modo === 'zonas' ? 'zonas' : 'puestos';
+  const bp = $('btnPlanillaVistaPuestos');
+  const bz = $('btnPlanillaVistaZonas');
+  if (bp) bp.className = _planillaVista === 'puestos' ? 'btn btn-primary' : 'btn btn-secondary';
+  if (bz) bz.className = _planillaVista === 'zonas' ? 'btn btn-primary' : 'btn btn-secondary';
+  if (bp) bp.style.cssText = 'padding:0.4rem 1rem;font-size:0.82rem;';
+  if (bz) bz.style.cssText = 'padding:0.4rem 1rem;font-size:0.82rem;';
+  if (_planillaData) renderPlanilla(_planillaData);
+}
+
+function fmtFechaTitulo(fechaStr) {
+  const s = fechaStr || getFecha();
+  const p = String(s).split('-');
+  if (p.length === 3) return `${p[2]}/${p[1]}/${p[0]}`;
+  return s;
+}
+
+function badgeTempHtml(marcador, title) {
+  const text = marcador || 'TEMP';
+  const tip = title ? ` title="${escHtml(title)}"` : ' title="Salida temprana"';
+  return `<span class="badge-temprana"${tip}>${escHtml(text)}</span>`;
+}
+
+function celdaPuestoTempranaHtml(p, label) {
+  const txt = label || p.sucursal || p.etiqueta || p.puesto || '—';
+  if (!p.temprana) return escHtml(txt);
+  return badgeTempHtml(p.marcadorTemp || 'TEMP') + escHtml(txt);
+}
+
+function renderPlanilla(res) {
+  _planillaData = res;
+  const fecha = fmtFechaTitulo(res.fecha);
+  const opl = res.opl || _planillaOplActivo || 'TODOS';
+  const tempTxt = res.tieneTempranas
+    ? ` | Tempranas: ${res.totalTempranas} canales`
+    : '';
+  $('planillaTitulo').textContent = 'LISTA DE PUESTOS: CANALES DE SALIDA DE CAVA — ' + fecha;
+  $('planillaSubtitulo').textContent =
+    'OPL: ' + opl +
+    ' | Total: ' + (res.totalOPL != null ? res.totalOPL : res.total_partes || 0) +
+    ' canales | ' + (res.porcentaje || '0') + '% del total' +
+    tempTxt +
+    (res.turno ? ' · turno ' + res.turno : '');
+
+  const grid = $('planillaGrid');
+  const resumenBox = $('planillaResumen');
+  if (resumenBox) {
+    let extra = '';
+    if (res.tieneTempranas) {
+      extra = `<div class="stat-card" style="min-width:160px;border-color:#fecaca;"><div class="stat-label" style="color:#dc2626;">Tempranas</div><div class="stat-valor" style="color:#dc2626;">${fmtD(res.totalTempranas)}</div><div class="stat-sub">puestos prioritarios</div></div>`;
+    }
+    resumenBox.innerHTML =
+      `<div class="stat-card" style="min-width:180px;"><div class="stat-label">Total OPL</div><div class="stat-valor">${fmtD(res.totalOPL)}</div><div class="stat-sub">${escHtml(opl)}</div></div>` +
+      extra;
+  }
+
+  if (_planillaVista === 'puestos' && res.puestos && res.puestos.length) {
+    const filas = res.puestos.map(p => `
+      <tr class="${p.temprana ? 'planilla-row-temprana' : ''}" style="border-bottom:1px solid #dbeafe;">
+        <td style="padding:6px 10px;font-weight:600;">${celdaPuestoTempranaHtml(p, p.sucursal || p.etiqueta || p.puesto)}</td>
+        <td style="padding:6px 10px;font-size:0.78rem;">${escHtml(p.zona || '—')}</td>
+        <td class="num" style="padding:6px 10px;font-weight:700;color:var(--vp);">${p.cantidad}</td>
+      </tr>`).join('');
+    grid.innerHTML = `
+      <div style="width:100%;max-width:720px;margin:0 auto;background:white;border-radius:12px;border:1px solid #bfdbfe;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+          <thead><tr style="background:var(--vp);color:white;">
+            <th style="padding:8px 10px;text-align:left;">Sucursal (puesto)</th>
+            <th style="padding:8px 10px;text-align:left;">Zona (destino)</th>
+            <th style="padding:8px 10px;text-align:center;">Canales</th>
+          </tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>`;
+    return;
+  }
+
+  if (!res.zonas || !res.zonas.length) {
+    grid.innerHTML = '<div style="width:100%;text-align:center;padding:3rem;color:var(--gris);">Sin datos para este OPL. Procesa la planilla.</div>';
+    return;
+  }
+
+  grid.innerHTML = res.zonas.map(z => {
+    const filas = (z.puestos || []).map(p => `
+      <tr class="${p.temprana ? 'planilla-row-temprana' : ''}" style="border-bottom:1px solid #dbeafe;">
+        <td style="padding:4px 8px;text-align:left;font-weight:500;font-size:0.8rem;">${celdaPuestoTempranaHtml(p, p.puesto)}</td>
+        <td style="padding:4px 8px;text-align:center;font-weight:700;color:var(--vp);font-size:0.82rem;">${p.cantidad}</td>
+      </tr>`).join('');
+    return `
+      <div style="background:white;border-radius:10px;box-shadow:0 2px 8px rgba(26,111,196,0.08);border:1px solid #bfdbfe;overflow:hidden;min-width:170px;max-width:220px;">
+        <div style="background:var(--vp);color:white;font-weight:700;padding:6px 10px;text-align:center;font-size:0.88rem;white-space:nowrap;">
+          ${escHtml(z.nombre)}
+          <span style="background:rgba(255,255,255,0.2);padding:1px 8px;border-radius:20px;">${z.total}</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr>
+            <th style="background:#eff6ff;padding:4px 8px;text-align:left;font-size:0.75rem;color:#374151;">Sucursal</th>
+            <th style="background:#eff6ff;padding:4px 8px;text-align:center;font-size:0.75rem;color:#374151;">Cant</th>
+          </tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>`;
+  }).join('');
+}
+
+function sumResumenPlanilla(data) {
+  return (data.resumen || []).reduce((a, r) => a + (r.total_medias || 0), 0);
+}
+
+function descargarExcelOplActivo() {
+  if (!_planillaOplActivo || _planillaOplActivo === 'TODOS') {
+    alertWarn('Selecciona un OPL primero para descargar su Excel.');
+    return;
+  }
+  descargarExcelOpl(_planillaOplActivo);
+}
+
+function descargarExcelOpl(opl) {
+  if (window.ColbeefUsage) ColbeefUsage.track('excel_download', 'planilla', 'Excel OPL '+opl);
+  const fecha = getFecha();
+  const a = document.createElement('a');
+  a.href = API(`/planilla_puntos/excel?opl=${encodeURIComponent(opl)}&fecha=${fecha}&${planillaTurnoQ()}`);
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// ── Particulares (Excel multi-hoja, solo pendientes) ──
+let _particularesSeleccion = new Set();
+
+function abrirModalParticulares() {
+  const m = $('modalParticulares');
+  if (!m) return;
+  m.classList.add('show');
+  cargarModalParticulares();
+}
+
+function cerrarModalParticulares() {
+  const m = $('modalParticulares');
+  if (m) m.classList.remove('show');
+}
+
+async function cargarModalParticulares() {
+  const box = $('particularesLista');
+  const alert = $('particularesAlert');
+  if (alert) alert.classList.remove('show');
+  if (box) box.innerHTML = '<div class="poc-empty">Cargando OPLs…</div>';
+  try {
+    const fecha = getFecha();
+    const [planilla, cfg] = await Promise.all([
+      apiFetch(API(`/planilla_puntos?fecha=${fecha}&${planillaTurnoQ()}`)),
+      apiFetch(API('/planilla_puntos/particulares')),
+    ]);
+    const resumen = planilla.resumen || [];
+    const guardados = new Set((cfg.opls || []).map(x => String(x).trim().toUpperCase()));
+    // Solo OPLs visibles hoy: uno guardado en otra jornada quedaría marcado
+    // sin casilla para desmarcarlo y saldría en el Excel.
+    _particularesSeleccion = new Set(
+      resumen.map(r => String(r.opl || '').trim())
+        .filter(o => o && guardados.has(o.toUpperCase()))
+    );
+
+    if (!resumen.length) {
+      if (box) box.innerHTML = '<div class="poc-empty">No hay OPLs. Procesa la planilla primero.</div>';
+      return;
+    }
+
+    const totalCan = resumen.reduce((s, r) => s + Number(r.totalCanales != null ? r.totalCanales : (r.total_partes || 0)), 0);
+    const todos = `<label style="display:flex;align-items:center;gap:0.6rem;padding:0.45rem 0.2rem;border-bottom:2px solid #dbe7f5;cursor:pointer;">
+        <input type="checkbox" id="partOplTodos" onchange="toggleParticularesTodos(this)" style="width:16px;height:16px;">
+        <span style="flex:1;font-weight:800;color:var(--vp);">Seleccionar todos</span>
+        <span style="font-size:0.78rem;color:var(--gris);">${resumen.length} OPL · ${fmtD(totalCan)} can. pend.</span>
+      </label>`;
+    box.innerHTML = todos + resumen.map(r => {
+      const opl = r.opl || '';
+      const canales = r.totalCanales != null ? r.totalCanales : (r.total_partes || 0);
+      const checked = guardados.has(String(opl).toUpperCase()) ? 'checked' : '';
+      return `<label style="display:flex;align-items:center;gap:0.6rem;padding:0.45rem 0.2rem;border-bottom:1px solid #eef2f7;cursor:pointer;">
+        <input type="checkbox" class="part-opl-check" value="${escHtml(opl)}" ${checked}
+          onchange="toggleParticularCheck(this)" style="width:16px;height:16px;">
+        <span style="flex:1;font-weight:700;color:#1f2937;">${escHtml(opl)}</span>
+        <span style="font-size:0.78rem;color:var(--gris);">${fmtD(canales)} can. pend.</span>
+      </label>`;
+    }).join('');
+    sincronizarParticularesTodos();
+  } catch (e) {
+    if (box) box.innerHTML = `<div class="poc-empty" style="color:#991b1b;">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function toggleParticularesTodos(el) {
+  // Leer antes del bucle: cada toggle resincroniza esta casilla y cambiaría el.checked
+  const marcar = el.checked;
+  document.querySelectorAll('.part-opl-check').forEach(chk => {
+    chk.checked = marcar;
+    toggleParticularCheck(chk);
+  });
+  sincronizarParticularesTodos();
+}
+
+function sincronizarParticularesTodos() {
+  const todos = $('partOplTodos');
+  if (!todos) return;
+  const checks = [...document.querySelectorAll('.part-opl-check')];
+  const marcados = checks.filter(c => c.checked).length;
+  todos.checked = checks.length > 0 && marcados === checks.length;
+  todos.indeterminate = marcados > 0 && marcados < checks.length;
+}
+
+function toggleParticularCheck(el) {
+  const opl = (el.value || '').trim();
+  if (!opl) return;
+  const up = opl.toUpperCase();
+  // mantener nombre original (no upper) en el set
+  for (const x of [..._particularesSeleccion]) {
+    if (String(x).toUpperCase() === up) _particularesSeleccion.delete(x);
+  }
+  if (el.checked) _particularesSeleccion.add(opl);
+  sincronizarParticularesTodos();
+}
+
+function _oplsParticularesActuales() {
+  return [..._particularesSeleccion].filter(Boolean);
+}
+
+function showParticularesAlert(type, msg) {
+  const el = $('particularesAlert');
+  if (!el) return;
+  el.className = 'alert alert-' + type + ' show';
+  el.textContent = msg;
+}
+
+async function guardarParticularesSeleccion(silent) {
+  const opls = _oplsParticularesActuales();
+  try {
+    const r = await fetch(API('/planilla_puntos/particulares'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ opls }),
+    });
+    const res = await r.json();
+    if (!r.ok || res.success === false) {
+      throw new Error(res.detail || res.message || `HTTP ${r.status}`);
+    }
+    _particularesSeleccion = new Set(res.opls || opls);
+    if (!silent) showParticularesAlert('success', `✅ ${(_particularesSeleccion.size)} OPL(s) particulares guardados`);
+    return true;
+  } catch (e) {
+    showParticularesAlert('error', e.message || 'No se pudo guardar');
+    return false;
+  }
+}
+
+async function guardarYDescargarParticulares() {
+  const opls = _oplsParticularesActuales();
+  if (!opls.length) {
+    showParticularesAlert('warn', 'Selecciona al menos un OPL particular.');
+    return;
+  }
+  const ok = await guardarParticularesSeleccion(true);
+  if (!ok) return;
+  descargarExcelParticulares(opls);
+  showParticularesAlert('success', `📥 Descargando Excel con ${opls.length} hoja(s)…`);
+}
+
+function descargarExcelParticulares(opls) {
+  if (window.ColbeefUsage) ColbeefUsage.track('excel_download', 'planilla', 'Excel particulares');
+  const fecha = getFecha();
+  const oplsQ = opls && opls.length ? `&opls=${encodeURIComponent(JSON.stringify(opls))}` : '';
+  const a = document.createElement('a');
+  a.href = API(`/planilla_puntos/excel_particulares?fecha=${fecha}&${planillaTurnoQ()}&refresh=1${oplsQ}`);
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// Cerrar modal particulares con clic fuera
+document.addEventListener('click', function(e) {
+  const m = $('modalParticulares');
+  if (m && e.target === m) cerrarModalParticulares();
+});
+
+async function mostrarResumenGeneralPlanilla() {
+  _planillaOplActivo = '';
+  document.querySelectorAll('#planillaOplBtns .opl-chip').forEach(b => b.classList.remove('selected'));
+  const fecha = getFecha();
+  try {
+    showSpinner();
+    const res = await apiFetch(API(`/planilla_puntos?fecha=${fecha}&${planillaTurnoQ()}`));
+    _planillaData = res;
+    renderOplChipsPlanilla(res);
+
+    if (!res.resumen || !res.resumen.length) {
+      alertWarn('No hay datos de resumen. Procesa la planilla primero.');
+      return;
+    }
+
+    $('planillaTitulo').textContent = '📊 RESUMEN DESPACHO POR OPERADOR LOGÍSTICO';
+    $('planillaSubtitulo').textContent = fmtFechaTitulo(res.fecha || fecha);
+
+    const totalGeneral = res.totalGeneral != null
+      ? res.totalGeneral
+      : res.resumen.reduce((a, r) => a + (r.totalCanales != null ? r.totalCanales : r.total_partes || 0), 0);
+
+    let filasHtml = '';
+    res.resumen.forEach(item => {
+      const cant = item.totalCanales != null ? item.totalCanales
+        : (item.totalJuegos != null ? item.totalJuegos : item.total_partes || 0);
+      const pct = item.porcentaje != null ? item.porcentaje
+        : (totalGeneral > 0 ? Math.round((cant / totalGeneral) * 1000) / 10 : 0);
+      filasHtml += `<tr style="border-bottom:1px solid #e0e0e0;">
+        <td style="padding:10px 12px;text-align:left;font-weight:500;">${escHtml(item.opl)}</td>
+        <td style="padding:10px 12px;text-align:center;font-weight:600;">${cant}</td>
+        <td style="padding:10px 12px;text-align:center;font-weight:600;color:var(--vp);">${pct}%</td>
+      </tr>`;
+    });
+    filasHtml += `<tr style="background:#eff6ff;font-weight:bold;border-top:2px solid var(--vp);">
+      <td style="padding:10px 12px;text-align:left;">📊 TOTAL GENERAL</td>
+      <td style="padding:10px 12px;text-align:center;font-weight:800;">${totalGeneral}</td>
+      <td style="padding:10px 12px;text-align:center;font-weight:800;">100%</td>
+    </tr>`;
+
+    $('planillaGrid').innerHTML = `
+      <div style="display:flex;justify-content:center;width:100%;">
+        <div style="background:white;border-radius:12px;box-shadow:0 2px 8px rgba(26,111,196,0.08);border:1px solid rgba(96,165,250,0.3);overflow-x:auto;width:auto;min-width:450px;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="background:var(--vp);color:white;">
+                <th style="padding:12px 16px;text-align:left;">Operador Logístico</th>
+                <th style="padding:12px 16px;text-align:center;">Total Canales</th>
+                <th style="padding:12px 16px;text-align:center;">Participación</th>
+              </tr>
+            </thead>
+            <tbody>${filasHtml}</tbody>
+          </table>
+        </div>
+      </div>`;
+    const resumenBox = $('planillaResumen');
+    if (resumenBox) resumenBox.innerHTML = '';
+
+    const alert = $('planillaAlert');
+    if (alert) {
+      alert.className = 'alert alert-success show';
+      alert.textContent = '✅ Resumen general cargado';
+      setTimeout(() => alert.classList.remove('show'), 3000);
+    }
+  } catch (e) {
+    alertErr(e.message || 'Error cargando resumen');
+  } finally {
+    hideSpinner();
+  }
 }
 
 function imprimirDetalleDespacho(destino) {
@@ -1133,9 +2766,138 @@ function escHtml(s) {
 // Auto-refresh cada 3 minutos si la vista principal está activa
 setInterval(() => {
   if ($('viewMain').style.display !== 'none') {
-    actualizarDashboard();
+    actualizarDashboard(true);
   }
 }, 3 * 60 * 1000);
+
+(function () {
+  var STORAGE_USER = 'colbeef_usuario';
+  var STORAGE_SESSION = 'colbeef_session_id';
+  var PORTAL = window.COLBEEF_PORTAL_RETURN || 'http://192.168.20.205:8501/?session=active';
+
+  function newSessionId() {
+    return 's_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+  }
+  function send(payload) {
+    try {
+      fetch('/api/usability/event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true
+      }).catch(function () {});
+    } catch (_) {}
+  }
+
+  var fromUrl = '';
+  var stored = '';
+  try { fromUrl = new URLSearchParams(location.search).get('usuario') || ''; } catch (_) {}
+  try { stored = localStorage.getItem(STORAGE_USER) || ''; } catch (_) {}
+  if (fromUrl) {
+    try { localStorage.setItem(STORAGE_USER, fromUrl.trim()); } catch (_) {}
+    stored = fromUrl.trim();
+  }
+  var usuarioPortal = String(stored || '').trim();
+  if (!usuarioPortal || usuarioPortal.toLowerCase() === 'anonimo') {
+    try { location.replace(PORTAL); } catch (_) {}
+    return;
+  }
+
+  function pintarBadge(nombre) {
+    var badge = document.getElementById('usuarioBadge');
+    if (!badge) return;
+    badge.textContent = '👤 ' + nombre;
+    badge.style.display = 'inline-flex';
+    badge.title = 'Usuario del portal Colbeef';
+  }
+
+  window.ColbeefUsage = {
+    usuario: usuarioPortal,
+    sessionId: '',
+    setUsuario: function (nombre) {
+      var u = String(nombre || '').trim();
+      if (!u) return;
+      this.usuario = u;
+      try { localStorage.setItem(STORAGE_USER, u); } catch (_) {}
+      pintarBadge(u);
+    },
+    init: function (opts) {
+      opts = opts || {};
+      try {
+        var fromUrl2 = new URLSearchParams(location.search).get('usuario');
+        if (fromUrl2) this.setUsuario(fromUrl2.trim());
+      } catch (_) {}
+      var u = (opts.usuario || localStorage.getItem(STORAGE_USER) || this.usuario || '').trim();
+      if (u && u.toLowerCase() !== 'anonimo') this.setUsuario(u);
+      else pintarBadge(this.usuario);
+      this.sessionId = sessionStorage.getItem(STORAGE_SESSION);
+      if (!this.sessionId) {
+        this.sessionId = newSessionId();
+        sessionStorage.setItem(STORAGE_SESSION, this.sessionId);
+      }
+      this.track('session_start', opts.page || 'main', 'Inicio de sesión');
+    },
+    track: function (action, module, detail) {
+      send({
+        usuario: this.usuario,
+        action: action || 'event',
+        module: module || '',
+        detail: detail || '',
+        sessionId: this.sessionId,
+        page: (location.pathname || '').replace(/^\//, '')
+      });
+    }
+  };
+
+  function openUsabilidadAdmin() {
+    var pwd = prompt('Contraseña de administración (usabilidad):');
+    if (!pwd) return;
+    fetch('/api/usability/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.success) {
+          alert(data.message || 'Contraseña incorrecta');
+          return;
+        }
+        sessionStorage.setItem('colbeef_usabilidad_token', data.token);
+        if (window.ColbeefUsage) ColbeefUsage.track('admin_open', 'usabilidad', 'Dashboard oculto');
+        location.href = '/usabilidad.html';
+      })
+      .catch(function () {
+        alert('No se pudo verificar la contraseña. ¿El servicio está activo?');
+      });
+  }
+
+  var logoClicks = 0, logoTimer = null;
+  document.addEventListener('DOMContentLoaded', function () {
+    pintarBadge(window.ColbeefUsage.usuario);
+    var logo = document.getElementById('logoIconGestor');
+    if (logo) {
+      logo.style.cursor = 'pointer';
+      logo.addEventListener('click', function (e) {
+        if (e) e.stopPropagation();
+        logoClicks++;
+        clearTimeout(logoTimer);
+        logoTimer = setTimeout(function () { logoClicks = 0; }, 1200);
+        if (logoClicks >= 5) {
+          logoClicks = 0;
+          openUsabilidadAdmin();
+        }
+      });
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.ctrlKey && e.shiftKey && (e.key === 'U' || e.key === 'u')) {
+      e.preventDefault();
+      openUsabilidadAdmin();
+    }
+  });
+})();
+
 
 </script>
 </body>
