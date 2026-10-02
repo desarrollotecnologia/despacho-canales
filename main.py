@@ -2807,7 +2807,10 @@ def favicon():
 
 @app.get("/")
 def root():
-    return FileResponse("static/index.html")
+    return FileResponse(
+        "static/index.html",
+        headers={"Cache-Control": "no-cache, max-age=0, must-revalidate"},
+    )
 
 
 if __name__ == "__main__":
