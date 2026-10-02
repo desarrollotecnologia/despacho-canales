@@ -705,15 +705,34 @@ def _fmt_hora_local(valor) -> str:
     return str(valor or "")
 
 
+HIST_VENTANA_IDS = int(os.getenv("CANALES_HIST_VENTANA_IDS", "400000"))
+
+# Primera vez que cada asignación (ppel.id) quedó programada para la fecha, según
+# la auditoría de SIRT. ppel.fecha_registro/hora_registro cambian si editan la
+# asignación, así que no sirven para saber cuándo se asignó de verdad.
+SQL_HIST_PRIMERA_PROGRAMACION = f"""
+        hist AS (
+            SELECT a.id, MIN(a.fecha + a.hora::time) AS primera_programacion
+            FROM a_trazabilidad_proceso.a_parte_producto_empresa_local a
+            WHERE a.id_a > (
+                SELECT MAX(id_a) - {HIST_VENTANA_IDS}
+                FROM a_trazabilidad_proceso.a_parte_producto_empresa_local
+            )
+              AND a.fecha_programacion_despacho::date = %s::date
+            GROUP BY a.id
+        ),
+"""
+
+
 def consultar_asignadas_dia(fecha_filtro: str) -> dict:
     """
-    Medias asignadas (programadas) para la fecha, con la hora en que se
-    registró la asignación en SIRT (ppel.fecha_registro + hora_registro).
+    Medias asignadas (programadas) para la fecha, con la hora de su PRIMERA
+    programación para ese día (auditoría a_parte_producto_empresa_local).
+    Si la auditoría no está disponible se usa ppel.fecha_registro + hora_registro.
 
-    Adicional = canal cuya salida se ASIGNÓ a partir del corte (15:30) del
-    día programado. La hora de pistoleo no decide: el turno de canales sale
-    de noche y con esa regla todo quedaba como adicional. Al depender de la
-    asignación, el conteo no baja cuando la canal se despacha.
+    Adicional = media cuya salida se programó por primera vez a partir del
+    corte (15:30) del día programado. La hora de pistoleo no decide, así que
+    el conteo no baja cuando la canal se despacha.
 
     Estado por el último movimiento de cava: abierto = en cava; cerrado =
     despachada. Un traslado entre cavas deja un movimiento abierto, así que
@@ -725,13 +744,24 @@ def consultar_asignadas_dia(fecha_filtro: str) -> dict:
         date.fromisoformat(fecha_filtro),
         datetime.min.time().replace(hour=int(corte["hora"]), minute=int(corte["minuto"])),
     )
-    sql = """
-        WITH programadas AS (
+
+    def armar_sql(con_historial: bool) -> str:
+        hist_cte = SQL_HIST_PRIMERA_PROGRAMACION if con_historial else ""
+        hist_join = "LEFT JOIN hist h ON h.id = ppel.id" if con_historial else ""
+        registro = (
+            "COALESCE(h.primera_programacion, ppel.fecha_registro + ppel.hora_registro)"
+            if con_historial else "ppel.fecha_registro + ppel.hora_registro"
+        )
+        en_hist = "BOOL_OR(h.id IS NOT NULL)" if con_historial else "false"
+        return f"""
+        WITH {hist_cte}
+        programadas AS (
             SELECT
                 pp.id_producto::text AS id_producto,
                 pp.id AS id_parte,
                 pp.id_tipo_parte_producto AS id_tipo,
-                MIN(ppel.fecha_registro + ppel.hora_registro) AS registro,
+                MIN({registro}) AS registro,
+                {en_hist} AS en_historial,
                 MIN(ppel.id_local) AS id_local
             FROM trazabilidad_proceso.parte_producto pp
             JOIN trazabilidad_proceso.parte_producto_empresa ppe
@@ -741,6 +771,7 @@ def consultar_asignadas_dia(fecha_filtro: str) -> dict:
               ON ppel.id_parte_producto_empresa = ppe.id
              AND ppel.fecha_programacion_despacho IS NOT NULL
              AND ppel.fecha_programacion_despacho::date = %s::date
+            {hist_join}
             WHERE pp.id_tipo_parte_producto IN %s
             GROUP BY 1, 2, 3
         ),
@@ -757,7 +788,7 @@ def consultar_asignadas_dia(fecha_filtro: str) -> dict:
             ORDER BY p.id_producto, p.id_parte, mov.fecha_ingreso DESC NULLS LAST, mov.id DESC
         )
         SELECT
-            u.id_producto, u.id_tipo, u.registro, u.fecha_salida, u.cava,
+            u.id_producto, u.id_tipo, u.registro, u.en_historial, u.fecha_salida, u.cava,
             COALESCE(NULLIF(TRIM(prop.nombre), ''), 'Sin propietario') AS propietario,
             COALESCE(NULLIF(TRIM(de.nombre), ''), NULLIF(TRIM(s.nombre), ''), '') AS zona
         FROM ult u
@@ -773,21 +804,21 @@ def consultar_asignadas_dia(fecha_filtro: str) -> dict:
         -- misma ventana que el progreso: salidas hasta 2 días antes del programado
         WHERE u.fecha_salida IS NULL OR u.fecha_salida::date >= (%s::date - 2)
     """
-    rows = safe_query(sql, (fecha_filtro, IDS_CANAL, fecha_filtro), "asignadas_dia")
 
-    # Una canal (MC1 + MC2) se clasifica entera: primera asignación del animal.
-    registro_animal = {}
-    for r in rows:
-        reg = r.get("registro")
-        cod = str(r.get("id_producto") or "")
-        if reg is not None and (cod not in registro_animal or reg < registro_animal[cod]):
-            registro_animal[cod] = reg
+    params = (fecha_filtro, IDS_CANAL, fecha_filtro)
+    fuente = "historial"
+    try:
+        rows = query(armar_sql(True), (fecha_filtro,) + params)
+    except Exception as e:
+        print(f"[WARN] asignadas_dia con historial falló, uso fecha_registro: {e}")
+        fuente = "registro"
+        rows = safe_query(armar_sql(False), params, "asignadas_dia")
 
     filas = []
     for r in rows:
         id_tipo = int(r.get("id_tipo") or 0)
         cod = str(r.get("id_producto") or "")
-        reg = registro_animal.get(cod)
+        reg = r.get("registro")
         adicional = bool(reg is not None and reg >= corte_ts)
         fs = r.get("fecha_salida")
         prop = r.get("propietario") or ""
@@ -807,6 +838,7 @@ def consultar_asignadas_dia(fecha_filtro: str) -> dict:
             "estado": "Despachada" if fs is not None else "En cava",
             "adicional": adicional,
             "tipoSalida": "adicional" if adicional else "normal",
+            "horaDesdeHistorial": bool(r.get("en_historial")),
         }
         filas.append(item)
 
@@ -826,6 +858,7 @@ def consultar_asignadas_dia(fecha_filtro: str) -> dict:
         "fecha": fecha_filtro,
         "corteAdicional": corte_lbl,
         "adicionalesPorAsignacion": True,
+        "fuenteHoraAsignacion": fuente,
         "totalFilas": n_tot,
         "totalNormales": n_nor,
         "totalAdicionales": n_adi,
@@ -843,14 +876,14 @@ def consultar_asignadas_dia(fecha_filtro: str) -> dict:
         "totalCanalesDespachadas": round((n_tot - n_pend) * 0.5, 2),
         "filas": filas,
         "nota": (
-            f"Normales = asignadas antes de las {corte_lbl}; adicionales = asignadas "
+            f"Normales = programadas por primera vez antes de las {corte_lbl}; adicionales = "
             f"desde las {corte_lbl}. Normales + adicionales = total asignado."
         ),
     }
 
 
 def obtener_asignadas_dia(fecha_filtro: str) -> dict:
-    ck = ("asignadas_dia", fecha_filtro, "v1")
+    ck = ("asignadas_dia", fecha_filtro, "v2_hist")
     out = cache_get(ck)
     if out is None:
         out = consultar_asignadas_dia(fecha_filtro)

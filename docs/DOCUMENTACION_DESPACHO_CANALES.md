@@ -280,8 +280,10 @@ Por OPL, las despachadas son el **pistoleo real** (no meta − pendientes).
 ### 7.5 Adicionales (hora de corte)
 
 - **Corte:** 15:30 por defecto (`CANALES_SALIDA_ADICIONAL_HORA/MINUTO`).
-- **Regla vigente:** una canal es **adicional** si su **asignación** en SIRT (`ppel.fecha_registro + hora_registro`) se hizo **a partir del corte del día programado**. Antes del corte es **normal**.
-- La canal (MC1 + MC2) se clasifica **completa** según la primera asignación del animal.
+- **Regla vigente:** una media es **adicional** si su **primera programación** para ese día se hizo **a partir del corte del día programado**. Antes del corte es **normal**.
+- La hora sale de la auditoría de SIRT `a_trazabilidad_proceso.a_parte_producto_empresa_local`: el primer registro (`fecha + hora`) de cada asignación (`ppel.id`) con esa fecha de programación, buscando en los últimos 400 000 registros (`CANALES_HIST_VENTANA_IDS`). Así, editar una asignación ya hecha no la convierte en adicional.
+- Si la auditoría no está disponible, o la asignación no aparece en ella, se usa `ppel.fecha_registro + hora_registro`.
+- Cada media (MC1 y MC2) se clasifica por separado.
 - **Normales + adicionales = total asignado.** El progreso cuenta las dos.
 - Para cada adicional se informa si está **En cava** o **Despachada**.
 
@@ -843,6 +845,7 @@ Las entradas del 03/09 al 21/09 se resumen a partir de los mensajes de commit. L
 | 28/09/2026 | `a2671ae` | analistatic-coder | Puerto fijo **8012**, URL de red `192.168.20.205`, redirección al host oficial y ajuste del join de salidas para el servidor de planta. |
 | 30/09/2026 | — | — | Documentación técnica completa con diagramas de flujo y UML (este documento). |
 | 01/10/2026 | — | — | Excel de particulares: opción **Seleccionar todos**, hoja **GENERAL** (con 2 o más OPL, ordenada por OPL, con filtro), columnas **Tipo** y **Hora asignación**, adicionales en **azul claro**. Hora de corte de adicionales cambiada de 15:20 a **15:30**. |
+| 02/10/2026 | — | — | Adicionales por **primera programación** según la auditoría de SIRT (`a_parte_producto_empresa_local`), para que las asignaciones modificadas no cuenten como adicionales. Clasificación por media. |
 
 ### 16.2 Incidencias y decisiones
 
