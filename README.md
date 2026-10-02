@@ -15,9 +15,8 @@ Control de medias canales: despachos y operadores logísticos (OPL) en tiempo re
 
 ### URLs
 
-- En este PC: http://localhost:8000
-- Servidor de planta (205): http://192.168.20.205:8012/
-- Desde la red (otro puerto): http://IP-DE-ESTE-PC:PUERTO
+- Enlace fijo LAN: http://192.168.20.205:8012
+- En este PC: http://localhost:8012 (redirige al enlace fijo)
 
 Log del servidor: `logs/server.log`
 
@@ -48,7 +47,7 @@ POSTGRES_USER=acceso
 POSTGRES_PASSWORD=...
 POSTGRES_PORT=5432
 APP_HOST=0.0.0.0
-APP_PORT=8000
+APP_PORT=8012
 ```
 
 ## Importante: IDs de tipo_parte_producto
@@ -58,7 +57,7 @@ El backend asume que las medias canales tienen los IDs:
 - `ID_MC2 = 5` → Media Canal 2 Cola
 
 **Si los IDs son diferentes en la BD**, ajústalos en `main.py` líneas 20-21.
-Para verificar qué IDs corresponden, accede a: http://localhost:8000/api/tipos_canal
+Para verificar qué IDs corresponden, accede a: http://192.168.20.205:8012/api/tipos_canal
 
 ## Endpoints API
 
