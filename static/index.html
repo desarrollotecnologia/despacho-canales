@@ -555,11 +555,11 @@
         <div class="modulo-desc">Inventario completo de medias canales en cava: código con sufijo, propietario, cava y riel.</div>
         <span class="modulo-badge">Inventario</span>
       </div>
-      <div class="modulo-card disabled" title="Módulo inhabilitado por ahora" aria-disabled="true">
+      <div class="modulo-card" onclick="irModulo('etiquetas')">
         <div class="modulo-icono">🏷️</div>
         <div class="modulo-nombre">Reetiquetado</div>
-        <div class="modulo-desc">Pistolea o escribe el código de la media canal e imprime la segunda etiqueta en la Zebra ZT231.</div>
-        <span class="modulo-badge off">No disponible</span>
+        <div class="modulo-desc">Imprime las etiquetas de despacho por OPL o pistoleando, en la Zebra del equipo.</div>
+        <span class="modulo-badge">Etiquetas</span>
       </div>
     </div>
 
@@ -732,10 +732,11 @@
             <th>Destino</th>
             <th class="num">Tipo</th>
             <th>Ingreso Cava</th>
+            <th>Etiqueta</th>
           </tr>
         </thead>
         <tbody id="tablaCavasCuerpo">
-          <tr><td colspan="7" class="empty-state">Cargando...</td></tr>
+          <tr><td colspan="8" class="empty-state">Cargando...</td></tr>
         </tbody>
       </table>
     </div>
@@ -752,10 +753,6 @@
     <div class="zb-bar">
       <span id="zbEstado" class="zb-estado">Buscando Zebra en este equipo…</span>
       <select id="zbImpresora" onchange="zbElegir(this.value)" style="display:none;"></select>
-      <select id="zbModo" onchange="zbCambiarModo(this.value)" title="Dónde se imprime">
-        <option value="local">Imprimir en la Zebra de este equipo</option>
-        <option value="servidor">Imprimir en la impresora del servidor</option>
-      </select>
       <button class="btn btn-secondary btn-sm" onclick="zbDetectar()" title="Volver a buscar la Zebra">🔄 Buscar</button>
       <button class="btn btn-secondary btn-sm" onclick="zbCalibrar()" title="Imprime una regla para ubicar las 4 tiras del rollo">📏 Calibración</button>
     </div>
@@ -1114,12 +1111,18 @@ function irMain() {
 }
 
 function irModulo(m) {
-  if (m === 'etiquetas') return;
   if (window.ColbeefUsage) ColbeefUsage.track('module_open', m, 'Abrir módulo');
   marcarTurnoSugerido();
   if (m === 'despachos') { showView('viewDespachos'); cargarDespachos(); }
   else if (m === 'planilla') { showView('viewPlanilla'); cargarPlanillaPuntos(); }
   else if (m === 'cavas'){ showView('viewCavas');     cargarCavas(); }
+  else if (m === 'etiquetas') {
+    showView('viewEtiquetas');
+    if (!$('etlFecha').value) $('etlFecha').value = getFecha();
+    if (!ZB.buscado) zbDetectar(); else renderZb();
+    cargarEtiquetasOpl(false);
+    setTimeout(() => $('etCodigo').focus(), 50);
+  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -2139,7 +2142,7 @@ async function cargarCavas(forceRefresh) {
 function renderCavas(data) {
   const rows = data.data || [];
   if (!rows.length) {
-    $('tablaCavasCuerpo').innerHTML = '<tr><td colspan="7" class="empty-state">Sin canales en cava para esta fecha</td></tr>';
+    $('tablaCavasCuerpo').innerHTML = '<tr><td colspan="8" class="empty-state">Sin canales en cava para esta fecha</td></tr>';
     return;
   }
   let html = '';
@@ -2153,6 +2156,7 @@ function renderCavas(data) {
       <td>${escHtml(r.destino||r.destino_real||'—')}</td>
       <td class="num"><span class="badge ${badge}">${escHtml(r.sufijo||'—')}</span></td>
       <td style="font-size:0.8rem;color:var(--gris)">${(r.fecha_ingreso_cava||'—').slice(0,16)}</td>
+      <td><button class="btn-et" title="Reetiquetar" onclick="abrirReetiquetado('${escHtml(r.codigo||'')}')">🏷️</button></td>
     </tr>`;
   });
   $('tablaCavasCuerpo').innerHTML = html;
@@ -2164,7 +2168,9 @@ function renderCavas(data) {
 const ET = { etiquetas: [], codigo: '', historial: [] };
 
 function abrirReetiquetado(codigo) {
-  return;
+  irModulo('etiquetas');
+  $('etCodigo').value = codigo || '';
+  if (codigo) buscarEtiqueta();
 }
 
 async function apiError(r) {
@@ -2239,9 +2245,11 @@ const ZB = {
   devices: [],
   device: null,
   buscado: false,
-  modo: localStorage.getItem('canales_modo_impresion') || 'local',
   servidor: null,
+  // Automático: Zebra del equipo; si no hay, la Zebra en red del servidor (ZEBRA_HOST)
+  get modo() { return !this.device && this.servidor && this.servidor.modo === 'red' ? 'servidor' : 'local'; },
 };
+localStorage.removeItem('canales_modo_impresion');
 const ZB_DESCARGA = 'https://www.zebra.com/us/en/support-downloads/software/printer-software/browser-print.html';
 
 async function zbFetch(path, opts = {}, ms = 4000) {
@@ -2281,25 +2289,15 @@ function zbElegir(uid) {
   renderZb();
 }
 
-function zbCambiarModo(modo) {
-  ZB.modo = modo === 'servidor' ? 'servidor' : 'local';
-  localStorage.setItem('canales_modo_impresion', ZB.modo);
-  if (ZB.modo === 'local' && !ZB.buscado) zbDetectar(); else renderZb();
-}
-
 function zbDestinoTexto() {
-  if (ZB.modo === 'servidor') {
-    const s = ZB.servidor || {};
-    return s.modo === 'red' ? `la impresora del servidor (${s.host}:${s.puerto})` : `la impresora del servidor (${s.impresora || 'Zebra'})`;
-  }
+  if (ZB.modo === 'servidor') return `la Zebra en red (${ZB.servidor.host}:${ZB.servidor.puerto})`;
   return ZB.device ? `la Zebra de este equipo (${ZB.device.name})` : 'la Zebra de este equipo';
 }
 
 function renderZb() {
   const est = $('zbEstado');
   const sel = $('zbImpresora');
-  $('zbModo').value = ZB.modo;
-  sel.style.display = ZB.modo === 'local' && ZB.devices.length > 1 ? '' : 'none';
+  sel.style.display = ZB.device && ZB.devices.length > 1 ? '' : 'none';
   sel.innerHTML = ZB.devices.map(d => `<option value="${escHtml(d.uid)}" ${ZB.device && d.uid === ZB.device.uid ? 'selected' : ''}>${escHtml(d.name)}</option>`).join('');
   if (ZB.modo === 'servidor') {
     est.className = 'zb-estado';
@@ -2340,8 +2338,8 @@ async function imprimirEtiquetas(endpoint, body) {
     if (!r.ok) throw new Error(await apiError(r));
     return r.json();
   };
-  if (ZB.modo === 'servidor') return post(endpoint, body);
   if (!ZB.device) await zbDetectar();
+  if (ZB.modo === 'servidor') return post(endpoint, body);
   if (!ZB.device) throw new Error('No hay una Zebra conectada en este equipo (revisa Zebra Browser Print y pulsa «Buscar»)');
   const j = await post(endpoint, { ...body, solo_zpl: true });
   await zbEnviar(j.zpl);
@@ -2353,6 +2351,7 @@ async function imprimirEtiquetas(endpoint, body) {
 }
 
 async function zbCalibrar() {
+  if (!ZB.device) await zbDetectar();
   if (!confirm(`¿Imprimir la regla de calibración en ${zbDestinoTexto()}?`)) return;
   showSpinner();
   try {
@@ -2360,7 +2359,6 @@ async function zbCalibrar() {
       const r = await fetch(API('/etiquetas/calibrar'), { method: 'POST' });
       if (!r.ok) throw new Error(await apiError(r));
     } else {
-      if (!ZB.device) await zbDetectar();
       const r = await fetch(API('/etiquetas/calibrar?solo_zpl=true'), { method: 'POST' });
       if (!r.ok) throw new Error(await apiError(r));
       await zbEnviar((await r.json()).zpl);

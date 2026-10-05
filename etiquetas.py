@@ -224,7 +224,15 @@ def enviar_zpl(zpl: str) -> dict:
         raise RuntimeError("Falta pywin32 (pip install pywin32) o definir ZEBRA_HOST en .env") from e
 
     nombre = cfg["impresora"]
-    h = win32print.OpenPrinter(nombre)
+    try:
+        h = win32print.OpenPrinter(nombre)
+    except Exception as e:
+        if getattr(e, "winerror", None) == 1801 or (getattr(e, "args", None) or [None])[0] == 1801:
+            raise RuntimeError(
+                f"el servidor no tiene instalada la impresora «{nombre}». "
+                "Elige «Imprimir en la Zebra de este equipo» (requiere Zebra Browser Print)"
+            ) from e
+        raise
     try:
         win32print.StartDocPrinter(h, 1, ("Reetiquetado media canal", None, "RAW"))
         try:
