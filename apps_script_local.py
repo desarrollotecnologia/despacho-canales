@@ -49,6 +49,8 @@ def _blank_state():
         "opls_particulares": [],
         # Adicionales del día (Excel), estilo Vísceras Estado_Cavas.
         "adicionales_por_fecha": {},
+        # Etiquetas de despacho ya impresas: {fecha: {codigo: "dd/mm/yyyy HH:MM"}}
+        "etiquetas_impresas": {},
     }
 
 
@@ -266,6 +268,32 @@ def setOplsParticulares(opls):
     state["opls_particulares"] = limpios
     _save_state(state)
     return {"success": True, "opls": limpios}
+
+
+# ═══════════════════════════════════════════════════════
+# ETIQUETAS DE DESPACHO — registro de impresas por fecha
+# ═══════════════════════════════════════════════════════
+ETIQUETAS_DIAS_GUARDADOS = 15
+
+
+def get_etiquetas_impresas(fecha):
+    state = _load_state()
+    return dict((state.get("etiquetas_impresas") or {}).get(_as_str(fecha)) or {})
+
+
+def marcar_etiquetas_impresas(fecha, codigos):
+    state = _load_state()
+    bag = state.setdefault("etiquetas_impresas", {})
+    dia = bag.setdefault(_as_str(fecha), {})
+    ahora = _now()
+    for c in codigos or []:
+        c = _as_str(c).upper()
+        if c:
+            dia[c] = ahora
+    for vieja in sorted(bag)[:-ETIQUETAS_DIAS_GUARDADOS]:
+        bag.pop(vieja, None)
+    _save_state(state)
+    return {"success": True, "fecha": _as_str(fecha), "total": len(dia)}
 
 
 # ═══════════════════════════════════════════════════════

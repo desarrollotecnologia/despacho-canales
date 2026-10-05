@@ -2747,7 +2747,6 @@ def parsear_codigo_etiqueta(codigo: str) -> tuple:
 
 def armar_datos_etiqueta(row: dict) -> dict:
     id_tipo = int(row.get("id_tipo") or 0)
-    n = 1 if id_tipo == ID_MC1 else 2
     base = str(row.get("codigo") or "")
     fecha_prog = row.get("fecha_prog")
     turno = turno_de_fecha(fecha_prog.date().isoformat()) if isinstance(fecha_prog, datetime) else ""
@@ -2755,8 +2754,26 @@ def armar_datos_etiqueta(row: dict) -> dict:
     log = resolver_logistica_pieza(row, turno) if sucursal else {}
     puesto = str(log.get("puesto") or sucursal).strip()
     turno = str(log.get("turno_ruta") or turno).strip()
-    puesto_turno = f"{puesto} /{turno}/" if puesto and turno else puesto
     cliente = str(row.get("propietario") or "").strip()
+    return _datos_etiqueta(
+        base, id_tipo,
+        cava=row.get("cava"), riel=row.get("riel"),
+        puesto=puesto, turno=turno, cliente=cliente,
+        opl=resolver_opl_de_propietario(cliente) if cliente else "",
+        zona=log.get("zona"), destino=row.get("destino_real"),
+        direccion=log.get("direccion") or row.get("direccion_entrega"),
+        fecha_programacion=fecha_prog.date().isoformat() if isinstance(fecha_prog, datetime) else "",
+        en_cava=bool(row.get("cava")) and row.get("fecha_salida") is None,
+        sucursal=sucursal,
+        reetiquetado_sirt=bool(row.get("reetiquetado")),
+    )
+
+
+def _datos_etiqueta(base: str, id_tipo: int, *, cava, riel, puesto, turno, cliente, opl,
+                    zona, destino, direccion, fecha_programacion, en_cava, **extra) -> dict:
+    n = 1 if id_tipo == ID_MC1 else 2
+    puesto = str(puesto or "").strip()
+    turno = str(turno or "").strip()
     datos = {
         "codigo_barras": codigo_completo_canal(base, id_tipo),
         "codigo_animal": base,
@@ -2764,24 +2781,39 @@ def armar_datos_etiqueta(row: dict) -> dict:
         "tipo": tipo_canal_label(id_tipo),
         "cam": f"CAM{n}",
         "cuarto": f"Cuarto Anterior M{n}",
-        "ubicacion": etiquetas.abreviar_ubicacion(row.get("cava"), row.get("riel")),
-        "cava": row.get("cava") or "",
-        "riel": row.get("riel") or "",
+        "ubicacion": etiquetas.abreviar_ubicacion(cava, riel),
+        "cava": cava or "",
+        "riel": riel or "",
         "puesto": puesto,
-        "sucursal": sucursal,
         "turno": turno,
-        "puesto_turno": puesto_turno,
-        "cliente": cliente,
-        "opl": resolver_opl_de_propietario(cliente) if cliente else "",
-        "zona": str(log.get("zona") or "").strip(),
-        "destino": str(row.get("destino_real") or "").strip(),
-        "direccion": str(log.get("direccion") or row.get("direccion_entrega") or "").strip(),
-        "fecha_programacion": fecha_prog.date().isoformat() if isinstance(fecha_prog, datetime) else "",
-        "en_cava": bool(row.get("cava")) and row.get("fecha_salida") is None,
-        "reetiquetado_sirt": bool(row.get("reetiquetado")),
+        "puesto_turno": f"{puesto} /{turno}/" if puesto and turno else puesto,
+        "cliente": str(cliente or "").strip(),
+        "opl": str(opl or "").strip(),
+        "zona": str(zona or "").strip(),
+        "destino": str(destino or "").strip(),
+        "direccion": str(direccion or "").strip(),
+        "fecha_programacion": fecha_programacion or "",
+        "en_cava": bool(en_cava),
+        **extra,
     }
     datos["layout"] = etiquetas.layout_etiqueta(datos)
     return datos
+
+
+def datos_etiqueta_desde_pieza(r: dict, fecha: str) -> dict:
+    """Etiqueta de despacho a partir de una media de la planilla de puntos (sin consultar SIRT)."""
+    codigo = str(r.get("codigo_completo") or r.get("codigo") or "").strip()
+    id_tipo = int(r.get("id_tipo") or 0) or _inferir_id_tipo(codigo, r.get("sufijo") or "")
+    base = re.sub(r"-(1001|1002|001|002)$", "", codigo)
+    return _datos_etiqueta(
+        base, id_tipo,
+        cava=r.get("cava"), riel=r.get("riel"),
+        puesto=r.get("puesto"), turno=r.get("turno_ruta") or turno_de_fecha(fecha),
+        cliente=r.get("propietario"), opl=r.get("opl"),
+        zona=r.get("zona"), destino=r.get("destino_real"),
+        direccion=r.get("direccion") or r.get("direccion_entrega"),
+        fecha_programacion=fecha, en_cava=True,
+    )
 
 
 def buscar_etiquetas(codigo: str) -> List[dict]:
@@ -2792,9 +2824,16 @@ def buscar_etiquetas(codigo: str) -> List[dict]:
     return [armar_datos_etiqueta(r) for r in rows]
 
 
+def _layouts_con_copias(datos: List[dict], copias: int) -> List[list]:
+    copias = max(1, min(int(copias or 1), 20))
+    return [d["layout"] for d in datos for _ in range(copias)]
+
+
 class EtiquetaImprimirIn(BaseModel):
     codigos: List[str]
     copias: int = 1
+    # True = solo devuelve el ZPL; lo imprime el navegador en la Zebra del equipo
+    solo_zpl: bool = False
 
 
 @app.get("/api/etiqueta")
@@ -2803,7 +2842,7 @@ def get_etiqueta(codigo: str):
     return {
         "success": True,
         "etiquetas": datos,
-        "zpl": "\n".join(etiquetas.zpl_etiqueta(d) for d in datos),
+        "zpl": etiquetas.zpl_lote([d["layout"] for d in datos]),
         "impresora": etiquetas.config_impresora(),
     }
 
@@ -2811,7 +2850,7 @@ def get_etiqueta(codigo: str):
 @app.get("/api/etiqueta/zpl")
 def get_etiqueta_zpl(codigo: str, copias: int = 1):
     datos = buscar_etiquetas(codigo)
-    zpl = "\n".join(etiquetas.zpl_etiqueta(d, copias) for d in datos)
+    zpl = etiquetas.zpl_lote(_layouts_con_copias(datos, copias))
     nombre = re.sub(r"[^\w\-]", "_", codigo.strip()) or "etiqueta"
     return StreamingResponse(
         BytesIO(zpl.encode("utf-8")),
@@ -2828,18 +2867,206 @@ def post_etiqueta_imprimir(payload: EtiquetaImprimirIn):
     datos = []
     for c in codigos[:200]:
         datos.extend(buscar_etiquetas(c))
-    zpl = "\n".join(etiquetas.zpl_etiqueta(d, payload.copias) for d in datos)
-    try:
-        envio = etiquetas.enviar_zpl(zpl)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"No se pudo imprimir: {e}")
-    return {
+    zpl = etiquetas.zpl_lote(_layouts_con_copias(datos, payload.copias))
+    marcas = [{"codigo": d["codigo_barras"], "fecha": d["fecha_programacion"]}
+              for d in datos if d.get("fecha_programacion")]
+    resumen = {
         "success": True,
         "impresas": len(datos),
         "copias": max(1, min(int(payload.copias or 1), 20)),
         "codigos": [d["codigo_barras"] for d in datos],
-        **envio,
     }
+    if payload.solo_zpl:
+        return {**resumen, "zpl": zpl, "marcas": marcas}
+    try:
+        envio = etiquetas.enviar_zpl(zpl)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"No se pudo imprimir: {e}")
+    marcar_impresas(marcas)
+    return {**resumen, **envio}
+
+
+class MarcaImpresa(BaseModel):
+    codigo: str
+    fecha: str
+
+
+class EtiquetasMarcarIn(BaseModel):
+    marcas: List[MarcaImpresa] = []
+
+
+def marcar_impresas(marcas: List[dict]) -> int:
+    por_fecha: dict = {}
+    for m in marcas:
+        if m.get("fecha") and m.get("codigo"):
+            por_fecha.setdefault(m["fecha"], []).append(m["codigo"])
+    for f, cods in por_fecha.items():
+        apps_script_local.marcar_etiquetas_impresas(f, cods)
+    return sum(len(c) for c in por_fecha.values())
+
+
+@app.post("/api/etiquetas/marcar")
+def post_etiquetas_marcar(payload: EtiquetasMarcarIn):
+    """El navegador avisa que la Zebra local ya imprimió (impresión desde el equipo del usuario)."""
+    n = marcar_impresas([m.model_dump() if hasattr(m, "model_dump") else m.dict() for m in payload.marcas])
+    return {"success": True, "marcadas": n}
+
+
+# ── Etiquetas de despacho por OPL (sin pistolear) ───────────────────────
+MAX_ETIQUETAS_LOTE = int(os.getenv("CANALES_MAX_ETIQUETAS_LOTE", "2000"))
+
+
+def _parsear_lista_json(valor) -> List[str]:
+    if isinstance(valor, list):
+        lista = valor
+    else:
+        try:
+            import json
+            lista = json.loads(valor) if valor else []
+        except ValueError:
+            lista = [x for x in str(valor or "").split(",")]
+    return [str(x or "").strip() for x in (lista or []) if str(x or "").strip()]
+
+
+def grupos_etiquetas_opl(fecha: str, turno: Optional[str], opls: List[str],
+                         solo_nuevas: bool = False, excluir: Optional[List[str]] = None) -> List[dict]:
+    """
+    Medias pendientes de la planilla de puntos agrupadas por OPL → cliente,
+    en orden OPL, cliente, zona, puesto, código. `excluir` = claves "OPL|CLIENTE".
+    """
+    sel = {o.upper() for o in opls}
+    todos = not sel or "TODOS" in sel
+    excl = {str(x).upper() for x in (excluir or [])}
+    impresas = apps_script_local.get_etiquetas_impresas(fecha)
+    piezas = [
+        r for r in obtener_piezas_programadas(fecha, turno)
+        if todos or str(r.get("opl") or "").upper() in sel
+    ]
+    piezas.sort(key=lambda r: (
+        str(r.get("opl") or "").upper(),
+        str(r.get("propietario") or "").upper(),
+        str(r.get("zona") or "").upper(),
+        str(r.get("puesto") or ""),
+        str(r.get("codigo") or ""),
+    ))
+    grupos: List[dict] = []
+    for r in piezas:
+        opl = str(r.get("opl") or "SIN OPL").strip()
+        cliente = str(r.get("propietario") or "Sin propietario").strip()
+        clave = f"{opl}|{cliente}"
+        if not grupos or grupos[-1]["clave"] != clave:
+            grupos.append({"clave": clave, "opl": opl, "cliente": cliente, "piezas": [],
+                           "total": 0, "nuevas": 0, "puestos": []})
+        g = grupos[-1]
+        codigo = str(r.get("codigo_completo") or r.get("codigo") or "").strip().upper()
+        ya = codigo in impresas
+        g["total"] += 1
+        g["nuevas"] += 0 if ya else 1
+        puesto = str(r.get("puesto") or "").strip()
+        if puesto and puesto not in g["puestos"]:
+            g["puestos"].append(puesto)
+        if clave.upper() in excl or (solo_nuevas and ya):
+            continue
+        g["piezas"].append(r)
+    return grupos
+
+
+@app.get("/api/etiquetas/opl")
+def get_etiquetas_opl(
+    fecha: Optional[str] = None,
+    turno: Optional[str] = None,
+    opls: Optional[str] = None,
+    refresh: Optional[str] = None,
+):
+    fecha_filtro = fecha or date.today().isoformat()
+    turno = resolver_turno(fecha_filtro, turno)
+    if es_refresh(refresh):
+        cache_invalidate_fecha(fecha_filtro)
+    grupos = grupos_etiquetas_opl(fecha_filtro, turno, _parsear_lista_json(opls))
+    por_opl: dict = {}
+    for g in grupos:
+        o = por_opl.setdefault(g["opl"], {"opl": g["opl"], "total": 0, "nuevas": 0, "clientes": []})
+        o["total"] += g["total"]
+        o["nuevas"] += g["nuevas"]
+        o["clientes"].append({k: g[k] for k in ("clave", "cliente", "total", "nuevas", "puestos")})
+    primera = next((g["piezas"][0] for g in grupos if g["piezas"]), None)
+    return {
+        "success": True,
+        "fecha": fecha_filtro,
+        "turno": turno,
+        "opls": list(por_opl.values()),
+        "totalEtiquetas": sum(g["total"] for g in grupos),
+        "totalNuevas": sum(g["nuevas"] for g in grupos),
+        "preview": datos_etiqueta_desde_pieza(primera, fecha_filtro) if primera else None,
+        "previewSeparador": etiquetas.layout_separador({
+            "opl": grupos[0]["opl"], "cliente": grupos[0]["cliente"],
+            "total": grupos[0]["total"], "puestos": ", ".join(grupos[0]["puestos"]),
+        }) if grupos else [],
+        "impresora": etiquetas.config_impresora(),
+    }
+
+
+class EtiquetasOplImprimirIn(BaseModel):
+    fecha: Optional[str] = None
+    turno: Optional[str] = None
+    opls: List[str] = []
+    excluir: List[str] = []
+    solo_nuevas: bool = True
+    separadores: bool = True
+    solo_zpl: bool = False
+
+
+@app.post("/api/etiquetas/calibrar")
+def post_etiquetas_calibrar(solo_zpl: bool = False):
+    """Imprime la regla de calibración en todas las tiras del rollo."""
+    if solo_zpl:
+        return {"success": True, "zpl": etiquetas.zpl_calibracion()}
+    try:
+        envio = etiquetas.enviar_zpl(etiquetas.zpl_calibracion())
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"No se pudo imprimir: {e}")
+    return {"success": True, "impresora": etiquetas.config_impresora(), **envio}
+
+
+@app.post("/api/etiquetas/opl/imprimir")
+def post_etiquetas_opl_imprimir(payload: EtiquetasOplImprimirIn):
+    fecha_filtro = payload.fecha or date.today().isoformat()
+    turno = resolver_turno(fecha_filtro, payload.turno)
+    grupos = [g for g in grupos_etiquetas_opl(
+        fecha_filtro, turno, payload.opls, payload.solo_nuevas, payload.excluir,
+    ) if g["piezas"]]
+    total = sum(len(g["piezas"]) for g in grupos)
+    if not total:
+        raise HTTPException(status_code=400, detail="No hay etiquetas para imprimir con esa selección")
+    if total > MAX_ETIQUETAS_LOTE:
+        raise HTTPException(status_code=400, detail=f"Son {total} etiquetas; el máximo por envío es {MAX_ETIQUETAS_LOTE}. Imprime por partes.")
+    layouts, codigos = [], []
+    for g in grupos:
+        if payload.separadores:
+            layouts.append(etiquetas.layout_separador({
+                "opl": g["opl"], "cliente": g["cliente"],
+                "total": len(g["piezas"]), "puestos": ", ".join(g["puestos"]),
+            }))
+        for r in g["piezas"]:
+            d = datos_etiqueta_desde_pieza(r, fecha_filtro)
+            layouts.append(d["layout"])
+            codigos.append(d["codigo_barras"])
+    zpl = etiquetas.zpl_lote(layouts)
+    resumen = {
+        "success": True,
+        "fecha": fecha_filtro,
+        "impresas": len(codigos),
+        "separadores": len(grupos) if payload.separadores else 0,
+        "clientes": len(grupos),
+    }
+    if payload.solo_zpl:
+        return {**resumen, "zpl": zpl, "marcas": [{"codigo": c, "fecha": fecha_filtro} for c in codigos]}
+    try:
+        envio = etiquetas.enviar_zpl(zpl)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"No se pudo imprimir: {e}")
+    apps_script_local.marcar_etiquetas_impresas(fecha_filtro, codigos)
+    return {**resumen, **envio}
 
 
 @app.post("/api/apps-script/{function_name}")

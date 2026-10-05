@@ -33,14 +33,24 @@ def config_impresora() -> dict:
         "host": host,
         "puerto": int(os.getenv("ZEBRA_PORT", "9100") or 9100),
         "modo": "red" if host else "windows",
-        # 6 ips ≈ 15.2 cm/s y oscuridad 15, como las preferencias del driver
-        "velocidad": int(os.getenv("ZEBRA_VELOCIDAD", "6") or 6),
-        "oscuridad": int(os.getenv("ZEBRA_OSCURIDAD", "15") or 15),
-        # Si sale al revés respecto al logo preimpreso: ZEBRA_ETQ_INVERTIR=1 (gira 180°)
-        "invertir": (os.getenv("ZEBRA_ETQ_INVERTIR") or "").strip() in ("1", "true", "si", "sí"),
+        # Con oscuridad 15 a 6 ips el rollo de manillas casi no marcaba
+        "velocidad": int(os.getenv("ZEBRA_VELOCIDAD", "4") or 4),
+        "oscuridad": int(os.getenv("ZEBRA_OSCURIDAD", "25") or 25),
+        # Con el rollo actual sale girada 180°; ZEBRA_ETQ_INVERTIR=0 la deja sin girar
+        "invertir": (os.getenv("ZEBRA_ETQ_INVERTIR") or "1").strip().lower() in ("1", "true", "si", "sí"),
         # Calibración fina en dots (+ mueve hacia el logo / hacia abajo del texto)
         "ajuste_largo": int(os.getenv("ZEBRA_ETQ_AJUSTE_LARGO", "0") or 0),
         "ajuste_ancho": int(os.getenv("ZEBRA_ETQ_AJUSTE_ANCHO", "0") or 0),
+        # Rollo de varias tiras por pasada: ancho del cabezal, nº de tiras,
+        # dónde empieza la primera y distancia entre el inicio de una tira y la siguiente
+        "ancho_total": int(os.getenv("ZEBRA_ETQ_ANCHO_TOTAL", "832") or 832),
+        "columnas": max(1, int(os.getenv("ZEBRA_ETQ_COLUMNAS", "4") or 4)),
+        # Medido con la regla de calibración (tiras de ~185 dots útiles cada 188)
+        "margen": int(os.getenv("ZEBRA_ETQ_MARGEN", "53") or 53),
+        "paso": int(os.getenv("ZEBRA_ETQ_PASO", "188") or 188),
+        # Inicio exacto de cada tira (dots, separados por coma); manda sobre margen/paso.
+        # La tira de arriba quedó 15 dots más adentro que el paso parejo.
+        "tiras": [int(v) for v in re.findall(r"-?\d+", os.getenv("ZEBRA_ETQ_TIRAS", "53,241,429,632"))],
     }
 
 
@@ -78,58 +88,125 @@ def _fecha_dmy(iso: str) -> str:
 def layout_etiqueta(et: dict) -> list:
     """Elementos de la tira en coordenadas a lo largo: x (largo), y (ancho), h (alto)."""
     codigo = _zpl_txt(et.get("codigo_barras"))
-    b1, b3, b4 = 530, 1130, 1545
-    # Bloque 4 tiene ~200 dots de ancho útil antes del logo
-    c4 = 21
+    # El logo preimpreso empieza hacia el dot 1670 del largo y cada tira útil
+    # mide ~185 dots de ancho: todo va entre y=6 y y=172 y termina antes de x≈1600.
+    b1, b3, b4 = 220, 800, 1200
+    c4 = 42
     elementos = [
         # Bloque 1
-        {"tipo": "texto", "x": b1, "y": 12, "h": 36, "texto": _corto(et.get("puesto_turno") or "SIN PUESTO", 22)},
-        {"tipo": "barras", "x": b1, "y": 52, "h": 60, "modulo": 2, "texto": codigo},
-        {"tipo": "texto", "x": b1, "y": 118, "h": 42, "texto": _zpl_txt(et.get("codigo_animal"))},
-        {"tipo": "texto", "x": b1, "y": 166, "h": 22, "texto": _zpl_txt(et.get("tipo"))},
+        {"tipo": "texto", "x": b1, "y": 10, "h": 32, "texto": _corto(et.get("puesto_turno") or "SIN PUESTO", 22)},
+        {"tipo": "barras", "x": b1, "y": 46, "h": 54, "modulo": 2, "texto": codigo},
+        {"tipo": "texto", "x": b1, "y": 104, "h": 40, "texto": _zpl_txt(et.get("codigo_animal"))},
+        {"tipo": "texto", "x": b1, "y": 150, "h": 22, "texto": _zpl_txt(et.get("tipo"))},
         # Bloque 3
-        {"tipo": "barras", "x": b3, "y": 8, "h": 56, "modulo": 2, "texto": codigo},
-        {"tipo": "texto", "x": b3, "y": 76, "h": 22, "texto": _zpl_txt(et.get("cuarto"))},
-        {"tipo": "texto", "x": b3 + 270, "y": 70, "h": 36, "texto": _zpl_txt(et.get("cam"))},
-        {"tipo": "texto", "x": b3, "y": 104, "h": 26, "texto": f"Ubicacion: {_zpl_txt(et.get('ubicacion')) or '-'}"},
-        {"tipo": "texto", "x": b3, "y": 136, "h": 20, "texto": f"Zona: {_corto(et.get('zona') or '-', 26)}"},
-        {"tipo": "texto", "x": b3, "y": 162, "h": 20, "texto": f"Despacho: {_fecha_dmy(et.get('fecha_programacion')) or '-'}"},
+        {"tipo": "barras", "x": b3, "y": 8, "h": 50, "modulo": 2, "texto": codigo},
+        {"tipo": "texto", "x": b3, "y": 64, "h": 20, "texto": _zpl_txt(et.get("cuarto"))},
+        {"tipo": "texto", "x": b3 + 270, "y": 60, "h": 34, "texto": _zpl_txt(et.get("cam"))},
+        {"tipo": "texto", "x": b3, "y": 90, "h": 24, "texto": f"Ubicacion: {_zpl_txt(et.get('ubicacion')) or '-'}"},
+        {"tipo": "texto", "x": b3, "y": 120, "h": 20, "texto": f"Zona: {_corto(et.get('zona') or '-', 26)}"},
+        {"tipo": "texto", "x": b3, "y": 146, "h": 20, "texto": f"Despacho: {_fecha_dmy(et.get('fecha_programacion')) or '-'}"},
         # Bloque 4
-        {"tipo": "texto", "x": b4, "y": 8, "h": 18, "texto": _corto(f"Cliente {et.get('cliente') or '-'}", c4)},
-        {"tipo": "texto", "x": b4, "y": 32, "h": 18, "texto": _corto(f"Puesto {et.get('puesto') or '-'}", c4)},
-        {"tipo": "texto", "x": b4, "y": 56, "h": 18, "texto": _corto(f"Turno {et.get('turno') or '-'}", c4)},
-        {"tipo": "texto", "x": b4, "y": 80, "h": 18, "texto": _corto(f"OPL {et.get('opl') or '-'}", c4)},
-        {"tipo": "texto", "x": b4, "y": 104, "h": 18, "texto": _corto(f"Destino {et.get('destino') or '-'}", c4)},
-        {"tipo": "texto", "x": b4, "y": 128, "h": 18, "texto": _corto(et.get("direccion") or "", c4)},
-        {"tipo": "texto", "x": b4, "y": 152, "h": 18, "texto": "Especie Bovino"},
+        {"tipo": "texto", "x": b4, "y": 6, "h": 17, "texto": _corto(f"Cliente {et.get('cliente') or '-'}", c4)},
+        {"tipo": "texto", "x": b4, "y": 29, "h": 17, "texto": _corto(f"Puesto {et.get('puesto') or '-'}", c4)},
+        {"tipo": "texto", "x": b4, "y": 52, "h": 17, "texto": _corto(f"Turno {et.get('turno') or '-'}", c4)},
+        {"tipo": "texto", "x": b4, "y": 75, "h": 17, "texto": _corto(f"OPL {et.get('opl') or '-'}", c4)},
+        {"tipo": "texto", "x": b4, "y": 98, "h": 17, "texto": _corto(f"Destino {et.get('destino') or '-'}", c4)},
+        {"tipo": "texto", "x": b4, "y": 121, "h": 17, "texto": _corto(et.get("direccion") or "", c4)},
+        {"tipo": "texto", "x": b4, "y": 144, "h": 17, "texto": "Especie Bovino"},
+    ]
+    return [e for e in elementos if e["texto"]]
+
+
+def layout_separador(sep: dict) -> list:
+    """Etiqueta que encabeza cada cliente en la impresión por OPL."""
+    x0 = 220
+    total = int(sep.get("total") or 0)
+    detalle = f"{total} etiqueta{'s' if total != 1 else ''}"
+    if sep.get("puestos"):
+        detalle += f" · Puestos: {_corto(sep.get('puestos'), 40)}"
+    elementos = [
+        {"tipo": "texto", "x": x0, "y": 10, "h": 28, "texto": f"OPL {_corto(sep.get('opl') or '-', 30)}  ·  INICIO CLIENTE"},
+        {"tipo": "linea", "x": x0, "y": 44, "h": 5, "largo": 1180, "texto": "-"},
+        {"tipo": "texto", "x": x0, "y": 60, "h": 50, "texto": _corto(sep.get("cliente") or "SIN CLIENTE", 40)},
+        {"tipo": "texto", "x": x0, "y": 124, "h": 30, "texto": detalle},
     ]
     return [e for e in elementos if e["texto"]]
 
 
 def zpl_etiqueta(et: dict, copias: int = 1) -> str:
-    cfg = config_impresora()
     copias = max(1, min(int(copias or 1), 20))
-    lineas = [
+    return zpl_lote([layout_etiqueta(et)] * copias)
+
+
+def _encabezado(cfg: dict) -> list:
+    return [
         "^XA",
         "^CI28",
-        f"^PW{ANCHO_DOTS}",
+        f"^PW{cfg['ancho_total']}",
         f"^LL{LARGO_DOTS}",
         "^LH0,0",
         "^POI" if cfg["invertir"] else "^PON",
         f"^PR{cfg['velocidad']}",
         f"~SD{cfg['oscuridad']:02d}",
     ]
-    for e in layout_etiqueta(et):
+
+
+def _campos(layout: list, x_tira: int, cfg: dict) -> list:
+    out = []
+    for e in layout:
         h = e["h"]
         # Rotación R (90° horario): el largo de la tira es el eje y de la impresora
-        # y la parte superior del texto queda hacia el borde x = ANCHO_DOTS.
-        fo_x = max(0, ANCHO_DOTS - (e["y"] + cfg["ajuste_ancho"]) - h)
+        # y la parte superior del texto queda hacia el borde derecho de la tira.
+        fo_x = max(0, x_tira + ANCHO_DOTS - (e["y"] + cfg["ajuste_ancho"]) - h)
         fo_y = max(0, e["x"] + cfg["ajuste_largo"])
-        if e["tipo"] == "barras":
-            lineas.append(f"^FO{fo_x},{fo_y}^BY{e['modulo']},3,{h}^BCR,{h},N,N,N,A^FD{e['texto']}^FS")
+        if e["tipo"] == "linea":
+            out.append(f"^FO{fo_x},{fo_y}^GB{h},{e['largo']},{h}^FS")
+        elif e["tipo"] == "barras":
+            out.append(f"^FO{fo_x},{fo_y}^BY{e['modulo']},3,{h}^BCR,{h},N,N,N,A^FD{e['texto']}^FS")
         else:
-            lineas.append(f"^FO{fo_x},{fo_y}^A0R,{h},{h}^FD{e['texto']}^FS")
-    lineas += [f"^PQ{copias},0,1,Y", "^XZ"]
+            out.append(f"^FO{fo_x},{fo_y}^A0R,{h},{h}^FD{e['texto']}^FS")
+    return out
+
+
+def _inicio_tira(cfg: dict, pos: int) -> int:
+    tiras = cfg["tiras"]
+    if len(tiras) >= cfg["columnas"]:
+        return tiras[pos]
+    return cfg["margen"] + pos * cfg["paso"]
+
+
+def zpl_lote(layouts: list) -> str:
+    """Reparte las etiquetas en las tiras del rollo: cada pasada imprime `columnas` diferentes."""
+    cfg = config_impresora()
+    n = cfg["columnas"]
+    formatos = []
+    for i in range(0, len(layouts), n):
+        lineas = _encabezado(cfg)
+        # Con la impresión girada la primera de la pasada queda en la tira de arriba
+        for col, layout in enumerate(layouts[i:i + n]):
+            pos = (n - 1 - col) if cfg["invertir"] else col
+            lineas += _campos(layout, _inicio_tira(cfg, pos), cfg)
+        lineas += ["^PQ1,0,1,Y", "^XZ"]
+        formatos.append("\n".join(lineas))
+    return "\n".join(formatos)
+
+
+def zpl_calibracion() -> str:
+    """Regla para ubicar las tiras: números a lo ancho (dots) y a lo largo cada 200 dots."""
+    cfg = config_impresora()
+    lineas = _encabezado(cfg)
+    for y0 in (300, 1000, 1700):
+        for x in range(0, cfg["ancho_total"] + 1, 10):
+            largo = 50 if x % 50 == 0 else 20
+            lineas.append(f"^FO{x},{y0}^GB2,{largo},2^FS")
+            if x % 50 == 0:
+                lineas.append(f"^FO{x + 3},{y0 + 55}^A0R,18,16^FD{x}^FS")
+    for x in range(20, cfg["ancho_total"], 100):
+        for y in range(0, LARGO_DOTS, 200):
+            if y in (300, 1000, 1700):
+                continue
+            lineas.append(f"^FO{x},{y}^A0R,22,20^FDL{y}^FS")
+    lineas += ["^PQ1,0,1,Y", "^XZ"]
     return "\n".join(lineas)
 
 

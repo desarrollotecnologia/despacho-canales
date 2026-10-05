@@ -227,6 +227,29 @@
     .et-tira .et-barras{position:absolute;}
     .et-tira .et-logo{position:absolute;top:0;bottom:0;right:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#cbd5e1;font-size:30px;font-weight:800;border-left:1px dashed #e2e8f0;}
     .et-tira .et-logo small{font-size:9px;font-weight:600;}
+    .et-tira .et-linea{position:absolute;background:#000;}
+    .zb-bar{display:flex;gap:0.7rem;align-items:center;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:0.55rem 0.8rem;margin-bottom:1rem;font-size:0.85rem;}
+    .zb-bar select{padding:0.3rem 0.5rem;border:2px solid var(--vc);border-radius:8px;font-family:inherit;font-size:0.82rem;}
+    .zb-estado{flex:1;min-width:260px;font-weight:600;}
+    .zb-estado.ok{color:#065f46;}
+    .zb-estado.mal{color:#991b1b;}
+    .zb-estado a{color:var(--vp);}
+    .etl-box{background:#fff;border:1px solid #bfdbfe;border-radius:12px;box-shadow:var(--sombra);padding:1rem 1.2rem;margin-bottom:1rem;}
+    .etl-box h3{color:var(--vp);font-size:1.05rem;margin-bottom:0.3rem;}
+    .etl-ayuda{color:var(--gris);font-size:0.84rem;margin-bottom:0.8rem;}
+    .etl-filtros{display:flex;gap:1rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;margin-bottom:0.8rem;}
+    .etl-filtros input[type=date],.etl-filtros select{padding:0.3rem 0.5rem;border:2px solid var(--vc);border-radius:8px;font-family:inherit;}
+    .etl-lista{max-height:420px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;}
+    .etl-fila{display:flex;align-items:center;gap:0.6rem;padding:0.45rem 0.7rem;border-bottom:1px solid #eef2f7;font-size:0.87rem;}
+    .etl-fila.todos{background:#f8fafc;font-weight:800;color:var(--vp);border-bottom:2px solid #dbe7f5;}
+    .etl-fila.opl{font-weight:700;background:#f1f8f2;}
+    .etl-fila.cli{padding-left:2.4rem;}
+    .etl-fila .etl-nom{flex:1;}
+    .etl-fila .etl-cant{font-size:0.78rem;color:var(--gris);white-space:nowrap;}
+    .etl-fila button{border:none;background:none;cursor:pointer;font-size:0.8rem;color:var(--vp);}
+    .etl-acciones{display:flex;justify-content:flex-end;align-items:center;gap:1rem;margin-top:0.8rem;font-size:0.88rem;}
+    .etl-preview{display:flex;flex-direction:column;gap:0.6rem;margin-top:0.8rem;overflow-x:auto;}
+    .etl-preview .etl-cap{font-size:0.78rem;color:var(--gris);}
     .et-barras{background:repeating-linear-gradient(90deg,#000 0 2px,#fff 2px 3px,#000 3px 4px,#fff 4px 7px,#000 7px 10px,#fff 10px 12px);}
     .et-meta{font-size:0.78rem;color:var(--gris);line-height:1.4;}
     .et-meta strong{color:#1f2937;}
@@ -721,8 +744,48 @@
     <button class="back-btn" onclick="irMain()">← Volver al inicio</button>
     <h2 style="color:var(--vp);margin-bottom:0.4rem;">🏷️ Reetiquetado de Media Canal</h2>
     <p style="color:var(--gris);font-size:0.88rem;margin-bottom:1.2rem;">
+      Etiqueta de despacho 2.5 × 26.35 cm (mismo formato de la etiqueta SIRT) · Zebra ZT231 203 dpi.
+    </p>
+
+    <div class="zb-bar">
+      <span id="zbEstado" class="zb-estado">Buscando Zebra en este equipo…</span>
+      <select id="zbImpresora" onchange="zbElegir(this.value)" style="display:none;"></select>
+      <select id="zbModo" onchange="zbCambiarModo(this.value)" title="Dónde se imprime">
+        <option value="local">Imprimir en la Zebra de este equipo</option>
+        <option value="servidor">Imprimir en la impresora del servidor</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="zbDetectar()" title="Volver a buscar la Zebra">🔄 Buscar</button>
+      <button class="btn btn-secondary btn-sm" onclick="zbCalibrar()" title="Imprime una regla para ubicar las 4 tiras del rollo">📏 Calibración</button>
+    </div>
+
+    <div class="etl-box">
+      <h3>🖨️ Etiquetas de despacho por OPL</h3>
+      <p class="etl-ayuda">Imprime sin pistolear las medias pendientes de la planilla de puntos, por OPL y en orden por cliente (zona, puesto y código). Cada cliente empieza con una etiqueta separadora.</p>
+      <div class="etl-filtros">
+        <label>Fecha <input type="date" id="etlFecha"></label>
+        <label>Turno
+          <select id="etlTurno">
+            <option value="">Del día</option>
+            <option value="Todos">Todos</option>
+            <option>DxL</option><option>LxM</option><option>MxM</option><option>MxJ</option>
+            <option>JxV</option><option>VxS</option><option>SxD</option>
+          </select>
+        </label>
+        <button class="btn btn-secondary btn-sm" onclick="cargarEtiquetasOpl(true)">🔄 Cargar OPL</button>
+        <label><input type="checkbox" id="etlSoloNuevas" checked onchange="renderEtiquetasOpl()"> Solo las que no se han impreso</label>
+        <label><input type="checkbox" id="etlSeparadores" checked onchange="renderEtiquetasOpl()"> Separadora por cliente</label>
+      </div>
+      <div id="etlLista" class="etl-lista"><div class="empty-state">Pulsa «Cargar OPL» para ver las etiquetas pendientes.</div></div>
+      <div class="etl-acciones">
+        <span id="etlResumen"></span>
+        <button class="btn btn-primary btn-sm" id="etlBtnImprimir" onclick="imprimirEtiquetasOpl()" disabled>🖨️ Imprimir</button>
+      </div>
+      <div id="etlPreview" class="etl-preview"></div>
+    </div>
+
+    <h3 style="color:var(--vp);font-size:1rem;margin:1.4rem 0 0.4rem;">🔫 Reimprimir una media (pistoleo)</h3>
+    <p style="color:var(--gris);font-size:0.85rem;margin-bottom:0.8rem;">
       Pistolea el código de barras (ej. <code>2609-11032-1001</code>) o escribe solo el animal (<code>2609-11032</code>) para las dos medias.
-      Etiqueta 7.62 × 5.08 cm · Zebra ZT231 203 dpi.
     </p>
 
     <div class="et-scan">
@@ -739,7 +802,6 @@
     <div class="et-opciones">
       <label><input type="checkbox" id="etAutoImprimir"> Imprimir al pistolear</label>
       <label>Copias <input type="number" id="etCopias" min="1" max="20" value="1"></label>
-      <span id="etImpresora"></span>
     </div>
 
     <div class="et-grid" id="etPreview">
@@ -766,6 +828,7 @@
       <div style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center;">
         <button class="btn btn-secondary" id="btnProcesarPlanilla" onclick="procesarPlanilla(true)" style="padding:0.5rem 1.1rem;font-size:0.85rem;">⚙️ Procesar Planilla</button>
         <button class="btn btn-primary" id="btnExcelOpl" onclick="descargarExcelOplActivo()" style="padding:0.5rem 1.1rem;font-size:0.85rem;" title="Excel del OPL seleccionado (solo pendientes)">📥 Exportar Excel OPL</button>
+        <button class="btn btn-secondary" id="btnEtiquetasOpl" onclick="abrirEtiquetasOpl(_planillaOplActivo)" style="padding:0.5rem 1.1rem;font-size:0.85rem;" title="Imprimir las etiquetas de despacho del OPL seleccionado, en orden por cliente">🏷️ Etiquetas OPL</button>
         <button class="btn btn-secondary" id="btnParticulares" onclick="abrirModalParticulares()" style="padding:0.5rem 1.1rem;font-size:0.85rem;background:#ff9800;color:#fff;" title="Elegir OPLs y descargar Excel multi-hoja solo con lo pendiente">📥 Descargar particulares</button>
       </div>
     </div>
@@ -1054,7 +1117,13 @@ function irModulo(m) {
   if (m === 'despachos') { showView('viewDespachos'); cargarDespachos(); }
   else if (m === 'planilla') { showView('viewPlanilla'); cargarPlanillaPuntos(); }
   else if (m === 'cavas'){ showView('viewCavas');     cargarCavas(); }
-  else if (m === 'etiquetas') { showView('viewEtiquetas'); setTimeout(() => $('etCodigo').focus(), 50); }
+  else if (m === 'etiquetas') {
+    showView('viewEtiquetas');
+    if (!$('etlFecha').value) $('etlFecha').value = getFecha();
+    if (ZB.modo === 'local' && !ZB.buscado) zbDetectar(); else renderZb();
+    cargarEtiquetasOpl(false);
+    setTimeout(() => $('etCodigo').focus(), 50);
+  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -2121,7 +2190,8 @@ async function buscarEtiqueta() {
     ET.etiquetas = j.etiquetas || [];
     ET.codigo = codigo;
     const imp = j.impresora || {};
-    $('etImpresora').textContent = imp.modo === 'red' ? `Impresora: red ${imp.host}:${imp.puerto}` : `Impresora: ${imp.impresora || '—'}`;
+    ZB.servidor = imp;
+    renderZb();
     renderEtiquetas();
     if ($('etAutoImprimir').checked) await imprimirEtiquetasActuales();
   } catch (e) {
@@ -2159,12 +2229,315 @@ const ET_ESCALA = 0.5;
 function tiraEtiquetaHtml(layout) {
   const px = v => `${(v * ET_ESCALA).toFixed(1)}px`;
   return layout.map(el => {
+    if (el.tipo === 'linea') {
+      return `<div class="et-linea" style="left:${px(el.x)};top:${px(el.y)};width:${px(el.largo)};height:${px(el.h)};"></div>`;
+    }
     if (el.tipo === 'barras') {
       const ancho = (11 * String(el.texto).length + 35) * (el.modulo || 2);
       return `<div class="et-barras" title="${escHtml(el.texto)}" style="left:${px(el.x)};top:${px(el.y)};width:${px(ancho)};height:${px(el.h)};"></div>`;
     }
     return `<div class="et-txt" style="left:${px(el.x)};top:${px(el.y)};font-size:${px(el.h)};">${escHtml(el.texto)}</div>`;
   }).join('') + `<div class="et-logo" style="left:${px(1750)};">Colbeef<small>logo preimpreso</small></div>`;
+}
+
+// ── Zebra del equipo del usuario (Zebra Browser Print en 127.0.0.1) ──
+const ZB = {
+  url: location.protocol === 'https:' ? 'https://127.0.0.1:9101' : 'http://127.0.0.1:9100',
+  devices: [],
+  device: null,
+  buscado: false,
+  modo: localStorage.getItem('canales_modo_impresion') || 'local',
+  servidor: null,
+};
+const ZB_DESCARGA = 'https://www.zebra.com/us/en/support-downloads/software/printer-software/browser-print.html';
+
+async function zbFetch(path, opts = {}, ms = 4000) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try { return await fetch(ZB.url + path, { ...opts, signal: ctl.signal }); }
+  finally { clearTimeout(t); }
+}
+
+async function zbDetectar() {
+  ZB.buscado = true;
+  $('zbEstado').className = 'zb-estado';
+  $('zbEstado').textContent = 'Buscando Zebra en este equipo…';
+  ZB.devices = [];
+  ZB.device = null;
+  try {
+    const r = await zbFetch('/available');
+    const j = await r.json();
+    // Browser Print responde {printer:[...]} o {deviceList:[...]} según la versión
+    ZB.devices = (j.printer || j.deviceList || []).filter(d => !d.deviceType || d.deviceType === 'printer');
+    if (!ZB.devices.length) {
+      const t = await (await zbFetch('/default?type=printer')).text();
+      if (t) ZB.devices = [JSON.parse(t)];
+    }
+    const uid = localStorage.getItem('canales_zebra_uid');
+    ZB.device = ZB.devices.find(d => d.uid === uid) || ZB.devices[0] || null;
+  } catch (_) {
+    ZB.devices = [];
+    ZB.device = null;
+  }
+  renderZb();
+}
+
+function zbElegir(uid) {
+  ZB.device = ZB.devices.find(d => d.uid === uid) || ZB.device;
+  if (ZB.device) localStorage.setItem('canales_zebra_uid', ZB.device.uid);
+  renderZb();
+}
+
+function zbCambiarModo(modo) {
+  ZB.modo = modo === 'servidor' ? 'servidor' : 'local';
+  localStorage.setItem('canales_modo_impresion', ZB.modo);
+  if (ZB.modo === 'local' && !ZB.buscado) zbDetectar(); else renderZb();
+}
+
+function zbDestinoTexto() {
+  if (ZB.modo === 'servidor') {
+    const s = ZB.servidor || {};
+    return s.modo === 'red' ? `la impresora del servidor (${s.host}:${s.puerto})` : `la impresora del servidor (${s.impresora || 'Zebra'})`;
+  }
+  return ZB.device ? `la Zebra de este equipo (${ZB.device.name})` : 'la Zebra de este equipo';
+}
+
+function renderZb() {
+  const est = $('zbEstado');
+  const sel = $('zbImpresora');
+  $('zbModo').value = ZB.modo;
+  sel.style.display = ZB.modo === 'local' && ZB.devices.length > 1 ? '' : 'none';
+  sel.innerHTML = ZB.devices.map(d => `<option value="${escHtml(d.uid)}" ${ZB.device && d.uid === ZB.device.uid ? 'selected' : ''}>${escHtml(d.name)}</option>`).join('');
+  if (ZB.modo === 'servidor') {
+    est.className = 'zb-estado';
+    est.textContent = `🖥️ Se imprime en ${zbDestinoTexto()}`;
+  } else if (ZB.device) {
+    est.className = 'zb-estado ok';
+    est.textContent = `🟢 Zebra de este equipo: ${ZB.device.name}${ZB.device.connection ? ` (${ZB.device.connection})` : ''}`;
+  } else {
+    est.className = 'zb-estado mal';
+    est.innerHTML = `🔴 No se encontró una Zebra en este equipo. Instala <a href="${ZB_DESCARGA}" target="_blank" rel="noopener">Zebra Browser Print</a>, conecta la Zebra, permite esta página en Browser Print y pulsa «Buscar».`;
+  }
+}
+
+async function zbEnviar(zpl) {
+  if (!ZB.device) throw new Error('No hay una Zebra conectada en este equipo (revisa Zebra Browser Print y pulsa «Buscar»)');
+  let r;
+  try {
+    // text/plain evita la consulta previa CORS, igual que la librería oficial de Zebra
+    r = await zbFetch('/write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: JSON.stringify({ device: ZB.device, data: zpl }),
+    }, 60000);
+  } catch (e) {
+    throw new Error('Zebra Browser Print no respondió en este equipo');
+  }
+  if (!r.ok) throw new Error(`La Zebra rechazó el trabajo: ${(await r.text()) || 'HTTP ' + r.status}`);
+}
+
+/** Imprime por el servidor o, en modo local, pide el ZPL al servidor y lo manda a la Zebra del equipo. */
+async function imprimirEtiquetas(endpoint, body) {
+  const post = async (url, data) => {
+    const r = await fetch(API(url), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data || {}),
+    });
+    if (!r.ok) throw new Error(await apiError(r));
+    return r.json();
+  };
+  if (ZB.modo === 'servidor') return post(endpoint, body);
+  if (!ZB.device) await zbDetectar();
+  if (!ZB.device) throw new Error('No hay una Zebra conectada en este equipo (revisa Zebra Browser Print y pulsa «Buscar»)');
+  const j = await post(endpoint, { ...body, solo_zpl: true });
+  await zbEnviar(j.zpl);
+  if ((j.marcas || []).length) {
+    try { await post('/etiquetas/marcar', { marcas: j.marcas }); }
+    catch (e) { alertWarn('Se imprimió, pero no se pudo registrar como impresas: ' + e.message); }
+  }
+  return { ...j, destino: ZB.device.name };
+}
+
+async function zbCalibrar() {
+  if (!confirm(`¿Imprimir la regla de calibración en ${zbDestinoTexto()}?`)) return;
+  showSpinner();
+  try {
+    if (ZB.modo === 'servidor') {
+      const r = await fetch(API('/etiquetas/calibrar'), { method: 'POST' });
+      if (!r.ok) throw new Error(await apiError(r));
+    } else {
+      if (!ZB.device) await zbDetectar();
+      const r = await fetch(API('/etiquetas/calibrar?solo_zpl=true'), { method: 'POST' });
+      if (!r.ok) throw new Error(await apiError(r));
+      await zbEnviar((await r.json()).zpl);
+    }
+    alertWarn('📏 Regla de calibración enviada');
+  } catch (e) {
+    alertErr('Calibración: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
+}
+
+// ── Etiquetas de despacho por OPL (sin pistolear) ──
+const ETL = { datos: null, oplsSel: new Set(), excluidos: new Set(), abiertos: new Set(), preseleccion: null };
+
+function abrirEtiquetasOpl(opl) {
+  ETL.preseleccion = opl && opl !== 'TODOS' ? opl : '';
+  $('etlFecha').value = getFecha();
+  $('etlTurno').value = turnoPlanilla || 'Todos';
+  irModulo('etiquetas');
+}
+
+async function cargarEtiquetasOpl(refresh) {
+  const fecha = $('etlFecha').value || getFecha();
+  $('etlFecha').value = fecha;
+  const turno = $('etlTurno').value;
+  showSpinner();
+  try {
+    const q = `fecha=${fecha}${turno ? `&turno=${encodeURIComponent(turno)}` : ''}${refresh ? '&refresh=1' : ''}`;
+    const r = await fetch(API(`/etiquetas/opl?${q}`));
+    if (!r.ok) throw new Error(await apiError(r));
+    ETL.datos = await r.json();
+    ZB.servidor = ETL.datos.impresora || ZB.servidor;
+    renderZb();
+    const disponibles = (ETL.datos.opls || []).map(o => o.opl);
+    if (ETL.preseleccion !== null) {
+      const p = String(ETL.preseleccion).toUpperCase();
+      ETL.oplsSel = new Set(disponibles.filter(o => o.toUpperCase() === p));
+      ETL.abiertos = new Set(ETL.oplsSel);
+      ETL.preseleccion = null;
+    } else {
+      ETL.oplsSel = new Set(disponibles.filter(o => ETL.oplsSel.has(o)));
+    }
+    renderEtiquetasOpl();
+  } catch (e) {
+    alertErr('Etiquetas por OPL: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
+}
+
+function _etlConteo() {
+  const soloNuevas = $('etlSoloNuevas').checked;
+  let etiquetas = 0, clientes = 0;
+  (ETL.datos?.opls || []).forEach(o => {
+    if (!ETL.oplsSel.has(o.opl)) return;
+    o.clientes.forEach(c => {
+      if (ETL.excluidos.has(c.clave)) return;
+      const n = soloNuevas ? c.nuevas : c.total;
+      if (n > 0) { etiquetas += n; clientes++; }
+    });
+  });
+  return { etiquetas, clientes, separadoras: $('etlSeparadores').checked ? clientes : 0 };
+}
+
+function renderEtiquetasOpl() {
+  const d = ETL.datos;
+  if (!d) return;
+  const box = $('etlLista');
+  const opls = d.opls || [];
+  if (!opls.length) {
+    box.innerHTML = '<div class="empty-state">No hay medias pendientes para esa fecha y turno.</div>';
+  } else {
+    const marcados = opls.filter(o => ETL.oplsSel.has(o.opl)).length;
+    let html = `<label class="etl-fila todos">
+        <input type="checkbox" id="etlTodos" ${marcados === opls.length ? 'checked' : ''} onchange="etlToggleTodos(this.checked)">
+        <span class="etl-nom">Seleccionar todos</span>
+        <span class="etl-cant">${opls.length} OPL · ${d.totalEtiquetas} medias · ${d.totalNuevas} sin imprimir</span>
+      </label>`;
+    opls.forEach((o, i) => {
+      const sel = ETL.oplsSel.has(o.opl);
+      const abierto = ETL.abiertos.has(o.opl);
+      html += `<div class="etl-fila opl">
+          <input type="checkbox" ${sel ? 'checked' : ''} onchange="etlToggleOpl(${i}, this.checked)">
+          <span class="etl-nom">${escHtml(o.opl)}</span>
+          <span class="etl-cant">${o.clientes.length} cliente(s) · ${o.total} medias · ${o.nuevas} sin imprimir</span>
+          <button type="button" onclick="etlAbrir(${i})">${abierto ? '▲ Ocultar clientes' : '▼ Ver clientes'}</button>
+        </div>`;
+      if (!abierto) return;
+      o.clientes.forEach((c, j) => {
+        html += `<label class="etl-fila cli">
+            <input type="checkbox" ${ETL.excluidos.has(c.clave) ? '' : 'checked'} ${sel ? '' : 'disabled'} onchange="etlToggleCliente(${i}, ${j}, this.checked)">
+            <span class="etl-nom">${escHtml(c.cliente)} <small style="color:var(--gris);">${escHtml((c.puestos || []).join(', '))}</small></span>
+            <span class="etl-cant">${c.total} medias · ${c.nuevas} sin imprimir</span>
+          </label>`;
+      });
+    });
+    box.innerHTML = html;
+    $('etlTodos').indeterminate = marcados > 0 && marcados < opls.length;
+  }
+
+  const { etiquetas, clientes, separadoras } = _etlConteo();
+  $('etlResumen').innerHTML = etiquetas
+    ? `<strong>${etiquetas}</strong> etiqueta(s) de ${clientes} cliente(s)${separadoras ? ` + ${separadoras} separadora(s)` : ''}`
+    : ($('etlSoloNuevas').checked && ETL.oplsSel.size ? 'Todo lo marcado ya se imprimió (desmarca «Solo las que no se han impreso» para reimprimir)' : 'Marca uno o más OPL');
+  $('etlBtnImprimir').disabled = !etiquetas;
+  $('etlBtnImprimir').textContent = etiquetas ? `🖨️ Imprimir ${etiquetas + separadoras} etiquetas` : '🖨️ Imprimir';
+
+  let prev = '';
+  if ($('etlSeparadores').checked && (d.previewSeparador || []).length) {
+    prev += `<div class="etl-cap">Separadora de cliente (ejemplo)</div><div class="et-tira">${tiraEtiquetaHtml(d.previewSeparador)}</div>`;
+  }
+  if (d.preview) {
+    prev += `<div class="etl-cap">Etiqueta de despacho (ejemplo: ${escHtml(d.preview.codigo_barras)})</div><div class="et-tira">${tiraEtiquetaHtml(d.preview.layout || [])}</div>`;
+  }
+  $('etlPreview').innerHTML = prev;
+}
+
+function etlToggleTodos(marcar) {
+  ETL.oplsSel = marcar ? new Set((ETL.datos?.opls || []).map(o => o.opl)) : new Set();
+  renderEtiquetasOpl();
+}
+
+function etlToggleOpl(i, marcar) {
+  const o = ETL.datos.opls[i];
+  if (marcar) ETL.oplsSel.add(o.opl); else ETL.oplsSel.delete(o.opl);
+  renderEtiquetasOpl();
+}
+
+function etlAbrir(i) {
+  const o = ETL.datos.opls[i];
+  if (ETL.abiertos.has(o.opl)) ETL.abiertos.delete(o.opl); else ETL.abiertos.add(o.opl);
+  renderEtiquetasOpl();
+}
+
+function etlToggleCliente(i, j, marcar) {
+  const c = ETL.datos.opls[i].clientes[j];
+  if (marcar) ETL.excluidos.delete(c.clave); else ETL.excluidos.add(c.clave);
+  renderEtiquetasOpl();
+}
+
+async function imprimirEtiquetasOpl() {
+  const { etiquetas, clientes, separadoras } = _etlConteo();
+  if (!etiquetas) return;
+  if (ZB.modo === 'local' && !ZB.device) await zbDetectar();
+  if (!confirm(`¿Imprimir ${etiquetas} etiqueta(s) de ${clientes} cliente(s)${separadoras ? ` + ${separadoras} separadora(s)` : ''} en ${zbDestinoTexto()}?`)) return;
+  const opls = [...ETL.oplsSel];
+  const claves = new Set(ETL.datos.opls.filter(o => ETL.oplsSel.has(o.opl)).flatMap(o => o.clientes.map(c => c.clave)));
+  const body = {
+    fecha: $('etlFecha').value || getFecha(),
+    turno: $('etlTurno').value || null,
+    opls,
+    excluir: [...ETL.excluidos].filter(k => claves.has(k)),
+    solo_nuevas: $('etlSoloNuevas').checked,
+    separadores: $('etlSeparadores').checked,
+  };
+  showSpinner();
+  try {
+    const j = await imprimirEtiquetas('/etiquetas/opl/imprimir', body);
+    if (window.ColbeefUsage) ColbeefUsage.track('etiquetas_opl', 'etiquetas', `${j.impresas} etiquetas ${opls.join(', ')}`);
+    const a = $('alertGlobal');
+    a.textContent = `✅ Enviadas ${j.impresas} etiqueta(s) de ${j.clientes} cliente(s)${j.separadores ? ` + ${j.separadores} separadora(s)` : ''} a ${j.destino}`;
+    a.className = 'alert alert-success show';
+    setTimeout(() => a.classList.remove('show'), 6000);
+    await cargarEtiquetasOpl(false);
+  } catch (e) {
+    alertErr('Imprimir por OPL: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
 }
 
 function copiasEtiqueta() {
@@ -2178,13 +2551,7 @@ async function imprimirEtiquetasActuales() {
   const copias = copiasEtiqueta();
   showSpinner();
   try {
-    const r = await fetch(API('/etiqueta/imprimir'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ codigos, copias }),
-    });
-    if (!r.ok) throw new Error(await apiError(r));
-    const j = await r.json();
+    const j = await imprimirEtiquetas('/etiqueta/imprimir', { codigos, copias });
     const hora = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     ET.etiquetas.forEach(e => ET.historial.unshift({ hora, copias, ...e }));
     ET.historial = ET.historial.slice(0, 200);
