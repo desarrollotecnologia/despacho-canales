@@ -220,16 +220,14 @@
     .et-opciones input[type=number]{width:60px;padding:0.25rem 0.4rem;border:2px solid var(--vc);border-radius:8px;}
     .et-grid{display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1.5rem;}
     .et-card{display:flex;flex-direction:column;gap:0.6rem;}
-    .et-label{width:366px;height:244px;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:var(--sombra);padding:8px 12px;font-family:Arial,Helvetica,sans-serif;color:#000;display:flex;flex-direction:column;}
-    .et-top{display:flex;justify-content:space-between;border-bottom:2px solid #000;padding-bottom:5px;}
+    .et-grid,.et-card{max-width:100%;}
+    .et-card{overflow-x:auto;}
+    .et-tira{position:relative;flex:none;width:1053px;height:98.5px;background:#fff;border:1px solid #cbd5e1;border-radius:4px;box-shadow:var(--sombra);font-family:Arial,Helvetica,sans-serif;color:#000;overflow:hidden;}
+    .et-tira .et-txt{position:absolute;white-space:nowrap;line-height:1;font-weight:600;}
+    .et-tira .et-barras{position:absolute;}
+    .et-tira .et-logo{position:absolute;top:0;bottom:0;right:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#cbd5e1;font-size:30px;font-weight:800;border-left:1px dashed #e2e8f0;}
+    .et-tira .et-logo small{font-size:9px;font-weight:600;}
     .et-barras{background:repeating-linear-gradient(90deg,#000 0 2px,#fff 2px 3px,#000 3px 4px,#fff 4px 7px,#000 7px 10px,#fff 10px 12px);}
-    .et-top .et-barras{width:210px;height:42px;}
-    .et-cuarto{font-size:13px;font-weight:700;margin-top:2px;}
-    .et-ubic{font-size:22px;font-weight:800;line-height:1.15;text-align:left;min-width:100px;}
-    .et-puesto{font-size:21px;font-weight:800;margin-top:5px;}
-    .et-bottom .et-barras{width:315px;height:58px;margin:3px 0;}
-    .et-animal{font-size:32px;font-weight:800;line-height:1;}
-    .et-tipo{font-size:17px;font-weight:700;margin-top:3px;}
     .et-meta{font-size:0.78rem;color:var(--gris);line-height:1.4;}
     .et-meta strong{color:#1f2937;}
     .et-aviso{color:#b45309;font-weight:600;}
@@ -2146,21 +2144,7 @@ function renderEtiquetas() {
   }
   $('etPreview').innerHTML = ET.etiquetas.map(e => `
     <div class="et-card">
-      <div class="et-label">
-        <div class="et-top">
-          <div>
-            <div class="et-barras" title="${escHtml(e.codigo_barras)}"></div>
-            <div class="et-cuarto">${escHtml(e.cuarto)}</div>
-          </div>
-          <div class="et-ubic">${escHtml(e.ubicacion || '—')}<br>${escHtml(e.cam)}</div>
-        </div>
-        <div class="et-bottom">
-          <div class="et-puesto">${escHtml(e.puesto_turno || '—')}</div>
-          <div class="et-barras" title="${escHtml(e.codigo_barras)}"></div>
-          <div class="et-animal">${escHtml(e.codigo_animal)}</div>
-          <div class="et-tipo">${escHtml(e.tipo)}</div>
-        </div>
-      </div>
+      <div class="et-tira">${tiraEtiquetaHtml(e.layout || [])}</div>
       <div class="et-meta">
         Código de barras: <strong>${escHtml(e.codigo_barras)}</strong><br>
         ${escHtml(e.riel || e.cava || 'Sin cava/riel')}${e.fecha_programacion ? ` · programada ${escHtml(e.fecha_programacion)}` : ''}<br>
@@ -2168,6 +2152,19 @@ function renderEtiquetas() {
         ${e.turno ? '' : '<span class="et-aviso">⚠ Sin programación de despacho: no lleva turno</span>'}
       </div>
     </div>`).join('');
+}
+
+// Escala de la vista previa: 2106 × 197 dots de la tira → px
+const ET_ESCALA = 0.5;
+function tiraEtiquetaHtml(layout) {
+  const px = v => `${(v * ET_ESCALA).toFixed(1)}px`;
+  return layout.map(el => {
+    if (el.tipo === 'barras') {
+      const ancho = (11 * String(el.texto).length + 35) * (el.modulo || 2);
+      return `<div class="et-barras" title="${escHtml(el.texto)}" style="left:${px(el.x)};top:${px(el.y)};width:${px(ancho)};height:${px(el.h)};"></div>`;
+    }
+    return `<div class="et-txt" style="left:${px(el.x)};top:${px(el.y)};font-size:${px(el.h)};">${escHtml(el.texto)}</div>`;
+  }).join('') + `<div class="et-logo" style="left:${px(1750)};">Colbeef<small>logo preimpreso</small></div>`;
 }
 
 function copiasEtiqueta() {

@@ -2690,8 +2690,10 @@ SQL_ETIQUETA = """
         pp.id_producto                  AS codigo,
         pp.id_tipo_parte_producto       AS id_tipo,
         pp.reetiquetado,
+        pp.con_destino, pp.observaciones,
         mov.cava, mov.riel, mov.fecha_salida,
-        prog.sucursal, prog.fecha_prog
+        prog.sucursal, prog.direccion_entrega, prog.destino_real, prog.fecha_prog,
+        prop.propietario
     FROM trazabilidad_proceso.parte_producto pp
     LEFT JOIN LATERAL (
         SELECT c.nombre AS cava, r.nombre AS riel, m.fecha_salida
@@ -2703,15 +2705,25 @@ SQL_ETIQUETA = """
         LIMIT 1
     ) mov ON true
     LEFT JOIN LATERAL (
-        SELECT s.nombre AS sucursal, ppel.fecha_programacion_despacho AS fecha_prog
+        SELECT s.nombre AS sucursal, s.direccion AS direccion_entrega,
+               de.nombre AS destino_real,
+               ppel.fecha_programacion_despacho AS fecha_prog
         FROM trazabilidad_proceso.parte_producto_empresa ppe
         JOIN trazabilidad_proceso.parte_producto_empresa_local ppel
           ON ppel.id_parte_producto_empresa = ppe.id
         LEFT JOIN organizaciones.sucursal s ON s.id = ppel.id_local
+        LEFT JOIN trazabilidad_proceso.destino de ON de.id = s.id_destino
         WHERE ppe.id_parte_producto = pp.id AND ppe.id_producto::text = pp.id_producto::text
         ORDER BY ppel.fecha_programacion_despacho DESC NULLS LAST, ppel.id DESC
         LIMIT 1
     ) prog ON true
+    LEFT JOIN LATERAL (
+        SELECT NULLIF(TRIM(e.nombre), '') AS propietario
+        FROM trazabilidad_proceso.producto_empresa pe
+        JOIN organizaciones.empresa e ON e.id = pe.id_empresa
+        WHERE pe.id_producto::text = pp.id_producto::text AND pe.activo = true
+        LIMIT 1
+    ) prop ON true
     WHERE pp.id_producto = %s AND pp.id_tipo_parte_producto IN %s
     ORDER BY pp.id_tipo_parte_producto
 """
@@ -2740,8 +2752,12 @@ def armar_datos_etiqueta(row: dict) -> dict:
     fecha_prog = row.get("fecha_prog")
     turno = turno_de_fecha(fecha_prog.date().isoformat()) if isinstance(fecha_prog, datetime) else ""
     sucursal = str(row.get("sucursal") or "").strip()
-    puesto_turno = f"{sucursal} /{turno}/" if sucursal and turno else sucursal
-    return {
+    log = resolver_logistica_pieza(row, turno) if sucursal else {}
+    puesto = str(log.get("puesto") or sucursal).strip()
+    turno = str(log.get("turno_ruta") or turno).strip()
+    puesto_turno = f"{puesto} /{turno}/" if puesto and turno else puesto
+    cliente = str(row.get("propietario") or "").strip()
+    datos = {
         "codigo_barras": codigo_completo_canal(base, id_tipo),
         "codigo_animal": base,
         "id_tipo": id_tipo,
@@ -2751,13 +2767,21 @@ def armar_datos_etiqueta(row: dict) -> dict:
         "ubicacion": etiquetas.abreviar_ubicacion(row.get("cava"), row.get("riel")),
         "cava": row.get("cava") or "",
         "riel": row.get("riel") or "",
-        "puesto": sucursal,
+        "puesto": puesto,
+        "sucursal": sucursal,
         "turno": turno,
         "puesto_turno": puesto_turno,
+        "cliente": cliente,
+        "opl": resolver_opl_de_propietario(cliente) if cliente else "",
+        "zona": str(log.get("zona") or "").strip(),
+        "destino": str(row.get("destino_real") or "").strip(),
+        "direccion": str(log.get("direccion") or row.get("direccion_entrega") or "").strip(),
         "fecha_programacion": fecha_prog.date().isoformat() if isinstance(fecha_prog, datetime) else "",
         "en_cava": bool(row.get("cava")) and row.get("fecha_salida") is None,
         "reetiquetado_sirt": bool(row.get("reetiquetado")),
     }
+    datos["layout"] = etiquetas.layout_etiqueta(datos)
+    return datos
 
 
 def buscar_etiquetas(codigo: str) -> List[dict]:
