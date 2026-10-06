@@ -137,10 +137,24 @@ def es_destino_marcador_temprana(zona) -> bool:
     return False
 
 
-def es_destino_temp1(destino) -> bool:
-    """Destino SIRT 'TEMP1' o 'Temp 1 <zona>' = salida temprana (Temp 2/3 no)."""
+def marcador_destino_temp(destino) -> str:
+    """Destino SIRT 'TEMP1' o 'Temp 1 <zona>' = salida temprana → 'TEMP1'. Temp 2/3 no cuentan."""
     u = " ".join(str(destino or "").strip().upper().split())
-    return bool(re.match(r"^TEMP\s*1(?!\d)", u))
+    return "TEMP1" if re.match(r"^TEMP\s*1(?!\d)", u) else ""
+
+
+def _orden_marcador_temp(m) -> int:
+    """TEMP1 < TEMP2 < TEMP3 < TEMP (catálogo sin número) < sin marcador."""
+    if not m:
+        return 999
+    d = re.sub(r"\D", "", str(m))
+    return int(d) if d else 99
+
+
+def _mejor_marcador_temp(actual, nuevo) -> str:
+    """Un puesto con varias medias: gana la tanda más temprana."""
+    cands = [m for m in (actual, nuevo) if m]
+    return min(cands, key=_orden_marcador_temp) if cands else ""
 
 
 def es_puesto_temprana(sucursal_or_puesto, puesto_full: str = "") -> bool:
@@ -1434,6 +1448,10 @@ def _info_asignacion(r: dict, asignacion: Optional[dict]) -> dict:
     return {}
 
 
+def _fmt_canales(v: float) -> str:
+    return f"{v:g}".replace(".", ",")
+
+
 def _escribir_hoja_excel_opl(
     ws,
     opl: str,
@@ -1450,6 +1468,8 @@ def _escribir_hoja_excel_opl(
     verde = PatternFill("solid", fgColor="259C39")
     verde_claro = PatternFill("solid", fgColor="E8F5E9")
     azul_adicional = PatternFill("solid", fgColor="CFE8FF")
+    rojo_temprana = PatternFill("solid", fgColor="FDE2E2")
+    rojo = PatternFill("solid", fgColor="DC2626")
     blanco = Font(color="FFFFFF", bold=True, name="Calibri", size=11)
     titulo = Font(color="FFFFFF", bold=True, name="Calibri", size=16)
     normal = Font(name="Calibri", size=11)
@@ -1470,9 +1490,12 @@ def _escribir_hoja_excel_opl(
         ("Puesto", 12, lambda r, a: r.get("puesto") or ""),
         ("Cava", 16, lambda r, a: r.get("cava") or ""),
         ("Riel", 14, lambda r, a: r.get("riel") or ""),
+        ("Destino SIRT", 22, lambda r, a: r.get("destino_real") or ""),
+        ("Temprana", 11, lambda r, a: marcador_destino_temp(r.get("destino_real"))),
         ("Tipo", 12, lambda r, a: "Adicional" if a.get("adicional") else "Normal"),
         ("Hora asignación", 16, lambda r, a: a.get("hora") or ""),
     ]
+    col_temprana = next(i for i, c in enumerate(columnas, 1) if c[0] == "Temprana")
     ncol = len(columnas)
     ultima = get_column_letter(ncol)
 
@@ -1486,13 +1509,16 @@ def _escribir_hoja_excel_opl(
     ws.row_dimensions[1].height = 28
 
     infos = [_info_asignacion(r, asignacion) for r in filas]
+    tempranas = [bool(marcador_destino_temp(r.get("destino_real"))) for r in filas]
     n_adi = sum(1 for a in infos if a.get("adicional"))
+    n_temp = sum(tempranas)
     turno_txt = turno or "Todos"
     ws.merge_cells(f"A2:{ultima}2")
     ws["A2"] = (
         f"Medias canales pendientes · {fecha} · turno {turno_txt} · {len(filas)} registros"
-        f" · {n_adi} adicionales · Fila azul = adicional (asignada desde las "
-        f"{get_salida_adicional_corte_label()})"
+        f" · Tempranas TEMP1: {n_temp} medias ({_fmt_canales(n_temp * 0.5)} canales)"
+        f" · {n_adi} adicionales · Fila roja = temprana (destino TEMP1) · Fila azul = adicional"
+        f" (asignada desde las {get_salida_adicional_corte_label()})"
     )
     ws["A2"].font = Font(name="Calibri", size=10, italic=True, color="374151")
     ws["A2"].alignment = Alignment(horizontal="center")
@@ -1506,14 +1532,24 @@ def _escribir_hoja_excel_opl(
         cell.border = thin
         ws.column_dimensions[get_column_letter(i)].width = ancho
 
-    for idx, (r, a) in enumerate(zip(filas, infos), 4):
-        fill = azul_adicional if a.get("adicional") else (verde_claro if idx % 2 == 0 else None)
+    for idx, (r, a, temp) in enumerate(zip(filas, infos, tempranas), 4):
+        if temp:
+            fill = rojo_temprana
+        elif a.get("adicional"):
+            fill = azul_adicional
+        else:
+            fill = verde_claro if idx % 2 == 0 else None
         for col, (_, _, fn) in enumerate(columnas, 1):
             cell = ws.cell(idx, col, fn(r, a))
             cell.font = normal
             cell.border = thin
             if fill:
                 cell.fill = fill
+        if temp:
+            c = ws.cell(idx, col_temprana)
+            c.fill = rojo
+            c.font = blanco
+            c.alignment = Alignment(horizontal="center")
 
     ws.freeze_panes = "A4"
     ws.auto_filter.ref = f"A3:{ultima}{max(3, 3 + len(filas))}"
@@ -2325,17 +2361,20 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
             or construir_ruta(puesto, r.get("zona") or "", r.get("direccion") or "", turno or "")
         )
         zona = resolver_zona_planilla(puesto, r.get("zona") or "", ruta, obs)
-        temprana = es_puesto_temprana(puesto, ruta) or es_destino_temp1(r.get("destino_real"))
+        marcador = marcador_destino_temp(r.get("destino_real"))
+        temprana = bool(marcador) or es_puesto_temprana(puesto, ruta)
+        marcador = marcador or ("TEMP" if temprana else "")
         clave = f"{puesto}|{zona.upper()}"
         if zona not in zonas_map:
             zonas_map[zona] = {"total": 0.0, "puestos_map": {}}
         zonas_map[zona]["total"] += cantidad
         pm = zonas_map[zona]["puestos_map"]
         if clave not in pm:
-            pm[clave] = {"puesto": puesto, "cantidad": 0.0, "temprana": temprana}
+            pm[clave] = {"puesto": puesto, "cantidad": 0.0, "temprana": temprana, "marcadorTemp": marcador}
         pm[clave]["cantidad"] += cantidad
         if temprana:
             pm[clave]["temprana"] = True
+            pm[clave]["marcadorTemp"] = _mejor_marcador_temp(pm[clave].get("marcadorTemp"), marcador)
         puestos_flat.append({
             "puesto": ruta,
             "etiqueta": f"{puesto} · {zona}" if puesto and zona else (puesto or zona),
@@ -2346,7 +2385,7 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
             "codigo": r.get("codigo"),
             "propietario": r.get("propietario"),
             "temprana": temprana,
-            "marcadorTemp": "TEMP" if temprana else "",
+            "marcadorTemp": marcador,
         })
 
     # Consolidar flat por puesto+zona
@@ -2367,11 +2406,14 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
         flat_agg[k]["cantidad"] += p["cantidad"]
         if p.get("temprana"):
             flat_agg[k]["temprana"] = True
-            flat_agg[k]["marcadorTemp"] = "TEMP"
+            flat_agg[k]["marcadorTemp"] = _mejor_marcador_temp(
+                flat_agg[k].get("marcadorTemp"), p.get("marcadorTemp")
+            )
     puestos_lista = sorted(
         ({**v, "cantidad": round(v["cantidad"], 2)} for v in flat_agg.values()),
         key=lambda x: (
             0 if x.get("temprana") else 1,
+            _orden_marcador_temp(x.get("marcadorTemp")),
             str(x.get("zona") or ""),
             str(x.get("sucursal") or ""),
         ),
@@ -2385,11 +2427,15 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
                     "puesto": v["puesto"],
                     "cantidad": round(v["cantidad"], 2),
                     "temprana": bool(v.get("temprana")),
-                    "marcadorTemp": "TEMP" if v.get("temprana") else "",
+                    "marcadorTemp": (v.get("marcadorTemp") or "TEMP") if v.get("temprana") else "",
                 }
                 for v in bucket["puestos_map"].values()
             ],
-            key=lambda x: (0 if x.get("temprana") else 1, str(x["puesto"])),
+            key=lambda x: (
+                0 if x.get("temprana") else 1,
+                _orden_marcador_temp(x.get("marcadorTemp")),
+                str(x["puesto"]),
+            ),
         )
         zonas_array.append({
             "nombre": zona,
