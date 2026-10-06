@@ -137,6 +137,12 @@ def es_destino_marcador_temprana(zona) -> bool:
     return False
 
 
+def es_destino_temp1(destino) -> bool:
+    """Destino SIRT 'TEMP1' o 'Temp 1 <zona>' = salida temprana (Temp 2/3 no)."""
+    u = " ".join(str(destino or "").strip().upper().split())
+    return bool(re.match(r"^TEMP\s*1(?!\d)", u))
+
+
 def es_puesto_temprana(sucursal_or_puesto, puesto_full: str = "") -> bool:
     """Temprana = código de sucursal/puesto en catálogo (NSF, 6505…)."""
     cat = get_puestos_tempranas()
@@ -2296,7 +2302,8 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
     Misma estructura que Gestor Vísceras generarPlanillaPuntos:
     zonas[{nombre, total, puestos[{puesto, cantidad, temprana}]}] + lista plana puestos.
     Cantidad = medias × 0.5 (equivalente canal).
-    Tempranas: puestos del catálogo NSF/6505/… — prioridad visual, no cambian pendientes.
+    Tempranas: puestos del catálogo NSF/6505/… o destino SIRT TEMP1 / 'Temp 1 …' —
+    prioridad visual, no cambian pendientes.
     """
     opl_sel = (opl_sel or "").strip()
     total_global = round(len(items) * 0.5, 2)
@@ -2318,7 +2325,7 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
             or construir_ruta(puesto, r.get("zona") or "", r.get("direccion") or "", turno or "")
         )
         zona = resolver_zona_planilla(puesto, r.get("zona") or "", ruta, obs)
-        temprana = es_puesto_temprana(puesto, ruta)
+        temprana = es_puesto_temprana(puesto, ruta) or es_destino_temp1(r.get("destino_real"))
         clave = f"{puesto}|{zona.upper()}"
         if zona not in zonas_map:
             zonas_map[zona] = {"total": 0.0, "puestos_map": {}}
