@@ -369,6 +369,25 @@ SQL_EXISTS_PROGRAMADO = """
           )
 """
 
+# Igual que SQL_EXISTS_PROGRAMADO pero sin las medias que se quedan en la cava
+# de planta (ver es_stock_planta): esas nunca salen y no deben entrar a la meta.
+SQL_EXISTS_PROGRAMADO_DESPACHO = """
+          AND EXISTS (
+            SELECT 1
+            FROM trazabilidad_proceso.parte_producto_empresa ppe_p
+            JOIN trazabilidad_proceso.parte_producto_empresa_local ppel_p
+              ON ppel_p.id_parte_producto_empresa = ppe_p.id
+            LEFT JOIN organizaciones.sucursal s_p ON s_p.id = ppel_p.id_local
+            LEFT JOIN trazabilidad_proceso.destino de_p ON de_p.id = s_p.id_destino
+            WHERE ppe_p.id_parte_producto = pp.id
+              AND ppe_p.id_producto::text = pp.id_producto::text
+              AND ppel_p.fecha_programacion_despacho IS NOT NULL
+              AND ppel_p.fecha_programacion_despacho::date = %s::date
+              AND UPPER(COALESCE(TRIM(de_p.nombre), '')) NOT IN ('CAVA', 'PLANTA')
+              AND UPPER(COALESCE(TRIM(s_p.nombre), '')) <> 'COLBEEF'
+          )
+"""
+
 
 def patron_turno(turno: Optional[str]) -> Optional[str]:
     """Patrón ILIKE si el texto trae el código (ej. /JxV/). None = sin filtro."""
@@ -487,6 +506,17 @@ def es_destino_despacho(log: dict) -> bool:
     if puesto.startswith("CAVA") or puesto in {p.upper() for p in PUESTOS_EXCLUIDOS}:
         return False
     return True
+
+
+DESTINOS_STOCK_PLANTA = {"CAVA", "PLANTA"}
+SUCURSALES_STOCK_PLANTA = {"COLBEEF"}
+
+
+def es_stock_planta(destino, sucursal) -> bool:
+    """Media programada para quedarse en la cava de planta: nunca sale, no entra a la meta."""
+    d = str(destino or "").strip().upper()
+    s = str(sucursal or "").strip().upper()
+    return d in DESTINOS_STOCK_PLANTA or s in SUCURSALES_STOCK_PLANTA
 
 
 def pasa_filtro_turno(log: dict, turno: Optional[str]) -> bool:
@@ -790,7 +820,9 @@ def consultar_asignadas_dia(fecha_filtro: str) -> dict:
         SELECT
             u.id_producto, u.id_tipo, u.registro, u.en_historial, u.fecha_salida, u.cava,
             COALESCE(NULLIF(TRIM(prop.nombre), ''), 'Sin propietario') AS propietario,
-            COALESCE(NULLIF(TRIM(de.nombre), ''), NULLIF(TRIM(s.nombre), ''), '') AS zona
+            COALESCE(NULLIF(TRIM(de.nombre), ''), NULLIF(TRIM(s.nombre), ''), '') AS zona,
+            COALESCE(TRIM(de.nombre), '') AS destino_real,
+            COALESCE(TRIM(s.nombre), '') AS sucursal
         FROM ult u
         LEFT JOIN LATERAL (
             SELECT e3.nombre
@@ -815,7 +847,11 @@ def consultar_asignadas_dia(fecha_filtro: str) -> dict:
         rows = safe_query(armar_sql(False), params, "asignadas_dia")
 
     filas = []
+    excluidas_stock = 0
     for r in rows:
+        if es_stock_planta(r.get("destino_real"), r.get("sucursal")):
+            excluidas_stock += 1
+            continue
         id_tipo = int(r.get("id_tipo") or 0)
         cod = str(r.get("id_producto") or "")
         reg = r.get("registro")
@@ -859,6 +895,7 @@ def consultar_asignadas_dia(fecha_filtro: str) -> dict:
         "corteAdicional": corte_lbl,
         "adicionalesPorAsignacion": True,
         "fuenteHoraAsignacion": fuente,
+        "totalMediasStockPlanta": excluidas_stock,
         "totalFilas": n_tot,
         "totalNormales": n_nor,
         "totalAdicionales": n_adi,
@@ -877,13 +914,15 @@ def consultar_asignadas_dia(fecha_filtro: str) -> dict:
         "filas": filas,
         "nota": (
             f"Normales = programadas por primera vez antes de las {corte_lbl}; adicionales = "
-            f"desde las {corte_lbl}. Normales + adicionales = total asignado."
+            f"desde las {corte_lbl}. Normales + adicionales = total asignado. "
+            f"No cuentan las medias programadas para quedarse en la cava de planta "
+            f"(destino CAVA/PLANTA o puesto COLBEEF): {excluidas_stock}."
         ),
     }
 
 
 def obtener_asignadas_dia(fecha_filtro: str) -> dict:
-    ck = ("asignadas_dia", fecha_filtro, "v2_hist")
+    ck = ("asignadas_dia", fecha_filtro, "v3_sin_stock")
     out = cache_get(ck)
     if out is None:
         out = consultar_asignadas_dia(fecha_filtro)
@@ -2027,7 +2066,7 @@ def get_planilla_opl(
     turno = resolver_turno(fecha_filtro, turno)
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
-    ck = ("planilla_opl", fecha_filtro, turno, "prog_v5_adi_asignacion")
+    ck = ("planilla_opl", fecha_filtro, turno, "prog_v6_sin_stock")
     hit = cache_get(ck)
     if hit is not None:
         return hit
@@ -2040,7 +2079,7 @@ def get_planilla_opl(
                 pp.id_tipo_parte_producto
             FROM trazabilidad_proceso.parte_producto pp
             WHERE pp.id_tipo_parte_producto IN %s
-              {SQL_EXISTS_PROGRAMADO}
+              {SQL_EXISTS_PROGRAMADO_DESPACHO}
         ),
         ultimo_movimiento AS (
             SELECT DISTINCT ON (p.id_producto, p.id_parte_producto)
