@@ -137,10 +137,20 @@ def es_destino_marcador_temprana(zona) -> bool:
     return False
 
 
-def marcador_destino_temp(destino) -> str:
-    """Destino SIRT 'TEMP1' o 'Temp 1 <zona>' = salida temprana → 'TEMP1'. Temp 2/3 no cuentan."""
+# OPL que sacan tempranas. Por defecto todos ("*"), igual que el reporte SIRT de tempranas.
+# Override: CANALES_TEMPRANAS_OPL=TRANSCARNES,CAVA AJR
+def get_opls_tempranas() -> set:
+    raw = (os.getenv("CANALES_TEMPRANAS_OPL") or "*").strip()
+    return {o.strip().upper() for o in raw.split(",") if o.strip()}
+
+
+def marcador_destino_temp(destino, opl) -> str:
+    """Temprana = destino SIRT 'TEMP1' o 'Temp 1 <zona>' → 'TEMP1'. TEMP2/3 no cuentan."""
     u = " ".join(str(destino or "").strip().upper().split())
-    return "TEMP1" if re.match(r"^TEMP\s*1(?!\d)", u) else ""
+    if not re.match(r"^TEMP\s*1(?!\d)", u):
+        return ""
+    opls = get_opls_tempranas()
+    return "TEMP1" if "*" in opls or str(opl or "").strip().upper() in opls else ""
 
 
 def _orden_marcador_temp(m) -> int:
@@ -1491,7 +1501,7 @@ def _escribir_hoja_excel_opl(
         ("Cava", 16, lambda r, a: r.get("cava") or ""),
         ("Riel", 14, lambda r, a: r.get("riel") or ""),
         ("Destino SIRT", 22, lambda r, a: r.get("destino_real") or ""),
-        ("Temprana", 11, lambda r, a: marcador_destino_temp(r.get("destino_real"))),
+        ("Temprana", 11, lambda r, a: marcador_destino_temp(r.get("destino_real"), r.get("opl") or opl)),
         ("Tipo", 12, lambda r, a: "Adicional" if a.get("adicional") else "Normal"),
         ("Hora asignación", 16, lambda r, a: a.get("hora") or ""),
     ]
@@ -1509,7 +1519,7 @@ def _escribir_hoja_excel_opl(
     ws.row_dimensions[1].height = 28
 
     infos = [_info_asignacion(r, asignacion) for r in filas]
-    tempranas = [bool(marcador_destino_temp(r.get("destino_real"))) for r in filas]
+    tempranas = [bool(marcador_destino_temp(r.get("destino_real"), r.get("opl") or opl)) for r in filas]
     n_adi = sum(1 for a in infos if a.get("adicional"))
     n_temp = sum(tempranas)
     turno_txt = turno or "Todos"
@@ -1517,7 +1527,7 @@ def _escribir_hoja_excel_opl(
     ws["A2"] = (
         f"Medias canales pendientes · {fecha} · turno {turno_txt} · {len(filas)} registros"
         f" · Tempranas TEMP1: {n_temp} medias ({_fmt_canales(n_temp * 0.5)} canales)"
-        f" · {n_adi} adicionales · Fila roja = temprana (destino TEMP1) · Fila azul = adicional"
+        f" · {n_adi} adicionales · Fila roja = temprana (destino TEMP1 o Temp 1) · Fila azul = adicional"
         f" (asignada desde las {get_salida_adicional_corte_label()})"
     )
     ws["A2"].font = Font(name="Calibri", size=10, italic=True, color="374151")
@@ -2338,8 +2348,8 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
     Misma estructura que Gestor Vísceras generarPlanillaPuntos:
     zonas[{nombre, total, puestos[{puesto, cantidad, temprana}]}] + lista plana puestos.
     Cantidad = medias × 0.5 (equivalente canal).
-    Tempranas: puestos del catálogo NSF/6505/… o destino SIRT TEMP1 / 'Temp 1 …' —
-    prioridad visual, no cambian pendientes.
+    Tempranas: destino SIRT TEMP1 o 'Temp 1 <zona>', de todos los OPL
+    (ver get_opls_tempranas) — prioridad visual, no cambian pendientes.
     """
     opl_sel = (opl_sel or "").strip()
     total_global = round(len(items) * 0.5, 2)
@@ -2361,9 +2371,8 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
             or construir_ruta(puesto, r.get("zona") or "", r.get("direccion") or "", turno or "")
         )
         zona = resolver_zona_planilla(puesto, r.get("zona") or "", ruta, obs)
-        marcador = marcador_destino_temp(r.get("destino_real"))
-        temprana = bool(marcador) or es_puesto_temprana(puesto, ruta)
-        marcador = marcador or ("TEMP" if temprana else "")
+        marcador = marcador_destino_temp(r.get("destino_real"), opl_reg)
+        temprana = bool(marcador)
         clave = f"{puesto}|{zona.upper()}"
         if zona not in zonas_map:
             zonas_map[zona] = {"total": 0.0, "puestos_map": {}}
