@@ -1458,6 +1458,15 @@ def _info_asignacion(r: dict, asignacion: Optional[dict]) -> dict:
     return {}
 
 
+def destino_sirt_completo(r: dict, turno=None) -> str:
+    """Como lo muestra SIRT: '09309/Temp 1 Florida/CLL 200 # 19-14 LA PAZ /MxM/'."""
+    suc = str(r.get("sucursal_origen") or r.get("puesto") or "").strip()
+    dest = str(r.get("destino_real") or "").strip()
+    dire = str(r.get("direccion_entrega") or r.get("direccion") or "").strip()
+    trn = str(r.get("turno_ruta") or turno or "").strip()
+    return f"{suc}/{dest}/{dire} /{trn}/"
+
+
 def _fmt_canales(v: float) -> str:
     return f"{v:g}".replace(".", ",")
 
@@ -1500,12 +1509,13 @@ def _escribir_hoja_excel_opl(
         ("Puesto", 12, lambda r, a: r.get("puesto") or ""),
         ("Cava", 16, lambda r, a: r.get("cava") or ""),
         ("Riel", 14, lambda r, a: r.get("riel") or ""),
-        ("Destino SIRT", 22, lambda r, a: r.get("destino_real") or ""),
+        ("Destino SIRT", 60, lambda r, a: destino_sirt_completo(r, turno)),
         ("Temprana", 11, lambda r, a: marcador_destino_temp(r.get("destino_real"), r.get("opl") or opl)),
         ("Tipo", 12, lambda r, a: "Adicional" if a.get("adicional") else "Normal"),
         ("Hora asignación", 16, lambda r, a: a.get("hora") or ""),
     ]
     col_temprana = next(i for i, c in enumerate(columnas, 1) if c[0] == "Temprana")
+    col_destino = next(i for i, c in enumerate(columnas, 1) if c[0] == "Destino SIRT")
     ncol = len(columnas)
     ultima = get_column_letter(ncol)
 
@@ -1555,6 +1565,7 @@ def _escribir_hoja_excel_opl(
             cell.border = thin
             if fill:
                 cell.fill = fill
+        ws.cell(idx, col_destino).alignment = Alignment(wrap_text=True, vertical="center")
         if temp:
             c = ws.cell(idx, col_temprana)
             c.fill = rojo
