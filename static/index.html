@@ -759,7 +759,7 @@
 
     <div class="etl-box">
       <h3>🖨️ Etiquetas de despacho por OPL</h3>
-      <p class="etl-ayuda">Imprime sin pistolear las medias pendientes de la planilla de puntos, por OPL y en orden por cliente (zona, puesto y código). Cada cliente empieza con una etiqueta separadora.</p>
+      <p class="etl-ayuda">Imprime sin pistolear las medias pendientes de la planilla de puntos, por OPL. <strong>Por cliente</strong>: en orden de cliente, zona, puesto y código, y cada cliente empieza con una separadora. <strong>Por cava y riel</strong>: en el orden en que están colgadas (Cava 1 Riel 1, Cava 1 Riel 2…), para ir pegando; cada riel empieza con una separadora y cada etiqueta sigue mostrando su OPL y cliente.</p>
       <div class="etl-filtros">
         <label>Fecha <input type="date" id="etlFecha"></label>
         <label>Turno
@@ -771,8 +771,14 @@
           </select>
         </label>
         <button class="btn btn-secondary btn-sm" onclick="cargarEtiquetasOpl(true)">🔄 Cargar OPL</button>
+        <label>Orden
+          <select id="etlOrden" onchange="etlCambiarOrden()">
+            <option value="cliente">Por cliente (despacho)</option>
+            <option value="ubicacion">Por cava y riel (para pegar)</option>
+          </select>
+        </label>
         <label><input type="checkbox" id="etlSoloNuevas" checked onchange="renderEtiquetasOpl()"> Solo las que no se han impreso</label>
-        <label><input type="checkbox" id="etlSeparadores" checked onchange="renderEtiquetasOpl()"> Separadora por cliente</label>
+        <label><input type="checkbox" id="etlSeparadores" checked onchange="renderEtiquetasOpl()"> <span id="etlSepTxt">Separadora por cliente</span></label>
       </div>
       <div id="etlLista" class="etl-lista"><div class="empty-state">Pulsa «Cargar OPL» para ver las etiquetas pendientes.</div></div>
       <div class="etl-acciones">
@@ -1119,6 +1125,7 @@ function irModulo(m) {
   else if (m === 'etiquetas') {
     showView('viewEtiquetas');
     if (!$('etlFecha').value) $('etlFecha').value = getFecha();
+    try { const o = localStorage.getItem('canales_etl_orden'); if (o) $('etlOrden').value = o; } catch (_) {}
     if (!ZB.buscado) zbDetectar(); else renderZb();
     cargarEtiquetasOpl(false);
     setTimeout(() => $('etCodigo').focus(), 50);
@@ -2410,18 +2417,34 @@ async function cargarEtiquetasOpl(refresh) {
   }
 }
 
+const etlPorUbicacion = () => $('etlOrden').value === 'ubicacion';
+
+function etlCambiarOrden() {
+  try { localStorage.setItem('canales_etl_orden', $('etlOrden').value); } catch (_) {}
+  renderEtiquetasOpl();
+}
+
 function _etlConteo() {
   const soloNuevas = $('etlSoloNuevas').checked;
   let etiquetas = 0, clientes = 0;
+  const rieles = new Set();
   (ETL.datos?.opls || []).forEach(o => {
     if (!ETL.oplsSel.has(o.opl)) return;
     o.clientes.forEach(c => {
       if (ETL.excluidos.has(c.clave)) return;
       const n = soloNuevas ? c.nuevas : c.total;
       if (n > 0) { etiquetas += n; clientes++; }
+      Object.entries(c.rieles || {}).forEach(([ubi, v]) => {
+        if ((soloNuevas ? v.nuevas : v.total) > 0) rieles.add(ubi);
+      });
     });
   });
-  return { etiquetas, clientes, separadoras: $('etlSeparadores').checked ? clientes : 0 };
+  const grupos = etlPorUbicacion() ? rieles.size : clientes;
+  return { etiquetas, clientes, rieles: rieles.size, separadoras: $('etlSeparadores').checked ? grupos : 0 };
+}
+
+function _etlTextoGrupos({ clientes, rieles }) {
+  return etlPorUbicacion() ? `${rieles} riel(es)` : `${clientes} cliente(s)`;
 }
 
 function renderEtiquetasOpl() {
@@ -2460,16 +2483,20 @@ function renderEtiquetasOpl() {
     $('etlTodos').indeterminate = marcados > 0 && marcados < opls.length;
   }
 
-  const { etiquetas, clientes, separadoras } = _etlConteo();
+  const conteo = _etlConteo();
+  const { etiquetas, separadoras } = conteo;
+  $('etlSepTxt').textContent = etlPorUbicacion() ? 'Separadora por riel' : 'Separadora por cliente';
   $('etlResumen').innerHTML = etiquetas
-    ? `<strong>${etiquetas}</strong> etiqueta(s) de ${clientes} cliente(s)${separadoras ? ` + ${separadoras} separadora(s)` : ''}`
+    ? `<strong>${etiquetas}</strong> etiqueta(s) de ${_etlTextoGrupos(conteo)}${separadoras ? ` + ${separadoras} separadora(s)` : ''}`
+      + (etlPorUbicacion() ? ' · orden Cava 1 Riel 1, Cava 1 Riel 2…' : '')
     : ($('etlSoloNuevas').checked && ETL.oplsSel.size ? 'Todo lo marcado ya se imprimió (desmarca «Solo las que no se han impreso» para reimprimir)' : 'Marca uno o más OPL');
   $('etlBtnImprimir').disabled = !etiquetas;
   $('etlBtnImprimir').textContent = etiquetas ? `🖨️ Imprimir ${etiquetas + separadoras} etiquetas` : '🖨️ Imprimir';
 
   let prev = '';
-  if ($('etlSeparadores').checked && (d.previewSeparador || []).length) {
-    prev += `<div class="etl-cap">Separadora de cliente (ejemplo)</div><div class="et-tira">${tiraEtiquetaHtml(d.previewSeparador)}</div>`;
+  const sepPrev = etlPorUbicacion() ? d.previewSeparadorRiel : d.previewSeparador;
+  if ($('etlSeparadores').checked && (sepPrev || []).length) {
+    prev += `<div class="etl-cap">Separadora de ${etlPorUbicacion() ? 'riel' : 'cliente'} (ejemplo)</div><div class="et-tira">${tiraEtiquetaHtml(sepPrev)}</div>`;
   }
   if (d.preview) {
     prev += `<div class="etl-cap">Etiqueta de despacho (ejemplo: ${escHtml(d.preview.codigo_barras)})</div><div class="et-tira">${tiraEtiquetaHtml(d.preview.layout || [])}</div>`;
@@ -2501,10 +2528,12 @@ function etlToggleCliente(i, j, marcar) {
 }
 
 async function imprimirEtiquetasOpl() {
-  const { etiquetas, clientes, separadoras } = _etlConteo();
+  const conteo = _etlConteo();
+  const { etiquetas, separadoras } = conteo;
   if (!etiquetas) return;
   if (ZB.modo === 'local' && !ZB.device) await zbDetectar();
-  if (!confirm(`¿Imprimir ${etiquetas} etiqueta(s) de ${clientes} cliente(s)${separadoras ? ` + ${separadoras} separadora(s)` : ''} en ${zbDestinoTexto()}?`)) return;
+  const ordenTxt = etlPorUbicacion() ? ' en orden de cava y riel' : '';
+  if (!confirm(`¿Imprimir ${etiquetas} etiqueta(s) de ${_etlTextoGrupos(conteo)}${separadoras ? ` + ${separadoras} separadora(s)` : ''}${ordenTxt} en ${zbDestinoTexto()}?`)) return;
   const opls = [...ETL.oplsSel];
   const claves = new Set(ETL.datos.opls.filter(o => ETL.oplsSel.has(o.opl)).flatMap(o => o.clientes.map(c => c.clave)));
   const body = {
@@ -2514,13 +2543,15 @@ async function imprimirEtiquetasOpl() {
     excluir: [...ETL.excluidos].filter(k => claves.has(k)),
     solo_nuevas: $('etlSoloNuevas').checked,
     separadores: $('etlSeparadores').checked,
+    orden: $('etlOrden').value,
   };
   showSpinner();
   try {
     const j = await imprimirEtiquetas('/etiquetas/opl/imprimir', body);
     if (window.ColbeefUsage) ColbeefUsage.track('etiquetas_opl', 'etiquetas', `${j.impresas} etiquetas ${opls.join(', ')}`);
     const a = $('alertGlobal');
-    a.textContent = `✅ Enviadas ${j.impresas} etiqueta(s) de ${j.clientes} cliente(s)${j.separadores ? ` + ${j.separadores} separadora(s)` : ''} a ${j.destino}`;
+    const grupoTxt = j.orden === 'ubicacion' ? `${j.rieles} riel(es)` : `${j.clientes} cliente(s)`;
+    a.textContent = `✅ Enviadas ${j.impresas} etiqueta(s) de ${grupoTxt}${j.separadores ? ` + ${j.separadores} separadora(s)` : ''} a ${j.destino}`;
     a.className = 'alert alert-success show';
     setTimeout(() => a.classList.remove('show'), 6000);
     await cargarEtiquetasOpl(false);

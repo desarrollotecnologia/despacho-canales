@@ -3040,6 +3040,31 @@ def _parsear_lista_json(valor) -> List[str]:
     return [str(x or "").strip() for x in (lista or []) if str(x or "").strip()]
 
 
+def _clave_natural(texto) -> list:
+    """'Cava 10 - Riel 2' después de 'Cava 9 - Riel 12' (números como números)."""
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", str(texto or "").upper())]
+
+
+def ubicacion_pieza(r: dict) -> str:
+    """Riel tal como viene de SIRT ('Cava 6B - Riel 3'); 'Riel Unico' → 'Cava X - Riel Unico'."""
+    cava = str(r.get("cava") or "").strip()
+    riel = str(r.get("riel") or "").strip()
+    if riel and cava and cava.upper() not in riel.upper() and not riel.upper().startswith("CVIRT"):
+        return f"{cava} - {riel}"
+    return riel or cava or "Sin ubicación"
+
+
+def orden_ubicacion(r: dict) -> tuple:
+    """Cava 1 Riel 1, Cava 1 Riel 2 … Cava 2 Riel 1 …; cavas virtuales al final."""
+    cava = str(r.get("cava") or "")
+    return (
+        1 if "VIRT" in cava.upper() or not cava else 0,
+        _clave_natural(cava),
+        _clave_natural(ubicacion_pieza(r)),
+        str(r.get("codigo_completo") or r.get("codigo") or ""),
+    )
+
+
 def grupos_etiquetas_opl(fecha: str, turno: Optional[str], opls: List[str],
                          solo_nuevas: bool = False, excluir: Optional[List[str]] = None) -> List[dict]:
     """
@@ -3068,12 +3093,15 @@ def grupos_etiquetas_opl(fecha: str, turno: Optional[str], opls: List[str],
         clave = f"{opl}|{cliente}"
         if not grupos or grupos[-1]["clave"] != clave:
             grupos.append({"clave": clave, "opl": opl, "cliente": cliente, "piezas": [],
-                           "total": 0, "nuevas": 0, "puestos": []})
+                           "total": 0, "nuevas": 0, "puestos": [], "rieles": {}})
         g = grupos[-1]
         codigo = str(r.get("codigo_completo") or r.get("codigo") or "").strip().upper()
         ya = codigo in impresas
         g["total"] += 1
         g["nuevas"] += 0 if ya else 1
+        rl = g["rieles"].setdefault(ubicacion_pieza(r), {"total": 0, "nuevas": 0})
+        rl["total"] += 1
+        rl["nuevas"] += 0 if ya else 1
         puesto = str(r.get("puesto") or "").strip()
         if puesto and puesto not in g["puestos"]:
             g["puestos"].append(puesto)
@@ -3100,8 +3128,16 @@ def get_etiquetas_opl(
         o = por_opl.setdefault(g["opl"], {"opl": g["opl"], "total": 0, "nuevas": 0, "clientes": []})
         o["total"] += g["total"]
         o["nuevas"] += g["nuevas"]
-        o["clientes"].append({k: g[k] for k in ("clave", "cliente", "total", "nuevas", "puestos")})
+        o["clientes"].append({k: g[k] for k in ("clave", "cliente", "total", "nuevas", "puestos", "rieles")})
     primera = next((g["piezas"][0] for g in grupos if g["piezas"]), None)
+    por_ubicacion = sorted((r for g in grupos for r in g["piezas"]), key=orden_ubicacion)
+    primera_ubi = por_ubicacion[0] if por_ubicacion else None
+    if primera_ubi:
+        ubi = ubicacion_pieza(primera_ubi)
+        en_riel = [r for r in por_ubicacion if ubicacion_pieza(r) == ubi]
+        sep_riel = separador_riel(ubi, en_riel)
+    else:
+        sep_riel = []
     return {
         "success": True,
         "fecha": fecha_filtro,
@@ -3114,8 +3150,23 @@ def get_etiquetas_opl(
             "opl": grupos[0]["opl"], "cliente": grupos[0]["cliente"],
             "total": grupos[0]["total"], "puestos": ", ".join(grupos[0]["puestos"]),
         }) if grupos else [],
+        "previewSeparadorRiel": sep_riel,
         "impresora": etiquetas.config_impresora(),
     }
+
+
+def separador_riel(ubicacion: str, piezas: List[dict]) -> list:
+    opls = []
+    for r in piezas:
+        o = str(r.get("opl") or "").strip()
+        if o and o not in opls:
+            opls.append(o)
+    return etiquetas.layout_separador({
+        "titulo": "INICIO RIEL",
+        "cliente": ubicacion.upper().replace(" - ", "  ·  "),
+        "total": len(piezas),
+        "opls": ", ".join(opls),
+    })
 
 
 class EtiquetasOplImprimirIn(BaseModel):
@@ -3125,6 +3176,8 @@ class EtiquetasOplImprimirIn(BaseModel):
     excluir: List[str] = []
     solo_nuevas: bool = True
     separadores: bool = True
+    # "cliente" = OPL → cliente (despacho); "ubicacion" = cava → riel (para ir pegando)
+    orden: str = "cliente"
     solo_zpl: bool = False
 
 
@@ -3152,14 +3205,25 @@ def post_etiquetas_opl_imprimir(payload: EtiquetasOplImprimirIn):
         raise HTTPException(status_code=400, detail="No hay etiquetas para imprimir con esa selección")
     if total > MAX_ETIQUETAS_LOTE:
         raise HTTPException(status_code=400, detail=f"Son {total} etiquetas; el máximo por envío es {MAX_ETIQUETAS_LOTE}. Imprime por partes.")
+    if (payload.orden or "").lower() == "ubicacion":
+        piezas = sorted((r for g in grupos for r in g["piezas"]), key=orden_ubicacion)
+        bloques: List[tuple] = []
+        for r in piezas:
+            ubi = ubicacion_pieza(r)
+            if not bloques or bloques[-1][0] != ubi:
+                bloques.append((ubi, []))
+            bloques[-1][1].append(r)
+        secciones = [(separador_riel(ubi, rs), rs) for ubi, rs in bloques]
+    else:
+        secciones = [(etiquetas.layout_separador({
+            "opl": g["opl"], "cliente": g["cliente"],
+            "total": len(g["piezas"]), "puestos": ", ".join(g["puestos"]),
+        }), g["piezas"]) for g in grupos]
     layouts, codigos = [], []
-    for g in grupos:
+    for sep, piezas_sec in secciones:
         if payload.separadores:
-            layouts.append(etiquetas.layout_separador({
-                "opl": g["opl"], "cliente": g["cliente"],
-                "total": len(g["piezas"]), "puestos": ", ".join(g["puestos"]),
-            }))
-        for r in g["piezas"]:
+            layouts.append(sep)
+        for r in piezas_sec:
             d = datos_etiqueta_desde_pieza(r, fecha_filtro)
             layouts.append(d["layout"])
             codigos.append(d["codigo_barras"])
@@ -3167,9 +3231,11 @@ def post_etiquetas_opl_imprimir(payload: EtiquetasOplImprimirIn):
     resumen = {
         "success": True,
         "fecha": fecha_filtro,
+        "orden": "ubicacion" if (payload.orden or "").lower() == "ubicacion" else "cliente",
         "impresas": len(codigos),
-        "separadores": len(grupos) if payload.separadores else 0,
+        "separadores": len(secciones) if payload.separadores else 0,
         "clientes": len(grupos),
+        "rieles": len({ubicacion_pieza(r) for g in grupos for r in g["piezas"]}),
     }
     if payload.solo_zpl:
         return {**resumen, "zpl": zpl, "marcas": [{"codigo": c, "fecha": fecha_filtro} for c in codigos]}

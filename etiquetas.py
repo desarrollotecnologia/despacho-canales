@@ -118,14 +118,17 @@ def layout_etiqueta(et: dict) -> list:
 
 
 def layout_separador(sep: dict) -> list:
-    """Etiqueta que encabeza cada cliente en la impresión por OPL."""
+    """Etiqueta que encabeza cada cliente (o cada riel) en la impresión por lote."""
     x0 = 220
     total = int(sep.get("total") or 0)
     detalle = f"{total} etiqueta{'s' if total != 1 else ''}"
     if sep.get("puestos"):
         detalle += f" · Puestos: {_corto(sep.get('puestos'), 40)}"
+    if sep.get("opls"):
+        detalle += f" · OPL: {_corto(sep.get('opls'), 45)}"
+    titulo = sep.get("titulo") or f"OPL {_corto(sep.get('opl') or '-', 30)}  ·  INICIO CLIENTE"
     elementos = [
-        {"tipo": "texto", "x": x0, "y": 10, "h": 28, "texto": f"OPL {_corto(sep.get('opl') or '-', 30)}  ·  INICIO CLIENTE"},
+        {"tipo": "texto", "x": x0, "y": 10, "h": 28, "texto": titulo},
         {"tipo": "linea", "x": x0, "y": 44, "h": 5, "largo": 1180, "texto": "-"},
         {"tipo": "texto", "x": x0, "y": 60, "h": 50, "texto": _corto(sep.get("cliente") or "SIN CLIENTE", 40)},
         {"tipo": "texto", "x": x0, "y": 124, "h": 30, "texto": detalle},
