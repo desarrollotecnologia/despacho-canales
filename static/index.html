@@ -1116,7 +1116,24 @@ function irMain() {
   actualizarDashboard();
 }
 
+const PIN_ETIQUETAS = '0199';
+const PIN_ETIQUETAS_OK = 'despacho_etiquetas_pin';
+
+function exigirPinEtiquetas() {
+  try {
+    if (sessionStorage.getItem(PIN_ETIQUETAS_OK) === '1') return true;
+  } catch (_) {}
+  const pin = window.prompt('Módulo de etiquetas en pruebas.\nIngrese el PIN:');
+  if (pin === PIN_ETIQUETAS) {
+    try { sessionStorage.setItem(PIN_ETIQUETAS_OK, '1'); } catch (_) {}
+    return true;
+  }
+  if (pin != null && String(pin).trim() !== '') alert('PIN incorrecto.');
+  return false;
+}
+
 function irModulo(m) {
+  if (m === 'etiquetas' && !exigirPinEtiquetas()) return;
   if (window.ColbeefUsage) ColbeefUsage.track('module_open', m, 'Abrir módulo');
   marcarTurnoSugerido();
   if (m === 'despachos') { showView('viewDespachos'); cargarDespachos(); }
