@@ -3176,8 +3176,8 @@ class EtiquetasOplImprimirIn(BaseModel):
     excluir: List[str] = []
     solo_nuevas: bool = True
     separadores: bool = True
-    # "cliente" = OPL → cliente (despacho); "ubicacion" = cava → riel (para ir pegando)
-    orden: str = "cliente"
+    # "ubicacion" = cava → riel (para ir pegando, por defecto); "cliente" = OPL → cliente (despacho)
+    orden: str = "ubicacion"
     solo_zpl: bool = False
 
 

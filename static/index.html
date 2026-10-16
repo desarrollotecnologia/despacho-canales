@@ -759,7 +759,7 @@
 
     <div class="etl-box">
       <h3>🖨️ Etiquetas de despacho por OPL</h3>
-      <p class="etl-ayuda">Imprime sin pistolear las medias pendientes de la planilla de puntos, por OPL. <strong>Por cliente</strong>: en orden de cliente, zona, puesto y código, y cada cliente empieza con una separadora. <strong>Por cava y riel</strong>: en el orden en que están colgadas (Cava 1 Riel 1, Cava 1 Riel 2…), para ir pegando; cada riel empieza con una separadora y cada etiqueta sigue mostrando su OPL y cliente.</p>
+      <p class="etl-ayuda">Imprime sin pistolear las medias pendientes de la planilla de puntos, por OPL. Por defecto sale <strong>por cava y riel</strong> (Cava 1 Riel 1, Cava 1 Riel 2…), para ir pegando; cada riel empieza con una separadora y cada etiqueta sigue mostrando su OPL y cliente. También puedes elegir <strong>por cliente</strong> si quieres armar el despacho.</p>
       <div class="etl-filtros">
         <label>Fecha <input type="date" id="etlFecha"></label>
         <label>Turno
@@ -773,12 +773,12 @@
         <button class="btn btn-secondary btn-sm" onclick="cargarEtiquetasOpl(true)">🔄 Cargar OPL</button>
         <label>Orden
           <select id="etlOrden" onchange="etlCambiarOrden()">
+            <option value="ubicacion" selected>Por cava y riel (para pegar)</option>
             <option value="cliente">Por cliente (despacho)</option>
-            <option value="ubicacion">Por cava y riel (para pegar)</option>
           </select>
         </label>
         <label><input type="checkbox" id="etlSoloNuevas" checked onchange="renderEtiquetasOpl()"> Solo las que no se han impreso</label>
-        <label><input type="checkbox" id="etlSeparadores" checked onchange="renderEtiquetasOpl()"> <span id="etlSepTxt">Separadora por cliente</span></label>
+        <label><input type="checkbox" id="etlSeparadores" checked onchange="renderEtiquetasOpl()"> <span id="etlSepTxt">Separadora por riel</span></label>
       </div>
       <div id="etlLista" class="etl-lista"><div class="empty-state">Pulsa «Cargar OPL» para ver las etiquetas pendientes.</div></div>
       <div class="etl-acciones">
@@ -833,7 +833,7 @@
       <div style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center;">
         <button class="btn btn-secondary" id="btnProcesarPlanilla" onclick="procesarPlanilla(true)" style="padding:0.5rem 1.1rem;font-size:0.85rem;">⚙️ Procesar Planilla</button>
         <button class="btn btn-primary" id="btnExcelOpl" onclick="descargarExcelOplActivo()" style="padding:0.5rem 1.1rem;font-size:0.85rem;" title="Excel del OPL seleccionado (solo pendientes)">📥 Exportar Excel OPL</button>
-        <button class="btn btn-secondary" id="btnEtiquetasOpl" onclick="abrirEtiquetasOpl(_planillaOplActivo)" style="padding:0.5rem 1.1rem;font-size:0.85rem;" title="Imprimir las etiquetas de despacho del OPL seleccionado, en orden por cliente">🏷️ Etiquetas OPL</button>
+        <button class="btn btn-secondary" id="btnEtiquetasOpl" onclick="abrirEtiquetasOpl(_planillaOplActivo)" style="padding:0.5rem 1.1rem;font-size:0.85rem;" title="Imprimir las etiquetas de despacho del OPL seleccionado (por defecto en orden de cava y riel)">🏷️ Etiquetas OPL</button>
         <button class="btn btn-secondary" id="btnParticulares" onclick="abrirModalParticulares()" style="padding:0.5rem 1.1rem;font-size:0.85rem;background:#ff9800;color:#fff;" title="Elegir OPLs y descargar Excel multi-hoja solo con lo pendiente">📥 Descargar particulares</button>
       </div>
     </div>
@@ -1142,7 +1142,10 @@ function irModulo(m) {
   else if (m === 'etiquetas') {
     showView('viewEtiquetas');
     if (!$('etlFecha').value) $('etlFecha').value = getFecha();
-    try { const o = localStorage.getItem('canales_etl_orden'); if (o) $('etlOrden').value = o; } catch (_) {}
+    try {
+      const o = localStorage.getItem('canales_etl_orden');
+      $('etlOrden').value = (o === 'cliente' || o === 'ubicacion') ? o : 'ubicacion';
+    } catch (_) { $('etlOrden').value = 'ubicacion'; }
     if (!ZB.buscado) zbDetectar(); else renderZb();
     cargarEtiquetasOpl(false);
     setTimeout(() => $('etCodigo').focus(), 50);
