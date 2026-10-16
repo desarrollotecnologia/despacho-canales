@@ -1582,43 +1582,91 @@ def _escribir_hoja_excel_opl(
     ws.print_title_rows = "1:3"
 
 
-def construir_excel_opl(opl: str, fecha: str, turno, filas: List[dict]) -> BytesIO:
+PLANTILLA_EXCEL_ETIQUETAS = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "static",
+    "plantilla_impresion_etiquetas.xlsm",
+)
+MEDIA_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+MEDIA_XLSM = "application/vnd.ms-excel.sheet.macroEnabled.12"
+
+
+def _api_public_url(request: Optional[object] = None) -> str:
+    env = (os.getenv("APP_PUBLIC_URL") or "").strip().rstrip("/")
+    if env:
+        return env
+    if request is not None and getattr(request, "base_url", None):
+        return str(request.base_url).rstrip("/")
+    return "http://192.168.20.205:8012"
+
+
+def _workbook_etiquetas(fecha: str, api_url: str):
+    """Abre la plantilla .xlsm (macro ImprimirFilasVisibles) o un libro normal si no está."""
     try:
-        from openpyxl import Workbook
+        from openpyxl import Workbook, load_workbook
     except ImportError:
         raise HTTPException(
             status_code=500,
             detail="Falta openpyxl. En el servidor ejecuta: pip install openpyxl",
         )
+    if os.path.isfile(PLANTILLA_EXCEL_ETIQUETAS):
+        wb = load_workbook(PLANTILLA_EXCEL_ETIQUETAS, keep_vba=True)
+        for name in list(wb.sheetnames):
+            if name not in ("PORTADA", "CONFIG"):
+                del wb[name]
+        if "CONFIG" in wb.sheetnames:
+            wb["CONFIG"]["A1"] = "API_URL"
+            wb["CONFIG"]["B1"] = api_url
+            wb["CONFIG"]["A2"] = "FECHA"
+            wb["CONFIG"]["B2"] = fecha
+        return wb, True
+    return Workbook(), False
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = _sanear_nombre_hoja(opl or "OPL", set())
-    _escribir_hoja_excel_opl(ws, opl, fecha, turno, filas, asignacion=mapa_asignacion_dia(fecha))
+
+def _guardar_workbook(wb, con_macros: bool) -> BytesIO:
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
     return buf
 
 
-def construir_excel_particulares(fecha: str, turno, por_opl: dict) -> BytesIO:
+def construir_excel_opl(
+    opl: str, fecha: str, turno, filas: List[dict], api_url: Optional[str] = None,
+) -> tuple:
+    """Devuelve (buf, filename_ext, media_type)."""
+    api = (api_url or _api_public_url()).rstrip("/")
+    wb, macros = _workbook_etiquetas(fecha, api)
+    usados = {"PORTADA", "CONFIG"}
+    titulo = _sanear_nombre_hoja(opl or "OPL", usados)
+    ws = wb.create_sheet(titulo, 1 if macros and "PORTADA" in wb.sheetnames else 0)
+    _escribir_hoja_excel_opl(ws, opl, fecha, turno, filas, asignacion=mapa_asignacion_dia(fecha))
+    if not macros and wb.sheetnames and wb.sheetnames[0] != titulo:
+        # quitar hoja vacía por defecto
+        if "Sheet" in wb.sheetnames:
+            del wb["Sheet"]
+    ext = "xlsm" if macros else "xlsx"
+    return _guardar_workbook(wb, macros), ext, (MEDIA_XLSM if macros else MEDIA_XLSX)
+
+
+def construir_excel_particulares(
+    fecha: str, turno, por_opl: dict, api_url: Optional[str] = None,
+) -> tuple:
     """
     Un Excel con una hoja por OPL particular (solo pendientes).
-    Con 2 o más OPLs se agrega primero la hoja GENERAL con todos, ordenada por OPL.
-    Las adicionales (asignadas desde el corte) van en azul claro.
+    Con 2 o más OPLs se agrega primero la hoja GENERAL con todos.
+    Si existe la plantilla .xlsm, incluye macro para imprimir filas filtradas.
+    Devuelve (buf, ext, media_type).
     """
-    try:
-        from openpyxl import Workbook
-    except ImportError:
-        raise HTTPException(
-            status_code=500,
-            detail="Falta openpyxl. En el servidor ejecuta: pip install openpyxl",
-        )
-
+    api = (api_url or _api_public_url()).rstrip("/")
+    wb, macros = _workbook_etiquetas(fecha, api)
     asignacion = mapa_asignacion_dia(fecha)
-    wb = Workbook()
-    usados = set()
+    usados = {"PORTADA", "CONFIG"}
+    idx = 1 if macros and "PORTADA" in wb.sheetnames else 0
     primero = True
+
+    if not macros and wb.sheetnames:
+        # Libro nuevo: reutilizar la hoja activa
+        pass
 
     if len(por_opl) >= 2:
         general = []
@@ -1633,8 +1681,13 @@ def construir_excel_particulares(fecha: str, turno, por_opl: dict) -> BytesIO:
             str(x.get("puesto") or ""),
             str(x.get("codigo") or ""),
         ))
-        ws = wb.active
-        ws.title = _sanear_nombre_hoja("GENERAL", usados)
+        nombre = _sanear_nombre_hoja("GENERAL", usados)
+        if primero and not macros:
+            ws = wb.active
+            ws.title = nombre
+        else:
+            ws = wb.create_sheet(nombre, idx)
+            idx += 1
         _escribir_hoja_excel_opl(
             ws, "GENERAL", fecha, turno, general,
             asignacion=asignacion, incluir_opl=True, titulo_hoja="GENERAL · Todos los OPL",
@@ -1643,24 +1696,30 @@ def construir_excel_particulares(fecha: str, turno, por_opl: dict) -> BytesIO:
 
     for opl, filas in por_opl.items():
         titulo = _sanear_nombre_hoja(opl, usados)
-        if primero:
+        if primero and not macros:
             ws = wb.active
             ws.title = titulo
             primero = False
         else:
-            ws = wb.create_sheet(titulo)
+            ws = wb.create_sheet(titulo, idx)
+            idx += 1
+            primero = False
         _escribir_hoja_excel_opl(ws, opl, fecha, turno, filas, asignacion=asignacion)
 
     if primero:
-        # Sin datos: hoja vacía informativa
-        ws = wb.active
-        ws.title = "Sin pendientes"
+        nombre = _sanear_nombre_hoja("Sin pendientes", usados)
+        if not macros:
+            ws = wb.active
+            ws.title = nombre
+        else:
+            ws = wb.create_sheet(nombre, idx)
         _escribir_hoja_excel_opl(ws, "PARTICULARES", fecha, turno, [], asignacion=asignacion)
 
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf
+    if macros and "Sheet" in wb.sheetnames:
+        del wb["Sheet"]
+
+    ext = "xlsm" if macros else "xlsx"
+    return _guardar_workbook(wb, macros), ext, (MEDIA_XLSM if macros else MEDIA_XLSX)
 
 
 # ═══════════════════════════════════════════════════════
@@ -2530,6 +2589,7 @@ def get_planilla_puntos(
 @app.get("/api/planilla_puntos/excel")
 def excel_planilla_puntos(
     opl: str,
+    request: Request,
     fecha: Optional[str] = None,
     turno: Optional[str] = None,
 ):
@@ -2542,16 +2602,14 @@ def excel_planilla_puntos(
         r for r in obtener_piezas_programadas(fecha_filtro, turno)
         if (r.get("opl") or "") == opl
     ]
-    buf = construir_excel_opl(opl, fecha_filtro, turno, items)
-    fname = f"OPL_{opl.replace(' ', '_')}_{fecha_filtro}.xlsx"
+    buf, ext, media = construir_excel_opl(
+        opl, fecha_filtro, turno, items, api_url=_api_public_url(request),
+    )
+    fname = f"OPL_{opl.replace(' ', '_')}_{fecha_filtro}.{ext}"
     headers = {
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"
     }
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=headers,
-    )
+    return StreamingResponse(buf, media_type=media, headers=headers)
 
 
 class ParticularesIn(BaseModel):
@@ -2570,13 +2628,14 @@ def set_particulares(payload: ParticularesIn):
 
 @app.get("/api/planilla_puntos/excel_particulares")
 def excel_planilla_particulares(
+    request: Request,
     fecha: Optional[str] = None,
     turno: Optional[str] = None,
     refresh: Optional[str] = None,
     opls: Optional[str] = None,
 ):
     """
-    Excel multi-hoja de OPLs particulares.
+    Excel multi-hoja de OPLs particulares (.xlsm con macro para imprimir filas filtradas).
     Solo pendientes (sin fecha_salida): a medida que pistolean, se van quitando.
     `opls` (JSON) = OPLs marcados en pantalla; sin él se usa la selección guardada,
     que es compartida entre usuarios y puede traer OPLs de otra jornada.
@@ -2619,16 +2678,14 @@ def excel_planilla_particulares(
 
     # Mantener orden de selección; incluir hojas aunque queden en 0 (ya despachados)
     ordenado = {opl: por_opl.get(opl, []) for opl in seleccion}
-    buf = construir_excel_particulares(fecha_filtro, turno, ordenado)
-    fname = f"Particulares_pendientes_{fecha_filtro}.xlsx"
+    buf, ext, media = construir_excel_particulares(
+        fecha_filtro, turno, ordenado, api_url=_api_public_url(request),
+    )
+    fname = f"Particulares_pendientes_{fecha_filtro}.{ext}"
     headers = {
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"
     }
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=headers,
-    )
+    return StreamingResponse(buf, media_type=media, headers=headers)
 
 
 # ═══════════════════════════════════════════════════════
