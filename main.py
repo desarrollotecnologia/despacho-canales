@@ -3024,6 +3024,20 @@ def post_etiquetas_marcar(payload: EtiquetasMarcarIn):
     return {"success": True, "marcadas": n}
 
 
+class EtiquetasLimpiarIn(BaseModel):
+    fecha: Optional[str] = None
+    codigos: List[str] = []
+
+
+@app.post("/api/etiquetas/limpiar")
+def post_etiquetas_limpiar(payload: EtiquetasLimpiarIn):
+    """Quita marcas de 'ya impresas' para poder reimprimir (todas del día o solo algunos códigos)."""
+    fecha_filtro = payload.fecha or date.today().isoformat()
+    res = apps_script_local.limpiar_etiquetas_impresas(fecha_filtro, payload.codigos or None)
+    cache_invalidate_fecha(fecha_filtro)
+    return res
+
+
 # ── Etiquetas de despacho por OPL (sin pistolear) ───────────────────────
 MAX_ETIQUETAS_LOTE = int(os.getenv("CANALES_MAX_ETIQUETAS_LOTE", "2000"))
 

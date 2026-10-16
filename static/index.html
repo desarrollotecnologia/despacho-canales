@@ -783,6 +783,7 @@
       <div id="etlLista" class="etl-lista"><div class="empty-state">Pulsa «Cargar OPL» para ver las etiquetas pendientes.</div></div>
       <div class="etl-acciones">
         <span id="etlResumen"></span>
+        <button class="btn btn-secondary btn-sm" id="etlBtnLimpiar" onclick="limpiarMarcasEtiquetasOpl()" title="Si Browser Print dijo OK pero no salieron, borra las marcas del día para poder reimprimir">↺ Permitir reimprimir</button>
         <button class="btn btn-primary btn-sm" id="etlBtnImprimir" onclick="imprimirEtiquetasOpl()" disabled>🖨️ Imprimir</button>
       </div>
       <div id="etlPreview" class="etl-preview"></div>
@@ -2340,18 +2341,23 @@ function renderZb() {
 
 async function zbEnviar(zpl) {
   if (!ZB.device) throw new Error('No hay una Zebra conectada en este equipo (revisa Zebra Browser Print y pulsa «Buscar»)');
-  let r;
-  try {
-    // text/plain evita la consulta previa CORS, igual que la librería oficial de Zebra
-    r = await zbFetch('/write', {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-      body: JSON.stringify({ device: ZB.device, data: zpl }),
-    }, 60000);
-  } catch (e) {
-    throw new Error('Zebra Browser Print no respondió en este equipo');
+  // Un ^XA…^XZ por envío: lotes grandes en un solo /write a veces solo avanzan el rollo
+  // y Browser Print igual responde OK (el aplicativo las marca impresas sin que salgan).
+  const bloques = String(zpl || '').split(/(?=\^XA)/).map(s => s.trim()).filter(s => s.startsWith('^XA'));
+  const partes = bloques.length ? bloques : [String(zpl || '')];
+  for (const parte of partes) {
+    let r;
+    try {
+      r = await zbFetch('/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify({ device: ZB.device, data: parte }),
+      }, 60000);
+    } catch (e) {
+      throw new Error('Zebra Browser Print no respondió en este equipo');
+    }
+    if (!r.ok) throw new Error(`La Zebra rechazó el trabajo: ${(await r.text()) || 'HTTP ' + r.status}`);
   }
-  if (!r.ok) throw new Error(`La Zebra rechazó el trabajo: ${(await r.text()) || 'HTTP ' + r.status}`);
 }
 
 /** Imprime por el servidor o, en modo local, pide el ZPL al servidor y lo manda a la Zebra del equipo. */
@@ -2545,6 +2551,27 @@ function etlToggleCliente(i, j, marcar) {
   const c = ETL.datos.opls[i].clientes[j];
   if (marcar) ETL.excluidos.delete(c.clave); else ETL.excluidos.add(c.clave);
   renderEtiquetasOpl();
+}
+
+async function limpiarMarcasEtiquetasOpl() {
+  const fecha = $('etlFecha').value || getFecha();
+  if (!confirm(`¿Borrar las marcas de «ya impresas» del ${fecha}?\nPodrás volver a imprimir con «Solo las que no se han impreso» activado.`)) return;
+  showSpinner();
+  try {
+    const r = await fetch(API('/etiquetas/limpiar'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fecha }),
+    });
+    if (!r.ok) throw new Error(await apiError(r));
+    const j = await r.json();
+    alertWarn(`↺ Se borraron ${j.limpiadas || 0} marca(s) del ${fecha}. Ya puedes reimprimir.`);
+    await cargarEtiquetasOpl(true);
+  } catch (e) {
+    alertErr('No se pudieron borrar las marcas: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
 }
 
 async function imprimirEtiquetasOpl() {

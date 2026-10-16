@@ -296,6 +296,30 @@ def marcar_etiquetas_impresas(fecha, codigos):
     return {"success": True, "fecha": _as_str(fecha), "total": len(dia)}
 
 
+def limpiar_etiquetas_impresas(fecha, codigos=None):
+    """Borra marcas de impresión del día (todas, o solo los códigos indicados)."""
+    state = _load_state()
+    bag = state.setdefault("etiquetas_impresas", {})
+    key = _as_str(fecha)
+    dia = bag.get(key) or {}
+    if not codigos:
+        n = len(dia)
+        bag.pop(key, None)
+    else:
+        n = 0
+        for c in codigos:
+            c = _as_str(c).upper()
+            if c and c in dia:
+                dia.pop(c, None)
+                n += 1
+        if dia:
+            bag[key] = dia
+        else:
+            bag.pop(key, None)
+    _save_state(state)
+    return {"success": True, "fecha": key, "limpiadas": n, "quedan": len(bag.get(key) or {})}
+
+
 # ═══════════════════════════════════════════════════════
 # ADICIONALES — salidas extra del día (estilo Vísceras)
 # ═══════════════════════════════════════════════════════
