@@ -759,7 +759,7 @@
 
     <div class="etl-box">
       <h3>🖨️ Etiquetas de despacho por OPL</h3>
-      <p class="etl-ayuda">Imprime sin pistolear las medias pendientes de la planilla de puntos, por OPL. Por defecto sale <strong>por cava y riel</strong> (Cava 1 Riel 1, Cava 1 Riel 2…), para ir pegando; cada riel empieza con una separadora y cada etiqueta sigue mostrando su OPL y cliente. También puedes elegir <strong>por cliente</strong> si quieres armar el despacho.</p>
+      <p class="etl-ayuda">Imprime sin pistolear las medias pendientes de la planilla de puntos, por OPL. Por defecto sale <strong>por cava y riel</strong> (Cava 1 Riel 1, Cava 1 Riel 2…), para ir pegando; cada riel empieza con una separadora y cada etiqueta sigue mostrando su OPL y cliente. También puedes elegir <strong>por cliente</strong> si quieres armar el despacho. Con <strong>Excel (imprimir filtrado)</strong> descargas un .xlsm de los OPL marcados: filtras en Excel y la macro imprime solo lo visible (habilita macros + Browser Print).</p>
       <div class="etl-filtros">
         <label>Fecha <input type="date" id="etlFecha"></label>
         <label>Turno
@@ -783,6 +783,7 @@
       <div id="etlLista" class="etl-lista"><div class="empty-state">Pulsa «Cargar OPL» para ver las etiquetas pendientes.</div></div>
       <div class="etl-acciones">
         <span id="etlResumen"></span>
+        <button class="btn btn-secondary btn-sm" id="etlBtnExcel" onclick="descargarExcelEtiquetas()" title="Descarga Excel .xlsm de los OPL marcados: filtra en Excel e imprime solo lo visible (cava→riel). No es el Excel de Planilla de puntos.">📥 Excel (imprimir filtrado)</button>
         <button class="btn btn-secondary btn-sm" id="etlBtnLimpiar" onclick="limpiarMarcasEtiquetasOpl()" title="Si Browser Print dijo OK pero no salieron, borra las marcas del día para poder reimprimir">↺ Permitir reimprimir</button>
         <button class="btn btn-primary btn-sm" id="etlBtnImprimir" onclick="imprimirEtiquetasOpl()" disabled>🖨️ Imprimir</button>
       </div>
@@ -2441,6 +2442,26 @@ async function cargarEtiquetasOpl(refresh) {
   } finally {
     hideSpinner();
   }
+}
+
+function descargarExcelEtiquetas() {
+  const opls = Array.from(ETL.oplsSel || []);
+  if (!opls.length) {
+    alertWarn('Marca al menos un OPL y pulsa «Cargar OPL» antes de descargar el Excel.');
+    return;
+  }
+  const fecha = ($('etlFecha') && $('etlFecha').value) || getFecha();
+  const turno = ($('etlTurno') && $('etlTurno').value) || '';
+  if (window.ColbeefUsage) ColbeefUsage.track('excel_download', 'etiquetas', 'Excel imprimir filtrado');
+  const q = `fecha=${encodeURIComponent(fecha)}`
+    + (turno ? `&turno=${encodeURIComponent(turno)}` : '')
+    + `&opls=${encodeURIComponent(JSON.stringify(opls))}`;
+  const a = document.createElement('a');
+  a.href = API(`/etiquetas/excel?${q}`);
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 const etlPorUbicacion = () => $('etlOrden').value === 'ubicacion';
