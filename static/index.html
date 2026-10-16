@@ -759,7 +759,7 @@
 
     <div class="etl-box">
       <h3>🖨️ Etiquetas de despacho por OPL</h3>
-      <p class="etl-ayuda">Imprime sin pistolear las medias pendientes de la planilla de puntos, por OPL. Por defecto sale <strong>por cava y riel</strong> (Cava 1 Riel 1, Cava 1 Riel 2…), para ir pegando; cada riel empieza con una separadora y cada etiqueta sigue mostrando su OPL y cliente. También puedes elegir <strong>por cliente</strong> si quieres armar el despacho. Con <strong>Excel (imprimir filtrado)</strong> descargas un .xlsm de los OPL marcados: filtras en Excel y la macro imprime solo lo visible (habilita macros + Browser Print).</p>
+      <p class="etl-ayuda">Imprime sin pistolear las medias pendientes de la planilla de puntos, por OPL. Filtra por <strong>cava</strong> y <strong>riel</strong> (como en Excel) y solo se imprimen las que coincidan. Por defecto el orden es <strong>cava → riel</strong> para ir pegando; también puedes ordenar <strong>por cliente</strong>. Puedes desmarcar clientes dentro de cada OPL.</p>
       <div class="etl-filtros">
         <label>Fecha <input type="date" id="etlFecha"></label>
         <label>Turno
@@ -777,13 +777,22 @@
             <option value="cliente">Por cliente (despacho)</option>
           </select>
         </label>
+        <label>Cava
+          <select id="etlFiltroCava" onchange="etlCambiarFiltroUbi()">
+            <option value="">Todas</option>
+          </select>
+        </label>
+        <label>Riel
+          <select id="etlFiltroRiel" onchange="etlCambiarFiltroUbi()">
+            <option value="">Todos</option>
+          </select>
+        </label>
         <label><input type="checkbox" id="etlSoloNuevas" checked onchange="renderEtiquetasOpl()"> Solo las que no se han impreso</label>
         <label><input type="checkbox" id="etlSeparadores" checked onchange="renderEtiquetasOpl()"> <span id="etlSepTxt">Separadora por riel</span></label>
       </div>
       <div id="etlLista" class="etl-lista"><div class="empty-state">Pulsa «Cargar OPL» para ver las etiquetas pendientes.</div></div>
       <div class="etl-acciones">
         <span id="etlResumen"></span>
-        <button class="btn btn-secondary btn-sm" id="etlBtnExcel" onclick="descargarExcelEtiquetas()" title="Descarga Excel .xlsm de los OPL marcados: filtra en Excel e imprime solo lo visible (cava→riel). No es el Excel de Planilla de puntos.">📥 Excel (imprimir filtrado)</button>
         <button class="btn btn-secondary btn-sm" id="etlBtnLimpiar" onclick="limpiarMarcasEtiquetasOpl()" title="Si Browser Print dijo OK pero no salieron, borra las marcas del día para poder reimprimir">↺ Permitir reimprimir</button>
         <button class="btn btn-primary btn-sm" id="etlBtnImprimir" onclick="imprimirEtiquetasOpl()" disabled>🖨️ Imprimir</button>
       </div>
@@ -2436,6 +2445,7 @@ async function cargarEtiquetasOpl(refresh) {
     } else {
       ETL.oplsSel = new Set(disponibles.filter(o => ETL.oplsSel.has(o)));
     }
+    etlRellenarFiltrosUbi(false);
     renderEtiquetasOpl();
   } catch (e) {
     alertErr('Etiquetas por OPL: ' + e.message);
@@ -2444,27 +2454,84 @@ async function cargarEtiquetasOpl(refresh) {
   }
 }
 
-function descargarExcelEtiquetas() {
-  const opls = Array.from(ETL.oplsSel || []);
-  if (!opls.length) {
-    alertWarn('Marca al menos un OPL y pulsa «Cargar OPL» antes de descargar el Excel.');
-    return;
-  }
-  const fecha = ($('etlFecha') && $('etlFecha').value) || getFecha();
-  const turno = ($('etlTurno') && $('etlTurno').value) || '';
-  if (window.ColbeefUsage) ColbeefUsage.track('excel_download', 'etiquetas', 'Excel imprimir filtrado');
-  const q = `fecha=${encodeURIComponent(fecha)}`
-    + (turno ? `&turno=${encodeURIComponent(turno)}` : '')
-    + `&opls=${encodeURIComponent(JSON.stringify(opls))}`;
-  const a = document.createElement('a');
-  a.href = API(`/etiquetas/excel?${q}`);
-  a.download = '';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+const etlPorUbicacion = () => $('etlOrden').value === 'ubicacion';
+
+function etlParseUbi(ubi) {
+  const s = String(ubi || '');
+  const i = s.indexOf(' - ');
+  if (i < 0) return { cava: s, riel: '' };
+  return { cava: s.slice(0, i), riel: s.slice(i + 3) };
 }
 
-const etlPorUbicacion = () => $('etlOrden').value === 'ubicacion';
+function etlUbiMatch(ubi) {
+  const fCava = ($('etlFiltroCava') && $('etlFiltroCava').value) || '';
+  const fRiel = ($('etlFiltroRiel') && $('etlFiltroRiel').value) || '';
+  if (!fCava && !fRiel) return true;
+  const { cava, riel } = etlParseUbi(ubi);
+  if (fCava && cava !== fCava) return false;
+  if (fRiel && riel !== fRiel) return false;
+  return true;
+}
+
+/** Lista de ubicaciones (Cava X - Riel Y) que pasan el filtro actual; null = sin filtro. */
+function etlUbicacionesFiltro() {
+  const fCava = ($('etlFiltroCava') && $('etlFiltroCava').value) || '';
+  const fRiel = ($('etlFiltroRiel') && $('etlFiltroRiel').value) || '';
+  if (!fCava && !fRiel) return null;
+  const out = new Set();
+  (ETL.datos?.opls || []).forEach(o => {
+    if (!ETL.oplsSel.has(o.opl)) return;
+    o.clientes.forEach(c => {
+      if (ETL.excluidos.has(c.clave)) return;
+      Object.keys(c.rieles || {}).forEach(ubi => {
+        if (etlUbiMatch(ubi)) out.add(ubi);
+      });
+    });
+  });
+  return [...out];
+}
+
+function etlRellenarFiltrosUbi(preserve) {
+  const selCava = $('etlFiltroCava');
+  const selRiel = $('etlFiltroRiel');
+  if (!selCava || !selRiel) return;
+  const prevCava = preserve ? selCava.value : '';
+  const prevRiel = preserve ? selRiel.value : '';
+  const cavas = new Set();
+  const rielesPorCava = new Map();
+  (ETL.datos?.opls || []).forEach(o => {
+    o.clientes.forEach(c => {
+      Object.keys(c.rieles || {}).forEach(ubi => {
+        const { cava, riel } = etlParseUbi(ubi);
+        if (cava) cavas.add(cava);
+        if (!rielesPorCava.has(cava)) rielesPorCava.set(cava, new Set());
+        if (riel) rielesPorCava.get(cava).add(riel);
+      });
+    });
+  });
+  const listaCavas = [...cavas].sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+  selCava.innerHTML = '<option value="">Todas</option>'
+    + listaCavas.map(c => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
+  if (prevCava && listaCavas.includes(prevCava)) selCava.value = prevCava;
+
+  const cavaAct = selCava.value;
+  const rieles = new Set();
+  if (cavaAct) {
+    (rielesPorCava.get(cavaAct) || []).forEach(r => rieles.add(r));
+  } else {
+    rielesPorCava.forEach(set => set.forEach(r => rieles.add(r)));
+  }
+  const listaRieles = [...rieles].sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+  selRiel.innerHTML = '<option value="">Todos</option>'
+    + listaRieles.map(r => `<option value="${escHtml(r)}">${escHtml(r)}</option>`).join('');
+  if (prevRiel && listaRieles.includes(prevRiel)) selRiel.value = prevRiel;
+  else selRiel.value = '';
+}
+
+function etlCambiarFiltroUbi() {
+  etlRellenarFiltrosUbi(true);
+  renderEtiquetasOpl();
+}
 
 function etlCambiarOrden() {
   try { localStorage.setItem('canales_etl_orden', $('etlOrden').value); } catch (_) {}
@@ -2479,11 +2546,16 @@ function _etlConteo() {
     if (!ETL.oplsSel.has(o.opl)) return;
     o.clientes.forEach(c => {
       if (ETL.excluidos.has(c.clave)) return;
-      const n = soloNuevas ? c.nuevas : c.total;
-      if (n > 0) { etiquetas += n; clientes++; }
+      let nCli = 0;
       Object.entries(c.rieles || {}).forEach(([ubi, v]) => {
-        if ((soloNuevas ? v.nuevas : v.total) > 0) rieles.add(ubi);
+        if (!etlUbiMatch(ubi)) return;
+        const n = soloNuevas ? v.nuevas : v.total;
+        if (n > 0) {
+          nCli += n;
+          rieles.add(ubi);
+        }
       });
+      if (nCli > 0) { etiquetas += nCli; clientes++; }
     });
   });
   const grupos = etlPorUbicacion() ? rieles.size : clientes;
@@ -2532,11 +2604,23 @@ function renderEtiquetasOpl() {
 
   const conteo = _etlConteo();
   const { etiquetas, separadoras } = conteo;
+  const fCava = ($('etlFiltroCava') && $('etlFiltroCava').value) || '';
+  const fRiel = ($('etlFiltroRiel') && $('etlFiltroRiel').value) || '';
+  const filtroHint = (fCava || fRiel)
+    ? ` · filtro ${fCava || 'todas las cavas'}${fRiel ? ' · ' + fRiel : ''}`
+    : '';
   $('etlSepTxt').textContent = etlPorUbicacion() ? 'Separadora por riel' : 'Separadora por cliente';
   $('etlResumen').innerHTML = etiquetas
     ? `<strong>${etiquetas}</strong> etiqueta(s) de ${_etlTextoGrupos(conteo)}${separadoras ? ` + ${separadoras} separadora(s)` : ''}`
       + (etlPorUbicacion() ? ' · orden Cava 1 Riel 1, Cava 1 Riel 2…' : '')
-    : ($('etlSoloNuevas').checked && ETL.oplsSel.size ? 'Todo lo marcado ya se imprimió (desmarca «Solo las que no se han impreso» para reimprimir)' : 'Marca uno o más OPL');
+      + filtroHint
+    : (ETL.oplsSel.size
+      ? ((fCava || fRiel)
+        ? 'Ninguna media coincide con el filtro de cava/riel'
+        : ($('etlSoloNuevas').checked
+          ? 'Todo lo marcado ya se imprimió (desmarca «Solo las que no se han impreso» para reimprimir)'
+          : 'Marca uno o más OPL'))
+      : 'Marca uno o más OPL');
   $('etlBtnImprimir').disabled = !etiquetas;
   $('etlBtnImprimir').textContent = etiquetas ? `🖨️ Imprimir ${etiquetas + separadoras} etiquetas` : '🖨️ Imprimir';
 
@@ -2601,7 +2685,12 @@ async function imprimirEtiquetasOpl() {
   if (!etiquetas) return;
   if (ZB.modo === 'local' && !ZB.device) await zbDetectar();
   const ordenTxt = etlPorUbicacion() ? ' en orden de cava y riel' : '';
-  if (!confirm(`¿Imprimir ${etiquetas} etiqueta(s) de ${_etlTextoGrupos(conteo)}${separadoras ? ` + ${separadoras} separadora(s)` : ''}${ordenTxt} en ${zbDestinoTexto()}?`)) return;
+  const ubiFiltro = etlUbicacionesFiltro();
+  const filtroTxt = ubiFiltro
+    ? ` (filtro: ${(($('etlFiltroCava') && $('etlFiltroCava').value) || 'todas las cavas')}`
+      + `${($('etlFiltroRiel') && $('etlFiltroRiel').value) ? ' · ' + $('etlFiltroRiel').value : ''})`
+    : '';
+  if (!confirm(`¿Imprimir ${etiquetas} etiqueta(s) de ${_etlTextoGrupos(conteo)}${separadoras ? ` + ${separadoras} separadora(s)` : ''}${ordenTxt}${filtroTxt} en ${zbDestinoTexto()}?`)) return;
   const opls = [...ETL.oplsSel];
   const claves = new Set(ETL.datos.opls.filter(o => ETL.oplsSel.has(o.opl)).flatMap(o => o.clientes.map(c => c.clave)));
   const body = {
@@ -2613,6 +2702,7 @@ async function imprimirEtiquetasOpl() {
     separadores: $('etlSeparadores').checked,
     orden: $('etlOrden').value,
   };
+  if (ubiFiltro !== null) body.ubicaciones = ubiFiltro;
   showSpinner();
   try {
     const j = await imprimirEtiquetas('/etiquetas/opl/imprimir', body);

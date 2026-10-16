@@ -1663,124 +1663,6 @@ def construir_excel_particulares(fecha: str, turno, por_opl: dict) -> BytesIO:
     return buf
 
 
-# ── Excel .xlsm solo para módulo Reetiquetado (imprimir filas filtradas) ──
-PLANTILLA_EXCEL_ETIQUETAS = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "static",
-    "plantilla_impresion_etiquetas.xlsm",
-)
-MEDIA_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-MEDIA_XLSM = "application/vnd.ms-excel.sheet.macroEnabled.12"
-
-
-def _api_public_url(request: Optional[object] = None) -> str:
-    env = (os.getenv("APP_PUBLIC_URL") or "").strip().rstrip("/")
-    if env:
-        return env
-    if request is not None and getattr(request, "base_url", None):
-        return str(request.base_url).rstrip("/")
-    return "http://192.168.20.205:8012"
-
-
-def _workbook_etiquetas_xlsm(fecha: str, api_url: str):
-    """Plantilla .xlsm con macro ImprimirFilasVisibles; si no existe, libro .xlsx."""
-    try:
-        from openpyxl import Workbook, load_workbook
-    except ImportError:
-        raise HTTPException(
-            status_code=500,
-            detail="Falta openpyxl. En el servidor ejecuta: pip install openpyxl",
-        )
-    if os.path.isfile(PLANTILLA_EXCEL_ETIQUETAS):
-        wb = load_workbook(PLANTILLA_EXCEL_ETIQUETAS, keep_vba=True)
-        for name in list(wb.sheetnames):
-            if name not in ("PORTADA", "CONFIG"):
-                del wb[name]
-        if "CONFIG" in wb.sheetnames:
-            wb["CONFIG"]["A1"] = "API_URL"
-            wb["CONFIG"]["B1"] = api_url
-            wb["CONFIG"]["A2"] = "FECHA"
-            wb["CONFIG"]["B2"] = fecha
-        return wb, True
-    return Workbook(), False
-
-
-def _guardar_workbook_etiquetas(wb) -> BytesIO:
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf
-
-
-def construir_excel_etiquetas_imprimir(
-    fecha: str, turno, por_opl: dict, api_url: Optional[str] = None,
-) -> tuple:
-    """
-    Excel para reetiquetado: misma planilla de pendientes + macro para imprimir
-    filas filtradas (cava→riel). Devuelve (buf, ext, media_type).
-    No usarlo desde planilla de puntos.
-    """
-    api = (api_url or _api_public_url()).rstrip("/")
-    wb, macros = _workbook_etiquetas_xlsm(fecha, api)
-    asignacion = mapa_asignacion_dia(fecha)
-    usados = {"PORTADA", "CONFIG"}
-    idx = 1 if macros and "PORTADA" in wb.sheetnames else 0
-    primero = True
-
-    if len(por_opl) >= 2:
-        general = []
-        for opl, filas in por_opl.items():
-            for r in filas:
-                item = dict(r)
-                item["opl"] = item.get("opl") or opl
-                general.append(item)
-        general.sort(key=lambda x: (
-            str(x.get("opl") or "").upper(),
-            str(x.get("zona") or "").upper(),
-            str(x.get("puesto") or ""),
-            str(x.get("codigo") or ""),
-        ))
-        nombre = _sanear_nombre_hoja("GENERAL", usados)
-        if primero and not macros:
-            ws = wb.active
-            ws.title = nombre
-        else:
-            ws = wb.create_sheet(nombre, idx)
-            idx += 1
-        _escribir_hoja_excel_opl(
-            ws, "GENERAL", fecha, turno, general,
-            asignacion=asignacion, incluir_opl=True, titulo_hoja="GENERAL · Todos los OPL",
-        )
-        primero = False
-
-    for opl, filas in por_opl.items():
-        titulo = _sanear_nombre_hoja(opl, usados)
-        if primero and not macros:
-            ws = wb.active
-            ws.title = titulo
-            primero = False
-        else:
-            ws = wb.create_sheet(titulo, idx)
-            idx += 1
-            primero = False
-        _escribir_hoja_excel_opl(ws, opl, fecha, turno, filas, asignacion=asignacion)
-
-    if primero:
-        nombre = _sanear_nombre_hoja("Sin pendientes", usados)
-        if not macros:
-            ws = wb.active
-            ws.title = nombre
-        else:
-            ws = wb.create_sheet(nombre, idx)
-        _escribir_hoja_excel_opl(ws, "ETIQUETAS", fecha, turno, [], asignacion=asignacion)
-
-    if macros and "Sheet" in wb.sheetnames:
-        del wb["Sheet"]
-
-    ext = "xlsm" if macros else "xlsx"
-    return _guardar_workbook_etiquetas(wb), ext, (MEDIA_XLSM if macros else MEDIA_XLSX)
-
-
 # ═══════════════════════════════════════════════════════
 # PING
 # ═══════════════════════════════════════════════════════
@@ -3243,58 +3125,6 @@ def grupos_etiquetas_opl(fecha: str, turno: Optional[str], opls: List[str],
     return grupos
 
 
-@app.get("/api/etiquetas/excel")
-def excel_etiquetas_imprimir(
-    request: Request,
-    fecha: Optional[str] = None,
-    turno: Optional[str] = None,
-    opls: Optional[str] = None,
-    refresh: Optional[str] = None,
-):
-    """
-    Excel .xlsm del módulo Reetiquetado: pendientes por OPL + macro
-    ImprimirFilasVisibles (filas filtradas → Zebra). No modifica el Excel de planilla.
-    `opls` = JSON lista de OPLs seleccionados en pantalla.
-    """
-    fecha_filtro = fecha or date.today().isoformat()
-    turno = resolver_turno(fecha_filtro, turno)
-    if es_refresh(refresh):
-        cache_invalidate_fecha(fecha_filtro)
-
-    seleccion = []
-    for x in _parsear_lista_json(opls):
-        o = str(x or "").strip()
-        if o and o.upper() not in {s.upper() for s in seleccion}:
-            seleccion.append(o)
-    if not seleccion:
-        raise HTTPException(
-            status_code=400,
-            detail="Selecciona al menos un OPL en Reetiquetado para descargar el Excel.",
-        )
-
-    seleccion_up = {x.upper() for x in seleccion}
-    piezas = obtener_piezas_programadas(fecha_filtro, turno)
-    por_opl = {opl: [] for opl in seleccion}
-    mapa_nombre = {opl.upper(): opl for opl in seleccion}
-    for r in piezas:
-        opl = (r.get("opl") or "").strip()
-        if opl.upper() in seleccion_up:
-            por_opl[mapa_nombre[opl.upper()]].append(r)
-
-    ordenado = {opl: por_opl.get(opl, []) for opl in seleccion}
-    buf, ext, media = construir_excel_etiquetas_imprimir(
-        fecha_filtro, turno, ordenado, api_url=_api_public_url(request),
-    )
-    if len(seleccion) == 1:
-        fname = f"Etiquetas_{seleccion[0].replace(' ', '_')}_{fecha_filtro}.{ext}"
-    else:
-        fname = f"Etiquetas_OPLs_{fecha_filtro}.{ext}"
-    headers = {
-        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"
-    }
-    return StreamingResponse(buf, media_type=media, headers=headers)
-
-
 @app.get("/api/etiquetas/opl")
 def get_etiquetas_opl(
     fecha: Optional[str] = None,
@@ -3362,6 +3192,8 @@ class EtiquetasOplImprimirIn(BaseModel):
     separadores: bool = True
     # "ubicacion" = cava → riel (para ir pegando, por defecto); "cliente" = OPL → cliente (despacho)
     orden: str = "ubicacion"
+    # None = sin filtro; lista (aunque vacía) = solo esas ubicaciones "Cava X - Riel Y"
+    ubicaciones: Optional[List[str]] = None
     solo_zpl: bool = False
 
 
@@ -3384,9 +3216,20 @@ def post_etiquetas_opl_imprimir(payload: EtiquetasOplImprimirIn):
     grupos = [g for g in grupos_etiquetas_opl(
         fecha_filtro, turno, payload.opls, payload.solo_nuevas, payload.excluir,
     ) if g["piezas"]]
+    if payload.ubicaciones is not None:
+        ubic_ok = {str(u).strip().upper() for u in payload.ubicaciones if str(u or "").strip()}
+        for g in grupos:
+            g["piezas"] = [
+                r for r in g["piezas"]
+                if ubicacion_pieza(r).strip().upper() in ubic_ok
+            ]
+        grupos = [g for g in grupos if g["piezas"]]
     total = sum(len(g["piezas"]) for g in grupos)
     if not total:
-        raise HTTPException(status_code=400, detail="No hay etiquetas para imprimir con esa selección")
+        raise HTTPException(
+            status_code=400,
+            detail="No hay etiquetas para imprimir con esa selección o filtro de cava/riel",
+        )
     if total > MAX_ETIQUETAS_LOTE:
         raise HTTPException(status_code=400, detail=f"Son {total} etiquetas; el máximo por envío es {MAX_ETIQUETAS_LOTE}. Imprime por partes.")
     if (payload.orden or "").lower() == "ubicacion":
