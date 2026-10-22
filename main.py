@@ -3106,16 +3106,29 @@ def grupos_etiquetas_opl(fecha: str, turno: Optional[str], opls: List[str],
         cliente = str(r.get("propietario") or "Sin propietario").strip()
         clave = f"{opl}|{cliente}"
         if not grupos or grupos[-1]["clave"] != clave:
-            grupos.append({"clave": clave, "opl": opl, "cliente": cliente, "piezas": [],
-                           "total": 0, "nuevas": 0, "puestos": [], "rieles": {}})
+            grupos.append({
+                "clave": clave, "opl": opl, "cliente": cliente, "piezas": [],
+                "total": 0, "nuevas": 0, "tempranas": 0, "tempranas_nuevas": 0,
+                "puestos": [], "rieles": {},
+            })
         g = grupos[-1]
         codigo = str(r.get("codigo_completo") or r.get("codigo") or "").strip().upper()
         ya = codigo in impresas
+        es_temp = bool(marcador_destino_temp(r.get("destino_real"), opl))
         g["total"] += 1
         g["nuevas"] += 0 if ya else 1
-        rl = g["rieles"].setdefault(ubicacion_pieza(r), {"total": 0, "nuevas": 0})
+        if es_temp:
+            g["tempranas"] += 1
+            g["tempranas_nuevas"] += 0 if ya else 1
+        rl = g["rieles"].setdefault(
+            ubicacion_pieza(r),
+            {"total": 0, "nuevas": 0, "tempranas": 0, "tempranas_nuevas": 0},
+        )
         rl["total"] += 1
         rl["nuevas"] += 0 if ya else 1
+        if es_temp:
+            rl["tempranas"] += 1
+            rl["tempranas_nuevas"] += 0 if ya else 1
         puesto = str(r.get("puesto") or "").strip()
         if puesto and puesto not in g["puestos"]:
             g["puestos"].append(puesto)
@@ -3139,10 +3152,20 @@ def get_etiquetas_opl(
     grupos = grupos_etiquetas_opl(fecha_filtro, turno, _parsear_lista_json(opls))
     por_opl: dict = {}
     for g in grupos:
-        o = por_opl.setdefault(g["opl"], {"opl": g["opl"], "total": 0, "nuevas": 0, "clientes": []})
+        o = por_opl.setdefault(g["opl"], {
+            "opl": g["opl"], "total": 0, "nuevas": 0,
+            "tempranas": 0, "tempranas_nuevas": 0, "clientes": [],
+        })
         o["total"] += g["total"]
         o["nuevas"] += g["nuevas"]
-        o["clientes"].append({k: g[k] for k in ("clave", "cliente", "total", "nuevas", "puestos", "rieles")})
+        o["tempranas"] += g.get("tempranas", 0)
+        o["tempranas_nuevas"] += g.get("tempranas_nuevas", 0)
+        o["clientes"].append({
+            k: g[k] for k in (
+                "clave", "cliente", "total", "nuevas",
+                "tempranas", "tempranas_nuevas", "puestos", "rieles",
+            )
+        })
     primera = next((g["piezas"][0] for g in grupos if g["piezas"]), None)
     por_ubicacion = sorted((r for g in grupos for r in g["piezas"]), key=orden_ubicacion)
     primera_ubi = por_ubicacion[0] if por_ubicacion else None
@@ -3159,6 +3182,8 @@ def get_etiquetas_opl(
         "opls": list(por_opl.values()),
         "totalEtiquetas": sum(g["total"] for g in grupos),
         "totalNuevas": sum(g["nuevas"] for g in grupos),
+        "totalTempranas": sum(g.get("tempranas", 0) for g in grupos),
+        "totalTempranasNuevas": sum(g.get("tempranas_nuevas", 0) for g in grupos),
         "preview": datos_etiqueta_desde_pieza(primera, fecha_filtro) if primera else None,
         "previewSeparador": etiquetas.layout_separador({
             "opl": grupos[0]["opl"], "cliente": grupos[0]["cliente"],
@@ -3194,6 +3219,8 @@ class EtiquetasOplImprimirIn(BaseModel):
     orden: str = "ubicacion"
     # None = sin filtro; lista (aunque vacía) = solo esas ubicaciones "Cava X - Riel Y"
     ubicaciones: Optional[List[str]] = None
+    # Igual que columna Temprana del Excel: destino TEMP1 / Temp 1 …
+    solo_tempranas: bool = False
     solo_zpl: bool = False
 
 
@@ -3216,6 +3243,13 @@ def post_etiquetas_opl_imprimir(payload: EtiquetasOplImprimirIn):
     grupos = [g for g in grupos_etiquetas_opl(
         fecha_filtro, turno, payload.opls, payload.solo_nuevas, payload.excluir,
     ) if g["piezas"]]
+    if payload.solo_tempranas:
+        for g in grupos:
+            g["piezas"] = [
+                r for r in g["piezas"]
+                if marcador_destino_temp(r.get("destino_real"), g.get("opl") or r.get("opl"))
+            ]
+        grupos = [g for g in grupos if g["piezas"]]
     if payload.ubicaciones is not None:
         ubic_ok = {str(u).strip().upper() for u in payload.ubicaciones if str(u or "").strip()}
         for g in grupos:
@@ -3228,7 +3262,7 @@ def post_etiquetas_opl_imprimir(payload: EtiquetasOplImprimirIn):
     if not total:
         raise HTTPException(
             status_code=400,
-            detail="No hay etiquetas para imprimir con esa selección o filtro de cava/riel",
+            detail="No hay etiquetas para imprimir con esa selección o filtro (cava/riel/tempranas)",
         )
     if total > MAX_ETIQUETAS_LOTE:
         raise HTTPException(status_code=400, detail=f"Son {total} etiquetas; el máximo por envío es {MAX_ETIQUETAS_LOTE}. Imprime por partes.")

@@ -253,6 +253,7 @@
     .etl-acciones{display:flex;justify-content:flex-end;align-items:center;gap:1rem;margin-top:0.8rem;font-size:0.88rem;}
     .etl-preview{display:flex;flex-direction:column;gap:0.6rem;margin-top:0.8rem;overflow-x:auto;}
     .etl-preview .etl-cap{font-size:0.78rem;color:var(--gris);}
+    #etlBtnTempranas.active{background:#dc2626;border-color:#dc2626;color:#fff;}
     .et-barras{background:repeating-linear-gradient(90deg,#000 0 2px,#fff 2px 3px,#000 3px 4px,#fff 4px 7px,#000 7px 10px,#fff 10px 12px);}
     .et-meta{font-size:0.78rem;color:var(--gris);line-height:1.4;}
     .et-meta strong{color:#1f2937;}
@@ -759,7 +760,7 @@
 
     <div class="etl-box">
       <h3>🖨️ Etiquetas de despacho por OPL</h3>
-      <p class="etl-ayuda">Imprime sin pistolear las medias pendientes de la planilla de puntos, por OPL. Filtra por <strong>cava</strong> y <strong>riel</strong> (como en Excel) y solo se imprimen las que coincidan. Por defecto el orden es <strong>cava → riel</strong> para ir pegando; también puedes ordenar <strong>por cliente</strong>. Puedes desmarcar clientes dentro de cada OPL.</p>
+      <p class="etl-ayuda">Imprime sin pistolear las medias pendientes de la planilla de puntos, por OPL. Filtra por <strong>cava</strong>, <strong>riel</strong> o <strong>Tempranas</strong> (igual que la columna TEMP1 del Excel de particulares) y solo se imprimen las que coincidan. Por defecto el orden es <strong>cava → riel</strong>; también puedes ordenar <strong>por cliente</strong>.</p>
       <div class="etl-filtros">
         <label>Fecha <input type="date" id="etlFecha"></label>
         <label>Turno
@@ -771,6 +772,7 @@
           </select>
         </label>
         <button class="btn btn-secondary btn-sm" onclick="cargarEtiquetasOpl(true)">🔄 Cargar OPL</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="etlBtnTempranas" onclick="etlToggleTempranas()" title="Solo medias con destino TEMP1 / Temp 1 (como en el Excel)">⏱ Tempranas</button>
         <label>Orden
           <select id="etlOrden" onchange="etlCambiarOrden()">
             <option value="ubicacion" selected>Por cava y riel (para pegar)</option>
@@ -2423,7 +2425,7 @@ async function zbCalibrar() {
 }
 
 // ── Etiquetas de despacho por OPL (sin pistolear) ──
-const ETL = { datos: null, oplsSel: new Set(), excluidos: new Set(), abiertos: new Set(), preseleccion: null };
+const ETL = { datos: null, oplsSel: new Set(), excluidos: new Set(), abiertos: new Set(), preseleccion: null, soloTempranas: false };
 
 function abrirEtiquetasOpl(opl) {
   ETL.preseleccion = opl && opl !== 'TODOS' ? opl : '';
@@ -2546,8 +2548,24 @@ function etlCambiarOrden() {
   renderEtiquetasOpl();
 }
 
+function etlToggleTempranas() {
+  ETL.soloTempranas = !ETL.soloTempranas;
+  const btn = $('etlBtnTempranas');
+  if (btn) {
+    btn.classList.toggle('active', ETL.soloTempranas);
+    btn.setAttribute('aria-pressed', ETL.soloTempranas ? 'true' : 'false');
+  }
+  renderEtiquetasOpl();
+}
+
+function _etlCantRiel(v, soloNuevas, soloTemp) {
+  if (soloTemp) return soloNuevas ? (v.tempranas_nuevas || 0) : (v.tempranas || 0);
+  return soloNuevas ? (v.nuevas || 0) : (v.total || 0);
+}
+
 function _etlConteo() {
   const soloNuevas = $('etlSoloNuevas').checked;
+  const soloTemp = !!ETL.soloTempranas;
   let etiquetas = 0, clientes = 0;
   const rieles = new Set();
   (ETL.datos?.opls || []).forEach(o => {
@@ -2557,7 +2575,7 @@ function _etlConteo() {
       let nCli = 0;
       Object.entries(c.rieles || {}).forEach(([ubi, v]) => {
         if (!etlUbiMatch(ubi)) return;
-        const n = soloNuevas ? v.nuevas : v.total;
+        const n = _etlCantRiel(v, soloNuevas, soloTemp);
         if (n > 0) {
           nCli += n;
           rieles.add(ubi);
@@ -2579,58 +2597,74 @@ function renderEtiquetasOpl() {
   if (!d) return;
   const box = $('etlLista');
   const opls = d.opls || [];
+  const soloTemp = !!ETL.soloTempranas;
+  const btnT = $('etlBtnTempranas');
+  if (btnT) btnT.classList.toggle('active', soloTemp);
   if (!opls.length) {
     box.innerHTML = '<div class="empty-state">No hay medias pendientes para esa fecha y turno.</div>';
   } else {
     const marcados = opls.filter(o => ETL.oplsSel.has(o.opl)).length;
+    const totMed = soloTemp ? (d.totalTempranas || 0) : d.totalEtiquetas;
+    const totNue = soloTemp ? (d.totalTempranasNuevas || 0) : d.totalNuevas;
     let html = `<label class="etl-fila todos">
         <input type="checkbox" id="etlTodos" ${marcados === opls.length ? 'checked' : ''} onchange="etlToggleTodos(this.checked)">
-        <span class="etl-nom">Seleccionar todos</span>
-        <span class="etl-cant">${opls.length} OPL · ${d.totalEtiquetas} medias · ${d.totalNuevas} sin imprimir</span>
+        <span class="etl-nom">Seleccionar todos${soloTemp ? ' <span class="badge-temprana">TEMP1</span>' : ''}</span>
+        <span class="etl-cant">${opls.length} OPL · ${totMed} medias${soloTemp ? ' tempranas' : ''} · ${totNue} sin imprimir</span>
       </label>`;
     opls.forEach((o, i) => {
       const sel = ETL.oplsSel.has(o.opl);
       const abierto = ETL.abiertos.has(o.opl);
+      const oTot = soloTemp ? (o.tempranas || 0) : o.total;
+      const oNue = soloTemp ? (o.tempranas_nuevas || 0) : o.nuevas;
+      if (soloTemp && !oTot) return;
       html += `<div class="etl-fila opl">
           <input type="checkbox" ${sel ? 'checked' : ''} onchange="etlToggleOpl(${i}, this.checked)">
-          <span class="etl-nom">${escHtml(o.opl)}</span>
-          <span class="etl-cant">${o.clientes.length} cliente(s) · ${o.total} medias · ${o.nuevas} sin imprimir</span>
+          <span class="etl-nom">${escHtml(o.opl)}${o.tempranas ? ` <span class="badge-temprana" title="Tempranas TEMP1">${o.tempranas}</span>` : ''}</span>
+          <span class="etl-cant">${o.clientes.length} cliente(s) · ${oTot} medias${soloTemp ? ' tempranas' : ''} · ${oNue} sin imprimir</span>
           <button type="button" onclick="etlAbrir(${i})">${abierto ? '▲ Ocultar clientes' : '▼ Ver clientes'}</button>
         </div>`;
       if (!abierto) return;
       o.clientes.forEach((c, j) => {
+        const cTot = soloTemp ? (c.tempranas || 0) : c.total;
+        const cNue = soloTemp ? (c.tempranas_nuevas || 0) : c.nuevas;
+        if (soloTemp && !cTot) return;
         html += `<label class="etl-fila cli">
             <input type="checkbox" ${ETL.excluidos.has(c.clave) ? '' : 'checked'} ${sel ? '' : 'disabled'} onchange="etlToggleCliente(${i}, ${j}, this.checked)">
             <span class="etl-nom">${escHtml(c.cliente)} <small style="color:var(--gris);">${escHtml((c.puestos || []).join(', '))}</small></span>
-            <span class="etl-cant">${c.total} medias · ${c.nuevas} sin imprimir</span>
+            <span class="etl-cant">${cTot} medias${soloTemp ? ' tempranas' : ''} · ${cNue} sin imprimir</span>
           </label>`;
       });
     });
     box.innerHTML = html;
-    $('etlTodos').indeterminate = marcados > 0 && marcados < opls.length;
+    if ($('etlTodos')) $('etlTodos').indeterminate = marcados > 0 && marcados < opls.length;
   }
 
   const conteo = _etlConteo();
   const { etiquetas, separadoras } = conteo;
   const fCava = ($('etlFiltroCava') && $('etlFiltroCava').value) || '';
   const fRiel = ($('etlFiltroRiel') && $('etlFiltroRiel').value) || '';
-  const filtroHint = (fCava || fRiel)
-    ? ` · filtro ${fCava || 'todas las cavas'}${fRiel ? ' · ' + fRiel : ''}`
-    : '';
+  const filtroHint = [
+    soloTemp ? ' · solo tempranas TEMP1' : '',
+    (fCava || fRiel) ? ` · filtro ${fCava || 'todas las cavas'}${fRiel ? ' · ' + fRiel : ''}` : '',
+  ].join('');
   $('etlSepTxt').textContent = etlPorUbicacion() ? 'Separadora por riel' : 'Separadora por cliente';
   $('etlResumen').innerHTML = etiquetas
-    ? `<strong>${etiquetas}</strong> etiqueta(s) de ${_etlTextoGrupos(conteo)}${separadoras ? ` + ${separadoras} separadora(s)` : ''}`
+    ? `<strong>${etiquetas}</strong> etiqueta(s)${soloTemp ? ' tempranas' : ''} de ${_etlTextoGrupos(conteo)}${separadoras ? ` + ${separadoras} separadora(s)` : ''}`
       + (etlPorUbicacion() ? ' · orden Cava 1 Riel 1, Cava 1 Riel 2…' : '')
       + filtroHint
     : (ETL.oplsSel.size
-      ? ((fCava || fRiel)
-        ? 'Ninguna media coincide con el filtro de cava/riel'
-        : ($('etlSoloNuevas').checked
-          ? 'Todo lo marcado ya se imprimió (desmarca «Solo las que no se han impreso» para reimprimir)'
-          : 'Marca uno o más OPL'))
+      ? (soloTemp
+        ? 'No hay tempranas TEMP1 en la selección (o ya se imprimieron)'
+        : ((fCava || fRiel)
+          ? 'Ninguna media coincide con el filtro de cava/riel'
+          : ($('etlSoloNuevas').checked
+            ? 'Todo lo marcado ya se imprimió (desmarca «Solo las que no se han impreso» para reimprimir)'
+            : 'Marca uno o más OPL')))
       : 'Marca uno o más OPL');
   $('etlBtnImprimir').disabled = !etiquetas;
-  $('etlBtnImprimir').textContent = etiquetas ? `🖨️ Imprimir ${etiquetas + separadoras} etiquetas` : '🖨️ Imprimir';
+  $('etlBtnImprimir').textContent = etiquetas
+    ? `🖨️ Imprimir ${etiquetas + separadoras}${soloTemp ? ' tempranas' : ' etiquetas'}`
+    : '🖨️ Imprimir';
 
   let prev = '';
   const sepPrev = etlPorUbicacion() ? d.previewSeparadorRiel : d.previewSeparador;
@@ -2694,11 +2728,15 @@ async function imprimirEtiquetasOpl() {
   if (ZB.modo === 'local' && !ZB.device) await zbDetectar();
   const ordenTxt = etlPorUbicacion() ? ' en orden de cava y riel' : '';
   const ubiFiltro = etlUbicacionesFiltro();
-  const filtroTxt = ubiFiltro
-    ? ` (filtro: ${(($('etlFiltroCava') && $('etlFiltroCava').value) || 'todas las cavas')}`
-      + `${($('etlFiltroRiel') && $('etlFiltroRiel').value) ? ' · ' + $('etlFiltroRiel').value : ''})`
-    : '';
-  if (!confirm(`¿Imprimir ${etiquetas} etiqueta(s) de ${_etlTextoGrupos(conteo)}${separadoras ? ` + ${separadoras} separadora(s)` : ''}${ordenTxt}${filtroTxt} en ${zbDestinoTexto()}?`)) return;
+  const soloTemp = !!ETL.soloTempranas;
+  const filtroTxt = [
+    soloTemp ? ' solo tempranas TEMP1' : '',
+    ubiFiltro
+      ? ` (filtro: ${(($('etlFiltroCava') && $('etlFiltroCava').value) || 'todas las cavas')}`
+        + `${($('etlFiltroRiel') && $('etlFiltroRiel').value) ? ' · ' + $('etlFiltroRiel').value : ''})`
+      : '',
+  ].join('');
+  if (!confirm(`¿Imprimir ${etiquetas} etiqueta(s)${soloTemp ? ' tempranas' : ''} de ${_etlTextoGrupos(conteo)}${separadoras ? ` + ${separadoras} separadora(s)` : ''}${ordenTxt}${filtroTxt} en ${zbDestinoTexto()}?`)) return;
   const opls = [...ETL.oplsSel];
   const claves = new Set(ETL.datos.opls.filter(o => ETL.oplsSel.has(o.opl)).flatMap(o => o.clientes.map(c => c.clave)));
   const body = {
@@ -2709,6 +2747,7 @@ async function imprimirEtiquetasOpl() {
     solo_nuevas: $('etlSoloNuevas').checked,
     separadores: $('etlSeparadores').checked,
     orden: $('etlOrden').value,
+    solo_tempranas: soloTemp,
   };
   if (ubiFiltro !== null) body.ubicaciones = ubiFiltro;
   showSpinner();
