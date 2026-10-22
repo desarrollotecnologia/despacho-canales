@@ -96,8 +96,8 @@ def layout_etiqueta(et: dict) -> list:
         # Bloque 1 — puesto más grande y alargado (w > h); código animal más chico
         {"tipo": "texto", "x": b1, "y": 4, "h": 48, "w": 64, "texto": _corto(et.get("puesto_turno") or "SIN PUESTO", 22)},
         {"tipo": "barras", "x": b1, "y": 56, "h": 48, "modulo": 2, "texto": codigo},
-        {"tipo": "texto", "x": b1, "y": 110, "h": 34, "texto": _zpl_txt(et.get("codigo_animal"))},
-        {"tipo": "texto", "x": b1, "y": 150, "h": 20, "texto": _zpl_txt(et.get("tipo"))},
+        {"tipo": "texto", "x": b1, "y": 108, "h": 38, "texto": _zpl_txt(et.get("codigo_animal"))},
+        {"tipo": "texto", "x": b1, "y": 152, "h": 18, "texto": _zpl_txt(et.get("tipo"))},
         # Bloque 3
         {"tipo": "barras", "x": b3, "y": 8, "h": 50, "modulo": 2, "texto": codigo},
         {"tipo": "texto", "x": b3, "y": 64, "h": 20, "texto": _zpl_txt(et.get("cuarto"))},
