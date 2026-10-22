@@ -2273,7 +2273,9 @@ function tiraEtiquetaHtml(layout) {
       const ancho = (11 * String(el.texto).length + 35) * (el.modulo || 2);
       return `<div class="et-barras" title="${escHtml(el.texto)}" style="left:${px(el.x)};top:${px(el.y)};width:${px(ancho)};height:${px(el.h)};"></div>`;
     }
-    return `<div class="et-txt" style="left:${px(el.x)};top:${px(el.y)};font-size:${px(el.h)};">${escHtml(el.texto)}</div>`;
+    const sx = (el.w && el.h) ? (Number(el.w) / Number(el.h)) : 1;
+    const stretch = sx !== 1 ? `transform:scaleX(${sx.toFixed(2)});transform-origin:left top;` : '';
+    return `<div class="et-txt" style="left:${px(el.x)};top:${px(el.y)};font-size:${px(el.h)};${stretch}">${escHtml(el.texto)}</div>`;
   }).join('') + `<div class="et-logo" style="left:${px(1750)};">Colbeef<small>logo preimpreso</small></div>`;
 }
 

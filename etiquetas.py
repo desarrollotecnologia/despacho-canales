@@ -93,10 +93,10 @@ def layout_etiqueta(et: dict) -> list:
     b1, b3, b4 = 220, 800, 1200
     c4 = 42
     elementos = [
-        # Bloque 1 — puesto más grande; código del animal un poco más chico
-        {"tipo": "texto", "x": b1, "y": 6, "h": 40, "texto": _corto(et.get("puesto_turno") or "SIN PUESTO", 22)},
-        {"tipo": "barras", "x": b1, "y": 50, "h": 52, "modulo": 2, "texto": codigo},
-        {"tipo": "texto", "x": b1, "y": 108, "h": 28, "texto": _zpl_txt(et.get("codigo_animal"))},
+        # Bloque 1 — puesto más grande y alargado (w > h); código animal más chico
+        {"tipo": "texto", "x": b1, "y": 4, "h": 48, "w": 64, "texto": _corto(et.get("puesto_turno") or "SIN PUESTO", 22)},
+        {"tipo": "barras", "x": b1, "y": 56, "h": 48, "modulo": 2, "texto": codigo},
+        {"tipo": "texto", "x": b1, "y": 110, "h": 28, "texto": _zpl_txt(et.get("codigo_animal"))},
         {"tipo": "texto", "x": b1, "y": 148, "h": 22, "texto": _zpl_txt(et.get("tipo"))},
         # Bloque 3
         {"tipo": "barras", "x": b3, "y": 8, "h": 50, "modulo": 2, "texto": codigo},
@@ -167,7 +167,9 @@ def _campos(layout: list, x_tira: int, cfg: dict) -> list:
         elif e["tipo"] == "barras":
             out.append(f"^FO{fo_x},{fo_y}^BY{e['modulo']},3,{h}^BCR,{h},N,N,N,A^FD{e['texto']}^FS")
         else:
-            out.append(f"^FO{fo_x},{fo_y}^A0R,{h},{h}^FD{e['texto']}^FS")
+            # w opcional: alarga el carácter a lo largo de la tira (más visible)
+            w = int(e.get("w") or h)
+            out.append(f"^FO{fo_x},{fo_y}^A0R,{h},{w}^FD{e['texto']}^FS")
     return out
 
 
