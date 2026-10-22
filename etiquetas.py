@@ -93,11 +93,11 @@ def layout_etiqueta(et: dict) -> list:
     b1, b3, b4 = 220, 800, 1200
     c4 = 42
     elementos = [
-        # Bloque 1
-        {"tipo": "texto", "x": b1, "y": 10, "h": 32, "texto": _corto(et.get("puesto_turno") or "SIN PUESTO", 22)},
-        {"tipo": "barras", "x": b1, "y": 46, "h": 54, "modulo": 2, "texto": codigo},
-        {"tipo": "texto", "x": b1, "y": 104, "h": 40, "texto": _zpl_txt(et.get("codigo_animal"))},
-        {"tipo": "texto", "x": b1, "y": 150, "h": 22, "texto": _zpl_txt(et.get("tipo"))},
+        # Bloque 1 — puesto más grande; código del animal un poco más chico
+        {"tipo": "texto", "x": b1, "y": 6, "h": 40, "texto": _corto(et.get("puesto_turno") or "SIN PUESTO", 22)},
+        {"tipo": "barras", "x": b1, "y": 50, "h": 52, "modulo": 2, "texto": codigo},
+        {"tipo": "texto", "x": b1, "y": 108, "h": 28, "texto": _zpl_txt(et.get("codigo_animal"))},
+        {"tipo": "texto", "x": b1, "y": 148, "h": 22, "texto": _zpl_txt(et.get("tipo"))},
         # Bloque 3
         {"tipo": "barras", "x": b3, "y": 8, "h": 50, "modulo": 2, "texto": codigo},
         {"tipo": "texto", "x": b3, "y": 64, "h": 20, "texto": _zpl_txt(et.get("cuarto"))},

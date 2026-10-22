@@ -2299,12 +2299,14 @@ async function zbFetch(path, opts = {}, ms = 4000) {
 
 async function zbDetectar() {
   ZB.buscado = true;
+  ZB.error = '';
   $('zbEstado').className = 'zb-estado';
   $('zbEstado').textContent = 'Buscando Zebra en este equipo…';
   ZB.devices = [];
   ZB.device = null;
   try {
     const r = await zbFetch('/available');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     const j = await r.json();
     // Browser Print responde {printer:[...]} o {deviceList:[...]} según la versión
     ZB.devices = (j.printer || j.deviceList || []).filter(d => !d.deviceType || d.deviceType === 'printer');
@@ -2314,9 +2316,11 @@ async function zbDetectar() {
     }
     const uid = localStorage.getItem('canales_zebra_uid');
     ZB.device = ZB.devices.find(d => d.uid === uid) || ZB.devices[0] || null;
-  } catch (_) {
+    if (!ZB.device) ZB.error = 'Browser Print responde, pero no hay impresora USB/red. Revisa el cable y el icono de Browser Print.';
+  } catch (e) {
     ZB.devices = [];
     ZB.device = null;
+    ZB.error = 'Zebra Browser Print no responde en este equipo. Ábrelo (bandeja del sistema) y, si pide permiso, permite esta página; luego pulsa «Buscar».';
   }
   renderZb();
 }
@@ -2345,7 +2349,9 @@ function renderZb() {
     est.textContent = `🟢 Zebra de este equipo: ${ZB.device.name}${ZB.device.connection ? ` (${ZB.device.connection})` : ''}`;
   } else {
     est.className = 'zb-estado mal';
-    est.innerHTML = `🔴 No se encontró una Zebra en este equipo. Instala <a href="${ZB_DESCARGA}" target="_blank" rel="noopener">Zebra Browser Print</a>, conecta la Zebra, permite esta página en Browser Print y pulsa «Buscar».`;
+    est.innerHTML = ZB.error
+      ? `🔴 ${escHtml(ZB.error)}`
+      : `🔴 No se encontró una Zebra en este equipo. Instala <a href="${ZB_DESCARGA}" target="_blank" rel="noopener">Zebra Browser Print</a>, conecta la Zebra, permite esta página en Browser Print y pulsa «Buscar».`;
   }
 }
 
