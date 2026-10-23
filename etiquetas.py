@@ -90,22 +90,22 @@ def layout_etiqueta(et: dict) -> list:
     codigo = _zpl_txt(et.get("codigo_barras"))
     # El logo preimpreso empieza hacia el dot 1670 del largo y cada tira útil
     # mide ~185 dots de ancho: todo va entre y=6 y y=172 y termina antes de x≈1600.
-    b1, b3, b4 = 220, 800, 1200
-    c4 = 42
+    # Solo un código de barras (bloque 1). Bloque 3/4 corridos a la derecha hacia el logo.
+    b1, b3, b4 = 220, 920, 1340
+    c4 = 40
     elementos = [
-        # Bloque 1 — puesto más grande y alargado (w > h); código animal más chico
+        # Bloque 1 — puesto + único código de barras + animal
         {"tipo": "texto", "x": b1, "y": 4, "h": 48, "w": 64, "texto": _corto(et.get("puesto_turno") or "SIN PUESTO", 22)},
         {"tipo": "barras", "x": b1, "y": 56, "h": 48, "modulo": 2, "texto": codigo},
         {"tipo": "texto", "x": b1, "y": 108, "h": 38, "texto": _zpl_txt(et.get("codigo_animal"))},
         {"tipo": "texto", "x": b1, "y": 152, "h": 18, "texto": _zpl_txt(et.get("tipo"))},
-        # Bloque 3
-        {"tipo": "barras", "x": b3, "y": 8, "h": 50, "modulo": 2, "texto": codigo},
-        {"tipo": "texto", "x": b3, "y": 64, "h": 20, "texto": _zpl_txt(et.get("cuarto"))},
-        {"tipo": "texto", "x": b3 + 270, "y": 60, "h": 34, "texto": _zpl_txt(et.get("cam"))},
-        {"tipo": "texto", "x": b3, "y": 90, "h": 24, "texto": f"Ubicacion: {_zpl_txt(et.get('ubicacion')) or '-'}"},
-        {"tipo": "texto", "x": b3, "y": 120, "h": 20, "texto": f"Zona: {_corto(et.get('zona') or '-', 26)}"},
-        {"tipo": "texto", "x": b3, "y": 146, "h": 20, "texto": f"Despacho: {_fecha_dmy(et.get('fecha_programacion')) or '-'}"},
-        # Bloque 4
+        # Bloque 3 — sin 2º barcode; texto más grande (ocupa el espacio del barcode)
+        {"tipo": "texto", "x": b3, "y": 8, "h": 28, "texto": _zpl_txt(et.get("cuarto"))},
+        {"tipo": "texto", "x": b3 + 290, "y": 4, "h": 46, "texto": _zpl_txt(et.get("cam"))},
+        {"tipo": "texto", "x": b3, "y": 48, "h": 30, "texto": f"Ubicacion: {_zpl_txt(et.get('ubicacion')) or '-'}"},
+        {"tipo": "texto", "x": b3, "y": 90, "h": 28, "texto": f"Zona: {_corto(et.get('zona') or '-', 26)}"},
+        {"tipo": "texto", "x": b3, "y": 130, "h": 26, "texto": f"Despacho: {_fecha_dmy(et.get('fecha_programacion')) or '-'}"},
+        # Bloque 4 — más cerca del logo
         {"tipo": "texto", "x": b4, "y": 6, "h": 17, "texto": _corto(f"Cliente {et.get('cliente') or '-'}", c4)},
         {"tipo": "texto", "x": b4, "y": 29, "h": 17, "texto": _corto(f"Puesto {et.get('puesto') or '-'}", c4)},
         {"tipo": "texto", "x": b4, "y": 52, "h": 17, "texto": _corto(f"Turno {et.get('turno') or '-'}", c4)},
