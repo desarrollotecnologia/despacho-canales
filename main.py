@@ -979,11 +979,32 @@ def resolver_opl_de_propietario(propietario: str) -> str:
     return apps_script_local._resolver_opl(prop, mapa)
 
 
-def consultar_canales_planilla(fecha_filtro: str, turno: Optional[str]):
+def _estado_pieza(r: dict) -> str:
+    """En cava = sin pistoleo; Despachado = ya tiene fecha_salida."""
+    fs = r.get("fecha_salida")
+    if fs not in (None, "",):
+        return "Despachado"
+    return "En cava"
+
+
+def _marcar_estado_pieza(r: dict) -> dict:
+    r["estado"] = _estado_pieza(r)
+    r["en_cava"] = r["estado"] == "En cava"
+    return r
+
+
+def consultar_canales_planilla(
+    fecha_filtro: str,
+    turno: Optional[str],
+    incluir_despachadas: bool = False,
+):
     """
-    Medias en cava programadas para la fecha (fecha_programacion_despacho),
+    Medias programadas para la fecha (fecha_programacion_despacho),
     con ruta puesto/zona como Gestor Vísceras.
+    Por defecto solo en cava; con incluir_despachadas=True también las ya
+    pistoleadas (foto del día para planilla/Excel).
     """
+    filtro_abierto = "" if incluir_despachadas else "WHERE mov.fecha_salida IS NULL"
     sql = f"""
         WITH programadas AS MATERIALIZED (
             SELECT pp.*
@@ -995,12 +1016,13 @@ def consultar_canales_planilla(fecha_filtro: str, turno: Optional[str]):
             SELECT DISTINCT ON (pp.id_producto, pp.id)
                 pp.*,
                 mov.id_cava AS movimiento_id_cava,
-                mov.id_riel AS movimiento_id_riel
+                mov.id_riel AS movimiento_id_riel,
+                mov.fecha_salida AS movimiento_fecha_salida
             FROM programadas pp
             JOIN trazabilidad_proceso.parte_producto_cava_riel mov
               ON mov.id_parte_producto = pp.id
              AND mov.id_producto::text = pp.id_producto::text
-            WHERE mov.fecha_salida IS NULL
+            {filtro_abierto}
             ORDER BY
                 pp.id_producto,
                 pp.id,
@@ -1013,6 +1035,7 @@ def consultar_canales_planilla(fecha_filtro: str, turno: Optional[str]):
             COALESCE(NULLIF(TRIM(e3.nombre), ''), 'Sin propietario') AS propietario,
             c.nombre                                AS cava,
             r.nombre                                AS riel,
+            pp.movimiento_fecha_salida              AS fecha_salida,
             pp.con_destino                          AS con_destino,
             pp.observaciones                        AS observaciones,
             s.nombre                                AS sucursal_origen,
@@ -1035,7 +1058,9 @@ def consultar_canales_planilla(fecha_filtro: str, turno: Optional[str]):
         enriquecer_codigo(r)
         r["opl"] = resolver_opl_de_propietario(r.get("propietario") or "")
         r["destino"] = r.get("zona") or ""
+        _marcar_estado_pieza(r)
     data.sort(key=lambda x: (
+        0 if x.get("en_cava") else 1,
         str(x.get("zona") or "").upper(),
         str(x.get("puesto") or ""),
         str(x.get("propietario") or ""),
@@ -1044,20 +1069,32 @@ def consultar_canales_planilla(fecha_filtro: str, turno: Optional[str]):
     return data
 
 
-def obtener_piezas_programadas(fecha_filtro: str, turno: Optional[str]) -> List[dict]:
+def obtener_piezas_programadas(
+    fecha_filtro: str,
+    turno: Optional[str],
+    incluir_despachadas: bool = False,
+) -> List[dict]:
     """
-    Listado único de medias programadas (fecha + turno), compartido por
-    despachos / planilla / detalle. TTL = CACHE_TTL_SEG.
-    Incluye adicionales locales del día que aún no están en SIRT.
+    Listado de medias programadas (fecha + turno).
+    incluir_despachadas=False → solo en cava (despachos / reetiquetado).
+    incluir_despachadas=True → foto del día (planilla / Excel con Estado).
     """
-    ck = ("programados", fecha_filtro, turno, "v2_adic")
+    ck = ("programados", fecha_filtro, turno, "v3_estado", bool(incluir_despachadas))
     hit = cache_get(ck)
     if hit is not None:
         return hit
-    data = consultar_canales_planilla(fecha_filtro, turno)
+    data = consultar_canales_planilla(fecha_filtro, turno, incluir_despachadas=incluir_despachadas)
     data = fusionar_adicionales(data, fecha_filtro, turno)
+    for r in data:
+        if "estado" not in r:
+            _marcar_estado_pieza(r)
     cache_set(ck, data)
     return data
+
+
+def piezas_en_cava(piezas: List[dict]) -> List[dict]:
+    """Filtra medias aún sin pistolear."""
+    return [r for r in piezas if r.get("en_cava", _estado_pieza(r) == "En cava")]
 
 
 def _inferir_id_tipo(codigo: str, descripcion: str = "") -> int:
@@ -1286,6 +1323,7 @@ def fusionar_adicionales(piezas: List[dict], fecha: str, turno: Optional[str]) -
         row["destino"] = row.get("zona") or row.get("destino") or ""
         row["opl"] = resolver_opl_de_propietario(row.get("propietario") or "")
         enriquecer_codigo(row)
+        _marcar_estado_pieza(row)
         vistos.add(str(row.get("codigo") or "").strip().upper())
         out.append(row)
     out.sort(key=lambda x: (
@@ -1488,6 +1526,7 @@ def _escribir_hoja_excel_opl(
     verde_claro = PatternFill("solid", fgColor="E8F5E9")
     azul_adicional = PatternFill("solid", fgColor="CFE8FF")
     rojo_temprana = PatternFill("solid", fgColor="FDE2E2")
+    gris_desp = PatternFill("solid", fgColor="E5E7EB")
     rojo = PatternFill("solid", fgColor="DC2626")
     blanco = Font(color="FFFFFF", bold=True, name="Calibri", size=11)
     titulo = Font(color="FFFFFF", bold=True, name="Calibri", size=16)
@@ -1511,10 +1550,12 @@ def _escribir_hoja_excel_opl(
         ("Riel", 14, lambda r, a: r.get("riel") or ""),
         ("Destino SIRT", 60, lambda r, a: destino_sirt_completo(r, turno)),
         ("Temprana", 11, lambda r, a: marcador_destino_temp(r.get("destino_real"), r.get("opl") or opl)),
+        ("Estado", 12, lambda r, a: r.get("estado") or _estado_pieza(r)),
         ("Tipo", 12, lambda r, a: "Adicional" if a.get("adicional") else "Normal"),
         ("Hora asignación", 16, lambda r, a: a.get("hora") or ""),
     ]
     col_temprana = next(i for i, c in enumerate(columnas, 1) if c[0] == "Temprana")
+    col_estado = next(i for i, c in enumerate(columnas, 1) if c[0] == "Estado")
     col_destino = next(i for i, c in enumerate(columnas, 1) if c[0] == "Destino SIRT")
     ncol = len(columnas)
     ultima = get_column_letter(ncol)
@@ -1530,15 +1571,19 @@ def _escribir_hoja_excel_opl(
 
     infos = [_info_asignacion(r, asignacion) for r in filas]
     tempranas = [bool(marcador_destino_temp(r.get("destino_real"), r.get("opl") or opl)) for r in filas]
+    estados = [r.get("estado") or _estado_pieza(r) for r in filas]
     n_adi = sum(1 for a in infos if a.get("adicional"))
     n_temp = sum(tempranas)
+    n_cava = sum(1 for e in estados if e == "En cava")
+    n_desp = sum(1 for e in estados if e == "Despachado")
     turno_txt = turno or "Todos"
     ws.merge_cells(f"A2:{ultima}2")
     ws["A2"] = (
-        f"Medias canales pendientes · {fecha} · turno {turno_txt} · {len(filas)} registros"
+        f"Medias del día · {fecha} · turno {turno_txt} · {len(filas)} registros"
+        f" · En cava: {n_cava} · Despachado: {n_desp}"
         f" · Tempranas TEMP1: {n_temp} medias ({_fmt_canales(n_temp * 0.5)} canales)"
-        f" · {n_adi} adicionales · Fila roja = temprana (destino TEMP1 o Temp 1) · Fila azul = adicional"
-        f" (asignada desde las {get_salida_adicional_corte_label()})"
+        f" · {n_adi} adicionales · Filtra columna Estado = «En cava» para ver lo pendiente"
+        f" · Fila roja = temprana · Fila azul = adicional · Fila gris = despachada"
     )
     ws["A2"].font = Font(name="Calibri", size=10, italic=True, color="374151")
     ws["A2"].alignment = Alignment(horizontal="center")
@@ -1552,8 +1597,10 @@ def _escribir_hoja_excel_opl(
         cell.border = thin
         ws.column_dimensions[get_column_letter(i)].width = ancho
 
-    for idx, (r, a, temp) in enumerate(zip(filas, infos, tempranas), 4):
-        if temp:
+    for idx, (r, a, temp, est) in enumerate(zip(filas, infos, tempranas, estados), 4):
+        if est == "Despachado":
+            fill = gris_desp
+        elif temp:
             fill = rojo_temprana
         elif a.get("adicional"):
             fill = azul_adicional
@@ -1566,7 +1613,8 @@ def _escribir_hoja_excel_opl(
             if fill:
                 cell.fill = fill
         ws.cell(idx, col_destino).alignment = Alignment(wrap_text=True, vertical="center")
-        if temp:
+        ws.cell(idx, col_estado).alignment = Alignment(horizontal="center")
+        if temp and est != "Despachado":
             c = ws.cell(idx, col_temprana)
             c.fill = rojo
             c.font = blanco
@@ -1603,9 +1651,9 @@ def construir_excel_opl(opl: str, fecha: str, turno, filas: List[dict]) -> Bytes
 
 def construir_excel_particulares(fecha: str, turno, por_opl: dict) -> BytesIO:
     """
-    Un Excel con una hoja por OPL particular (solo pendientes).
+    Un Excel con una hoja por OPL particular (foto del día: en cava + despachadas).
     Con 2 o más OPLs se agrega primero la hoja GENERAL con todos, ordenada por OPL.
-    Las adicionales (asignadas desde el corte) van en azul claro.
+    Columna Estado = En cava | Despachado. Las adicionales van en azul claro.
     """
     try:
         from openpyxl import Workbook
@@ -2358,7 +2406,7 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
     """
     Misma estructura que Gestor Vísceras generarPlanillaPuntos:
     zonas[{nombre, total, puestos[{puesto, cantidad, temprana}]}] + lista plana puestos.
-    Cantidad = medias × 0.5 (equivalente canal).
+    Cantidad = medias × 0.5 (equivalente canal) del día completo (en cava + despachadas).
     Tempranas: destino SIRT TEMP1 o 'Temp 1 <zona>', de todos los OPL
     (ver get_opls_tempranas) — prioridad visual, no cambian pendientes.
     """
@@ -2367,6 +2415,8 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
     zonas_map = {}
     puestos_flat = []
     total_opl = 0.0
+    total_en_cava = 0.0
+    total_despachado = 0.0
 
     for r in items:
         opl_reg = r.get("opl") or apps_script_local.OPL_DEFAULT
@@ -2374,6 +2424,11 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
             continue
         cantidad = 0.5
         total_opl += cantidad
+        en_cava = r.get("en_cava", _estado_pieza(r) == "En cava")
+        if en_cava:
+            total_en_cava += cantidad
+        else:
+            total_despachado += cantidad
         puesto = formatear_codigo_sucursal(r.get("puesto") or "") or "—"
         obs = str(r.get("observaciones") or "").strip()
         ruta = (
@@ -2386,12 +2441,23 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
         temprana = bool(marcador)
         clave = f"{puesto}|{zona.upper()}"
         if zona not in zonas_map:
-            zonas_map[zona] = {"total": 0.0, "puestos_map": {}}
+            zonas_map[zona] = {"total": 0.0, "enCava": 0.0, "despachado": 0.0, "puestos_map": {}}
         zonas_map[zona]["total"] += cantidad
+        if en_cava:
+            zonas_map[zona]["enCava"] += cantidad
+        else:
+            zonas_map[zona]["despachado"] += cantidad
         pm = zonas_map[zona]["puestos_map"]
         if clave not in pm:
-            pm[clave] = {"puesto": puesto, "cantidad": 0.0, "temprana": temprana, "marcadorTemp": marcador}
+            pm[clave] = {
+                "puesto": puesto, "cantidad": 0.0, "enCava": 0.0, "despachado": 0.0,
+                "temprana": temprana, "marcadorTemp": marcador,
+            }
         pm[clave]["cantidad"] += cantidad
+        if en_cava:
+            pm[clave]["enCava"] += cantidad
+        else:
+            pm[clave]["despachado"] += cantidad
         if temprana:
             pm[clave]["temprana"] = True
             pm[clave]["marcadorTemp"] = _mejor_marcador_temp(pm[clave].get("marcadorTemp"), marcador)
@@ -2401,6 +2467,9 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
             "sucursal": puesto,
             "zona": zona,
             "cantidad": cantidad,
+            "enCava": cantidad if en_cava else 0.0,
+            "despachado": 0.0 if en_cava else cantidad,
+            "estado": "En cava" if en_cava else "Despachado",
             "opl": opl_reg,
             "codigo": r.get("codigo"),
             "propietario": r.get("propietario"),
@@ -2419,18 +2488,31 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
                 "sucursal": p["sucursal"],
                 "zona": p["zona"],
                 "cantidad": 0.0,
+                "enCava": 0.0,
+                "despachado": 0.0,
                 "opl": p["opl"],
                 "temprana": bool(p.get("temprana")),
                 "marcadorTemp": p.get("marcadorTemp") or "",
             }
         flat_agg[k]["cantidad"] += p["cantidad"]
+        flat_agg[k]["enCava"] += float(p.get("enCava") or 0)
+        flat_agg[k]["despachado"] += float(p.get("despachado") or 0)
         if p.get("temprana"):
             flat_agg[k]["temprana"] = True
             flat_agg[k]["marcadorTemp"] = _mejor_marcador_temp(
                 flat_agg[k].get("marcadorTemp"), p.get("marcadorTemp")
             )
     puestos_lista = sorted(
-        ({**v, "cantidad": round(v["cantidad"], 2)} for v in flat_agg.values()),
+        ({
+            **v,
+            "cantidad": round(v["cantidad"], 2),
+            "enCava": round(v["enCava"], 2),
+            "despachado": round(v["despachado"], 2),
+            "estado": (
+                "Despachado" if float(v.get("enCava") or 0) <= 0 and float(v.get("despachado") or 0) > 0
+                else ("En cava" if float(v.get("despachado") or 0) <= 0 else "Parcial")
+            ),
+        } for v in flat_agg.values()),
         key=lambda x: (
             0 if x.get("temprana") else 1,
             _orden_marcador_temp(x.get("marcadorTemp")),
@@ -2446,6 +2528,12 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
                 {
                     "puesto": v["puesto"],
                     "cantidad": round(v["cantidad"], 2),
+                    "enCava": round(v.get("enCava") or 0, 2),
+                    "despachado": round(v.get("despachado") or 0, 2),
+                    "estado": (
+                        "Despachado" if float(v.get("enCava") or 0) <= 0 and float(v.get("despachado") or 0) > 0
+                        else ("En cava" if float(v.get("despachado") or 0) <= 0 else "Parcial")
+                    ),
                     "temprana": bool(v.get("temprana")),
                     "marcadorTemp": (v.get("marcadorTemp") or "TEMP") if v.get("temprana") else "",
                 }
@@ -2460,6 +2548,8 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
         zonas_array.append({
             "nombre": zona,
             "total": round(bucket["total"], 2),
+            "enCava": round(bucket.get("enCava") or 0, 2),
+            "despachado": round(bucket.get("despachado") or 0, 2),
             "puestos": puestos_arr,
             "tieneTempranas": any(p.get("temprana") for p in puestos_arr),
         })
@@ -2478,6 +2568,8 @@ def armar_planilla_estilo_visceras(items: List[dict], opl_sel: Optional[str], fe
         "zonas": zonas_array,
         "puestos": puestos_lista,
         "totalOPL": round(total_opl, 2),
+        "totalEnCava": round(total_en_cava, 2),
+        "totalDespachado": round(total_despachado, 2),
         "totalGlobal": total_global,
         "porcentaje": pct,
         "turno": turno or "Todos",
@@ -2500,11 +2592,11 @@ def get_planilla_puntos(
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
     opl_key = (opl or "").strip() or "TODOS"
-    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v4_zona_obs")
+    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v5_foto_dia")
     hit = cache_get(ck)
     if hit is not None:
         return hit
-    items = obtener_piezas_programadas(fecha_filtro, turno)
+    items = obtener_piezas_programadas(fecha_filtro, turno, incluir_despachadas=True)
     resumen, total_general = resumen_planilla_puntos(items)
     cfg = apps_script_local.getOplConfig()
     opls_cfg = cfg.get("opls") or []
@@ -2539,7 +2631,7 @@ def excel_planilla_puntos(
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
     items = [
-        r for r in obtener_piezas_programadas(fecha_filtro, turno)
+        r for r in obtener_piezas_programadas(fecha_filtro, turno, incluir_despachadas=True)
         if (r.get("opl") or "") == opl
     ]
     buf = construir_excel_opl(opl, fecha_filtro, turno, items)
@@ -2576,10 +2668,9 @@ def excel_planilla_particulares(
     opls: Optional[str] = None,
 ):
     """
-    Excel multi-hoja de OPLs particulares.
-    Solo pendientes (sin fecha_salida): a medida que pistolean, se van quitando.
-    `opls` (JSON) = OPLs marcados en pantalla; sin él se usa la selección guardada,
-    que es compartida entre usuarios y puede traer OPLs de otra jornada.
+    Excel multi-hoja de OPLs particulares (foto del día).
+    Incluye en cava y despachadas; columna Estado para filtrar lo pendiente.
+    `opls` (JSON) = OPLs marcados en pantalla; sin él se usa la selección guardada.
     """
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
@@ -2609,7 +2700,7 @@ def excel_planilla_particulares(
         )
 
     seleccion_up = {x.upper() for x in seleccion}
-    piezas = obtener_piezas_programadas(fecha_filtro, turno)
+    piezas = obtener_piezas_programadas(fecha_filtro, turno, incluir_despachadas=True)
     por_opl = {opl: [] for opl in seleccion}
     mapa_nombre = {opl.upper(): opl for opl in seleccion}
     for r in piezas:
@@ -2620,7 +2711,7 @@ def excel_planilla_particulares(
     # Mantener orden de selección; incluir hojas aunque queden en 0 (ya despachados)
     ordenado = {opl: por_opl.get(opl, []) for opl in seleccion}
     buf = construir_excel_particulares(fecha_filtro, turno, ordenado)
-    fname = f"Particulares_pendientes_{fecha_filtro}.xlsx"
+    fname = f"Particulares_{fecha_filtro}.xlsx"
     headers = {
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"
     }
