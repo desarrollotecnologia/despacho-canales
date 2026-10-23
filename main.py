@@ -1012,23 +1012,12 @@ def _parse_fecha_val(val) -> Optional[date]:
 
 def _estado_pieza(r: dict, fecha_filtro: Optional[str] = None) -> str:
     """
-    En cava = sin pistoleo (o salida posterior al día consultado).
-    Despachado = ya tiene fecha_salida en la ventana del turno de esa fecha.
-    El turno cruza medianoche: cuenta salidas desde fecha-2 hasta fecha+1.
+    En cava = movimiento abierto (sin fecha_salida).
+    Despachado = ya pistoleó (tiene fecha_salida en el movimiento de la foto).
     """
     fs = r.get("fecha_salida")
     if fs in (None, ""):
         return "En cava"
-    if not fecha_filtro:
-        return "Despachado"
-    d_sal = _parse_fecha_val(fs)
-    d_ref = _parse_fecha_val(fecha_filtro)
-    if not d_sal or not d_ref:
-        return "Despachado"
-    # Salió después de la ventana del día consultado → ese día aún estaba en cava
-    if d_sal > d_ref + timedelta(days=1):
-        return "En cava"
-    # Salió en/alrededor del turno de esa fecha (o antes, ya no pendiente)
     return "Despachado"
 
 
@@ -1050,10 +1039,13 @@ def consultar_canales_planilla(
     Por defecto solo en cava; con incluir_despachadas=True también las ya
     pistoleadas (foto del día para planilla/Excel).
 
-    Foto del día: prioriza el movimiento con salida en la ventana del turno
-    (fecha-2 … fecha+1) para no marcar «En cava» por un reingreso posterior.
+    Foto del día: prioriza el movimiento ABIERTO (sigue en cava). Solo si no
+    hay abierto en la ventana del día, usa el con fecha_salida (despachado).
+    Así no se marca Despachado por un pistoleo viejo si hoy sigue en cava.
     """
     if incluir_despachadas:
+        # Movimientos del día: ingreso antes de fin de fecha; abiertos o
+        # salidos desde fecha-2 (turno que cruza medianoche).
         filtro_mov = """
             WHERE mov.fecha_ingreso < (%s::date + INTERVAL '1 day')
               AND (
@@ -1061,24 +1053,19 @@ def consultar_canales_planilla(
                  OR mov.fecha_salida::date >= (%s::date - 2)
               )
         """
+        # Abierto primero; si salió, el más reciente. Nunca preferir un
+        # pistoleo viejo sobre el stock actual en cava.
         order_mov = """
             ORDER BY
                 pp.id_producto,
                 pp.id,
-                CASE
-                  WHEN mov.fecha_salida IS NOT NULL
-                   AND mov.fecha_salida::date >= (%s::date - 2)
-                   AND mov.fecha_salida::date <= (%s::date + 1)
-                  THEN 0 ELSE 1
-                END,
+                CASE WHEN mov.fecha_salida IS NULL THEN 0 ELSE 1 END,
                 mov.fecha_ingreso DESC NULLS LAST,
                 mov.id DESC
         """
-        # IDS + EXISTS fecha + 2 filtro_mov + 2 order CASE + JOINS fecha
+        # IDS + EXISTS fecha + 2 filtro_mov + JOINS fecha
         params = (
             IDS_CANAL,
-            fecha_filtro,
-            fecha_filtro,
             fecha_filtro,
             fecha_filtro,
             fecha_filtro,
