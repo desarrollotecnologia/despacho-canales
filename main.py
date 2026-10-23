@@ -1150,7 +1150,7 @@ def obtener_piezas_programadas(
     incluir_despachadas=False → solo en cava (despachos / reetiquetado).
     incluir_despachadas=True → foto del día (planilla / Excel con Estado).
     """
-    ck = ("programados", fecha_filtro, turno, "v4_foto_fecha", bool(incluir_despachadas))
+    ck = ("programados", fecha_filtro, turno, "v5_pref_abierto", bool(incluir_despachadas))
     hit = cache_get(ck)
     if hit is not None:
         return hit
@@ -2663,7 +2663,7 @@ def get_planilla_puntos(
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
     opl_key = (opl or "").strip() or "TODOS"
-    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v6_foto_fecha")
+    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v7_pref_abierto")
     hit = cache_get(ck)
     if hit is not None:
         return hit
