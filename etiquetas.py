@@ -91,7 +91,8 @@ def layout_etiqueta(et: dict) -> list:
     # El logo preimpreso empieza hacia el dot 1670 del largo y cada tira útil
     # mide ~185 dots de ancho: todo va entre y=6 y y=172 y termina antes de x≈1600.
     # Solo un código de barras (bloque 1). Bloque 3/4 corridos a la derecha hacia el logo.
-    b1, b3, b4 = 220, 920, 1340
+    # b1 más cerca de b3 (ubicación) para reducir el hueco entre barras y Ubicacion.
+    b1, b3, b4 = 520, 920, 1340
     c4 = 40
     elementos = [
         # Bloque 1 — puesto + único código de barras + animal
