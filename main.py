@@ -1039,38 +1039,27 @@ def consultar_canales_planilla(
     Por defecto solo en cava; con incluir_despachadas=True también las ya
     pistoleadas (foto del día para planilla/Excel).
 
-    Foto del día: prioriza el movimiento ABIERTO (sigue en cava). Solo si no
-    hay abierto en la ventana del día, usa el con fecha_salida (despachado).
-    Así no se marca Despachado por un pistoleo viejo si hoy sigue en cava.
+    Foto del día: MISMO criterio que el progreso (/api/planilla_opl) —
+    último movimiento por fecha_ingreso. Abierto (fecha_salida NULL) = En cava;
+    cerrado = Despachado. Ventana de salidas desde fecha-2 (turno cruza medianoche).
     """
     if incluir_despachadas:
-        # Movimientos del día: ingreso antes de fin de fecha; abiertos o
-        # salidos desde fecha-2 (turno que cruza medianoche).
+        # Igual que planilla_opl / consultar_asignadas_dia (último movimiento).
         filtro_mov = """
-            WHERE mov.fecha_ingreso < (%s::date + INTERVAL '1 day')
-              AND (
+            WHERE (
                     mov.fecha_salida IS NULL
                  OR mov.fecha_salida::date >= (%s::date - 2)
               )
         """
-        # Abierto primero; si salió, el más reciente. Nunca preferir un
-        # pistoleo viejo sobre el stock actual en cava.
         order_mov = """
             ORDER BY
                 pp.id_producto,
                 pp.id,
-                CASE WHEN mov.fecha_salida IS NULL THEN 0 ELSE 1 END,
                 mov.fecha_ingreso DESC NULLS LAST,
                 mov.id DESC
         """
-        # IDS + EXISTS fecha + 2 filtro_mov + JOINS fecha
-        params = (
-            IDS_CANAL,
-            fecha_filtro,
-            fecha_filtro,
-            fecha_filtro,
-            fecha_filtro,
-        )
+        # IDS + EXISTS fecha + 1 filtro_mov + JOINS fecha
+        params = (IDS_CANAL, fecha_filtro, fecha_filtro, fecha_filtro)
     else:
         filtro_mov = "WHERE mov.fecha_salida IS NULL"
         order_mov = """
@@ -1150,7 +1139,7 @@ def obtener_piezas_programadas(
     incluir_despachadas=False → solo en cava (despachos / reetiquetado).
     incluir_despachadas=True → foto del día (planilla / Excel con Estado).
     """
-    ck = ("programados", fecha_filtro, turno, "v5_pref_abierto", bool(incluir_despachadas))
+    ck = ("programados", fecha_filtro, turno, "v6_igual_progreso", bool(incluir_despachadas))
     hit = cache_get(ck)
     if hit is not None:
         return hit
@@ -2663,7 +2652,7 @@ def get_planilla_puntos(
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
     opl_key = (opl or "").strip() or "TODOS"
-    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v7_pref_abierto")
+    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v8_igual_progreso")
     hit = cache_get(ck)
     if hit is not None:
         return hit
