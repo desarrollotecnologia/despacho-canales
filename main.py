@@ -12,7 +12,7 @@ import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from threading import Lock
 from typing import Optional, List
@@ -997,16 +997,44 @@ def resolver_opl_de_propietario(propietario: str) -> str:
     return apps_script_local._resolver_opl(prop, mapa)
 
 
-def _estado_pieza(r: dict) -> str:
-    """En cava = sin pistoleo; Despachado = ya tiene fecha_salida."""
+def _parse_fecha_val(val) -> Optional[date]:
+    if val in (None, ""):
+        return None
+    try:
+        if isinstance(val, datetime):
+            return val.date()
+        if isinstance(val, date):
+            return val
+        return date.fromisoformat(str(val)[:10])
+    except Exception:
+        return None
+
+
+def _estado_pieza(r: dict, fecha_filtro: Optional[str] = None) -> str:
+    """
+    En cava = sin pistoleo (o salida posterior al día consultado).
+    Despachado = ya tiene fecha_salida en la ventana del turno de esa fecha.
+    El turno cruza medianoche: cuenta salidas desde fecha-2 hasta fecha+1.
+    """
     fs = r.get("fecha_salida")
-    if fs not in (None, "",):
+    if fs in (None, ""):
+        return "En cava"
+    if not fecha_filtro:
         return "Despachado"
-    return "En cava"
+    d_sal = _parse_fecha_val(fs)
+    d_ref = _parse_fecha_val(fecha_filtro)
+    if not d_sal or not d_ref:
+        return "Despachado"
+    # Salió después de la ventana del día consultado → ese día aún estaba en cava
+    if d_sal > d_ref + timedelta(days=1):
+        return "En cava"
+    # Salió en/alrededor del turno de esa fecha (o antes, ya no pendiente)
+    return "Despachado"
 
 
-def _marcar_estado_pieza(r: dict) -> dict:
-    r["estado"] = _estado_pieza(r)
+def _marcar_estado_pieza(r: dict, fecha_filtro: Optional[str] = None) -> dict:
+    fecha = fecha_filtro or r.get("fecha_programacion") or r.get("fecha")
+    r["estado"] = _estado_pieza(r, fecha)
     r["en_cava"] = r["estado"] == "En cava"
     return r
 
@@ -1021,8 +1049,53 @@ def consultar_canales_planilla(
     con ruta puesto/zona como Gestor Vísceras.
     Por defecto solo en cava; con incluir_despachadas=True también las ya
     pistoleadas (foto del día para planilla/Excel).
+
+    Foto del día: prioriza el movimiento con salida en la ventana del turno
+    (fecha-2 … fecha+1) para no marcar «En cava» por un reingreso posterior.
     """
-    filtro_abierto = "" if incluir_despachadas else "WHERE mov.fecha_salida IS NULL"
+    if incluir_despachadas:
+        filtro_mov = """
+            WHERE mov.fecha_ingreso < (%s::date + INTERVAL '1 day')
+              AND (
+                    mov.fecha_salida IS NULL
+                 OR mov.fecha_salida::date >= (%s::date - 2)
+              )
+        """
+        order_mov = """
+            ORDER BY
+                pp.id_producto,
+                pp.id,
+                CASE
+                  WHEN mov.fecha_salida IS NOT NULL
+                   AND mov.fecha_salida::date >= (%s::date - 2)
+                   AND mov.fecha_salida::date <= (%s::date + 1)
+                  THEN 0 ELSE 1
+                END,
+                mov.fecha_ingreso DESC NULLS LAST,
+                mov.id DESC
+        """
+        # IDS + EXISTS fecha + 2 filtro_mov + 2 order CASE + JOINS fecha
+        params = (
+            IDS_CANAL,
+            fecha_filtro,
+            fecha_filtro,
+            fecha_filtro,
+            fecha_filtro,
+            fecha_filtro,
+            fecha_filtro,
+        )
+    else:
+        filtro_mov = "WHERE mov.fecha_salida IS NULL"
+        order_mov = """
+            ORDER BY
+                pp.id_producto,
+                pp.id,
+                mov.fecha_ingreso DESC NULLS LAST,
+                mov.id DESC
+        """
+        # IDS + EXISTS fecha + JOINS fecha
+        params = (IDS_CANAL, fecha_filtro, fecha_filtro)
+
     sql = f"""
         WITH programadas AS MATERIALIZED (
             SELECT pp.*
@@ -1040,12 +1113,8 @@ def consultar_canales_planilla(
             JOIN trazabilidad_proceso.parte_producto_cava_riel mov
               ON mov.id_parte_producto = pp.id
              AND mov.id_producto::text = pp.id_producto::text
-            {filtro_abierto}
-            ORDER BY
-                pp.id_producto,
-                pp.id,
-                mov.fecha_ingreso DESC NULLS LAST,
-                mov.id DESC
+            {filtro_mov}
+            {order_mov}
         )
         SELECT DISTINCT ON (pp.id_producto, pp.id)
             pp.id_producto                          AS codigo,
@@ -1066,17 +1135,14 @@ def consultar_canales_planilla(
         {SQL_JOINS_PROGRAMADO}
         ORDER BY pp.id_producto, pp.id, e3.nombre NULLS LAST, c.orden NULLS LAST, r.nombre
     """
-    rows = safe_query(
-        sql,
-        (IDS_CANAL, fecha_filtro, fecha_filtro),
-        "planilla_puntos",
-    )
+    rows = safe_query(sql, params, "planilla_puntos")
     data = enriquecer_logistica(serializable(rows), fecha_filtro, turno, solo_despacho=True)
     for r in data:
         enriquecer_codigo(r)
         r["opl"] = resolver_opl_de_propietario(r.get("propietario") or "")
         r["destino"] = r.get("zona") or ""
-        _marcar_estado_pieza(r)
+        r["fecha_programacion"] = fecha_filtro
+        _marcar_estado_pieza(r, fecha_filtro)
     data.sort(key=lambda x: (
         0 if x.get("en_cava") else 1,
         str(x.get("zona") or "").upper(),
@@ -1097,15 +1163,14 @@ def obtener_piezas_programadas(
     incluir_despachadas=False → solo en cava (despachos / reetiquetado).
     incluir_despachadas=True → foto del día (planilla / Excel con Estado).
     """
-    ck = ("programados", fecha_filtro, turno, "v3_estado", bool(incluir_despachadas))
+    ck = ("programados", fecha_filtro, turno, "v4_foto_fecha", bool(incluir_despachadas))
     hit = cache_get(ck)
     if hit is not None:
         return hit
     data = consultar_canales_planilla(fecha_filtro, turno, incluir_despachadas=incluir_despachadas)
     data = fusionar_adicionales(data, fecha_filtro, turno)
     for r in data:
-        if "estado" not in r:
-            _marcar_estado_pieza(r)
+        _marcar_estado_pieza(r, fecha_filtro)
     cache_set(ck, data)
     return data
 
@@ -1341,7 +1406,8 @@ def fusionar_adicionales(piezas: List[dict], fecha: str, turno: Optional[str]) -
         row["destino"] = row.get("zona") or row.get("destino") or ""
         row["opl"] = resolver_opl_de_propietario(row.get("propietario") or "")
         enriquecer_codigo(row)
-        _marcar_estado_pieza(row)
+        row["fecha_programacion"] = fecha
+        _marcar_estado_pieza(row, fecha)
         vistos.add(str(row.get("codigo") or "").strip().upper())
         out.append(row)
     out.sort(key=lambda x: (
@@ -2610,7 +2676,7 @@ def get_planilla_puntos(
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
     opl_key = (opl or "").strip() or "TODOS"
-    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v5_foto_dia")
+    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v6_foto_fecha")
     hit = cache_get(ck)
     if hit is not None:
         return hit
