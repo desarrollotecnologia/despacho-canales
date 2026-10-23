@@ -99,12 +99,12 @@ def layout_etiqueta(et: dict) -> list:
         {"tipo": "barras", "x": b1, "y": 56, "h": 48, "modulo": 2, "texto": codigo},
         {"tipo": "texto", "x": b1, "y": 108, "h": 38, "texto": _zpl_txt(et.get("codigo_animal"))},
         {"tipo": "texto", "x": b1, "y": 152, "h": 18, "texto": _zpl_txt(et.get("tipo"))},
-        # Bloque 3 — sin 2º barcode; texto más grande (ocupa el espacio del barcode)
-        {"tipo": "texto", "x": b3, "y": 8, "h": 28, "texto": _zpl_txt(et.get("cuarto"))},
-        {"tipo": "texto", "x": b3 + 290, "y": 4, "h": 46, "texto": _zpl_txt(et.get("cam"))},
-        {"tipo": "texto", "x": b3, "y": 48, "h": 30, "texto": f"Ubicacion: {_zpl_txt(et.get('ubicacion')) or '-'}"},
-        {"tipo": "texto", "x": b3, "y": 90, "h": 28, "texto": f"Zona: {_corto(et.get('zona') or '-', 26)}"},
-        {"tipo": "texto", "x": b3, "y": 130, "h": 26, "texto": f"Despacho: {_fecha_dmy(et.get('fecha_programacion')) or '-'}"},
+        # Bloque 3 — CAM más chico; Ubicación (cava/riel) más grande para leer rápido
+        {"tipo": "texto", "x": b3, "y": 8, "h": 24, "texto": _zpl_txt(et.get("cuarto"))},
+        {"tipo": "texto", "x": b3 + 300, "y": 6, "h": 28, "texto": _zpl_txt(et.get("cam"))},
+        {"tipo": "texto", "x": b3, "y": 42, "h": 42, "w": 54, "texto": f"Ubicacion: {_zpl_txt(et.get('ubicacion')) or '-'}"},
+        {"tipo": "texto", "x": b3, "y": 98, "h": 24, "texto": f"Zona: {_corto(et.get('zona') or '-', 26)}"},
+        {"tipo": "texto", "x": b3, "y": 134, "h": 22, "texto": f"Despacho: {_fecha_dmy(et.get('fecha_programacion')) or '-'}"},
         # Bloque 4 — más cerca del logo
         {"tipo": "texto", "x": b4, "y": 6, "h": 17, "texto": _corto(f"Cliente {et.get('cliente') or '-'}", c4)},
         {"tipo": "texto", "x": b4, "y": 29, "h": 17, "texto": _corto(f"Puesto {et.get('puesto') or '-'}", c4)},
