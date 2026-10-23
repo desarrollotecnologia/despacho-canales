@@ -137,20 +137,38 @@ def es_destino_marcador_temprana(zona) -> bool:
     return False
 
 
-# OPL que sacan tempranas. Por defecto todos ("*"), igual que el reporte SIRT de tempranas.
+# OPL que sacan tempranas (marcador en Excel/planilla). Por defecto todos ("*").
 # Override: CANALES_TEMPRANAS_OPL=TRANSCARNES,CAVA AJR
 def get_opls_tempranas() -> set:
     raw = (os.getenv("CANALES_TEMPRANAS_OPL") or "*").strip()
     return {o.strip().upper() for o in raw.split(",") if o.strip()}
 
 
+# OPL cuya impresión de TEMP1 va por el botón Tempranas (no en el lote normal).
+# Override: CANALES_TEMPRANAS_IMPRIMIR_OPL=TRANSCARNES
+def opl_tempranas_impresion() -> str:
+    return (os.getenv("CANALES_TEMPRANAS_IMPRIMIR_OPL") or "TRANSCARNES").strip().upper() or "TRANSCARNES"
+
+
+def _es_destino_temp1(destino) -> bool:
+    u = " ".join(str(destino or "").strip().upper().split())
+    return bool(re.match(r"^TEMP\s*1(?!\d)", u))
+
+
 def marcador_destino_temp(destino, opl) -> str:
     """Temprana = destino SIRT 'TEMP1' o 'Temp 1 <zona>' → 'TEMP1'. TEMP2/3 no cuentan."""
-    u = " ".join(str(destino or "").strip().upper().split())
-    if not re.match(r"^TEMP\s*1(?!\d)", u):
+    if not _es_destino_temp1(destino):
         return ""
     opls = get_opls_tempranas()
     return "TEMP1" if "*" in opls or str(opl or "").strip().upper() in opls else ""
+
+
+def es_temprana_impresion_separada(destino, opl) -> bool:
+    """TEMP1 del OPL de impresión separada (Transcarnes): van solo con el botón Tempranas."""
+    return (
+        str(opl or "").strip().upper() == opl_tempranas_impresion()
+        and _es_destino_temp1(destino)
+    )
 
 
 def _orden_marcador_temp(m) -> int:
@@ -3331,14 +3349,30 @@ def post_etiquetas_calibrar(solo_zpl: bool = False):
 def post_etiquetas_opl_imprimir(payload: EtiquetasOplImprimirIn):
     fecha_filtro = payload.fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, payload.turno)
+    opls_req = list(payload.opls or [])
+    if payload.solo_tempranas:
+        # Solo TEMP1 del OPL Transcarnes (impresión separada)
+        opls_req = [opl_tempranas_impresion()]
     grupos = [g for g in grupos_etiquetas_opl(
-        fecha_filtro, turno, payload.opls, payload.solo_nuevas, payload.excluir,
+        fecha_filtro, turno, opls_req, payload.solo_nuevas, payload.excluir,
     ) if g["piezas"]]
     if payload.solo_tempranas:
         for g in grupos:
             g["piezas"] = [
                 r for r in g["piezas"]
-                if marcador_destino_temp(r.get("destino_real"), g.get("opl") or r.get("opl"))
+                if es_temprana_impresion_separada(
+                    r.get("destino_real"), g.get("opl") or r.get("opl"),
+                )
+            ]
+        grupos = [g for g in grupos if g["piezas"]]
+    else:
+        # Lote normal: no incluir TEMP1 de Transcarnes (ya salen con botón Tempranas)
+        for g in grupos:
+            g["piezas"] = [
+                r for r in g["piezas"]
+                if not es_temprana_impresion_separada(
+                    r.get("destino_real"), g.get("opl") or r.get("opl"),
+                )
             ]
         grupos = [g for g in grupos if g["piezas"]]
     if payload.ubicaciones is not None:
@@ -3353,7 +3387,11 @@ def post_etiquetas_opl_imprimir(payload: EtiquetasOplImprimirIn):
     if not total:
         raise HTTPException(
             status_code=400,
-            detail="No hay etiquetas para imprimir con esa selección o filtro (cava/riel/tempranas)",
+            detail=(
+                "No hay tempranas TEMP1 de TRANSCARNES para imprimir"
+                if payload.solo_tempranas
+                else "No hay etiquetas para imprimir con esa selección o filtro (cava/riel)"
+            ),
         )
     if total > MAX_ETIQUETAS_LOTE:
         raise HTTPException(status_code=400, detail=f"Son {total} etiquetas; el máximo por envío es {MAX_ETIQUETAS_LOTE}. Imprime por partes.")
