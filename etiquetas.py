@@ -96,9 +96,9 @@ def layout_etiqueta(et: dict) -> list:
     elementos = [
         # Bloque 1 — puesto + único código de barras + animal
         {"tipo": "texto", "x": b1, "y": 4, "h": 48, "w": 64, "texto": _corto(et.get("puesto_turno") or "SIN PUESTO", 22)},
-        {"tipo": "barras", "x": b1, "y": 56, "h": 48, "modulo": 2, "texto": codigo},
-        {"tipo": "texto", "x": b1, "y": 108, "h": 38, "texto": _zpl_txt(et.get("codigo_animal"))},
-        {"tipo": "texto", "x": b1, "y": 152, "h": 18, "texto": _zpl_txt(et.get("tipo"))},
+        {"tipo": "barras", "x": b1, "y": 56, "h": 46, "modulo": 2, "texto": codigo},
+        {"tipo": "texto", "x": b1, "y": 106, "h": 46, "w": 60, "texto": _zpl_txt(et.get("codigo_animal"))},
+        {"tipo": "texto", "x": b1, "y": 156, "h": 16, "texto": _zpl_txt(et.get("tipo"))},
         # Bloque 3 — CAM más chico; Ubicación (cava/riel) más grande para leer rápido
         {"tipo": "texto", "x": b3, "y": 8, "h": 24, "texto": _zpl_txt(et.get("cuarto"))},
         {"tipo": "texto", "x": b3 + 300, "y": 6, "h": 28, "texto": _zpl_txt(et.get("cam"))},
