@@ -27,11 +27,20 @@ IMPRESORA_DEFAULT = "ZDesigner ZT231-203dpi ZPL"
 
 # Presets de rollo: solo cambian columnas/tiras/margen/paso.
 # El resto (oscuridad, velocidad, invertir, ajustes, ancho cabezal) es común.
-# 4 = rollo definitivo calibrado. 2 = para gastar rollos viejos de 2 manillas
-# (1ª y 3ª tira del de 4; afinable con ZEBRA_ETQ_TIRAS_2).
+# 4 = rollo definitivo calibrado. 2 = dos tiras juntas (1ª y 2ª del de 4).
+# invertir_orden: en 4, la 1ª del lote va a la tira de arriba tras ^POI;
+# en 2 no se invierte para que la 1ª caiga en la 1ª manilla (no en la 2ª).
 ROLLO_PRESETS = {
-    4: {"columnas": 4, "margen": 53, "paso": 188, "tiras": "53,241,429,632", "env_tiras": "ZEBRA_ETQ_TIRAS"},
-    2: {"columnas": 2, "margen": 53, "paso": 376, "tiras": "53,429", "env_tiras": "ZEBRA_ETQ_TIRAS_2"},
+    4: {
+        "columnas": 4, "margen": 53, "paso": 188,
+        "tiras": "53,241,429,632", "env_tiras": "ZEBRA_ETQ_TIRAS",
+        "invertir_orden": True,
+    },
+    2: {
+        "columnas": 2, "margen": 53, "paso": 188,
+        "tiras": "53,241", "env_tiras": "ZEBRA_ETQ_TIRAS_2",
+        "invertir_orden": False,
+    },
 }
 
 # Provider opcional (p. ej. estado local) → 2 u 4. Si no hay, env o default 4.
@@ -91,6 +100,7 @@ def config_impresora() -> dict:
         ),
         # Inicio exacto de cada tira (dots). 4 = calibración actual; 2 = preset temporal.
         "tiras": [int(v) for v in re.findall(r"-?\d+", tiras_txt)],
+        "invertir_orden": bool(preset.get("invertir_orden", True)),
     }
 
 
@@ -225,12 +235,13 @@ def zpl_lote(layouts: list) -> str:
     """Reparte las etiquetas en las tiras del rollo: cada pasada imprime `columnas` diferentes."""
     cfg = config_impresora()
     n = cfg["columnas"]
+    # invertir (^POI) + invertir_orden: en rollo de 4 la 1ª va arriba; en 2 la 1ª va a tira 0.
+    rev = bool(cfg.get("invertir")) and bool(cfg.get("invertir_orden", True))
     formatos = []
     for i in range(0, len(layouts), n):
         lineas = _encabezado(cfg)
-        # Con la impresión girada la primera de la pasada queda en la tira de arriba
         for col, layout in enumerate(layouts[i:i + n]):
-            pos = (n - 1 - col) if cfg["invertir"] else col
+            pos = (n - 1 - col) if rev else col
             lineas += _campos(layout, _inicio_tira(cfg, pos), cfg)
         lineas += ["^PQ1,0,1,Y", "^XZ"]
         formatos.append("\n".join(lineas))
