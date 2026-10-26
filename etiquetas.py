@@ -30,7 +30,8 @@ IMPRESORA_DEFAULT = "ZDesigner ZT231-203dpi ZPL"
 # 4 = rollo definitivo calibrado (cabezal completo ~832 dots).
 # 2 = solo las 2 manillas físicas del rollo viejo (2ª y 3ª tira del de 4).
 #     Ancho de impresión se recorta a esas tiras para no “disparar” fuera del papel.
-# invertir_orden: en 4, la 1ª del lote va arriba tras ^POI; en 2 no (1ª → 241).
+# invertir_orden: con ^POI, la 1ª del lote debe ir a la tira que el operario ve primero
+# (separadora cava/riel antes que la etiqueta). Igual en 2 y en 4.
 ROLLO_PRESETS = {
     4: {
         "columnas": 4, "margen": 53, "paso": 188,
@@ -41,7 +42,7 @@ ROLLO_PRESETS = {
     2: {
         "columnas": 2, "margen": 241, "paso": 188,
         "tiras": "241,429", "env_tiras": "ZEBRA_ETQ_TIRAS_2",
-        "invertir_orden": False,
+        "invertir_orden": True,
         # Desde el inicio de la 1ª tira hasta el final de la 2ª (no usar las 4 del cabezal).
         "ancho_total": 429 + 197,  # 626
     },
