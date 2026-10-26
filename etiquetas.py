@@ -27,9 +27,10 @@ IMPRESORA_DEFAULT = "ZDesigner ZT231-203dpi ZPL"
 
 # Presets de rollo: solo cambian columnas/tiras/margen/paso.
 # El resto (oscuridad, velocidad, invertir, ajustes, ancho cabezal) es común.
-# 4 = rollo definitivo calibrado. 2 = dos tiras juntas (1ª y 2ª del de 4).
-# invertir_orden: en 4, la 1ª del lote va a la tira de arriba tras ^POI;
-# en 2 no se invierte para que la 1ª caiga en la 1ª manilla (no en la 2ª).
+# 4 = rollo definitivo calibrado.
+# 2 = dos tiras del centro del cabezal (2ª y 3ª del de 4: 241 y 429).
+#     En la prueba, 429 sí marcaba la 2ª manilla física; 53 dejaba todo en blanco.
+# invertir_orden: en 4, la 1ª del lote va arriba tras ^POI; en 2 no (1ª → tira 241).
 ROLLO_PRESETS = {
     4: {
         "columnas": 4, "margen": 53, "paso": 188,
@@ -37,8 +38,8 @@ ROLLO_PRESETS = {
         "invertir_orden": True,
     },
     2: {
-        "columnas": 2, "margen": 53, "paso": 188,
-        "tiras": "53,241", "env_tiras": "ZEBRA_ETQ_TIRAS_2",
+        "columnas": 2, "margen": 241, "paso": 188,
+        "tiras": "241,429", "env_tiras": "ZEBRA_ETQ_TIRAS_2",
         "invertir_orden": False,
     },
 }
