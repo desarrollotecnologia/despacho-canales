@@ -27,20 +27,23 @@ IMPRESORA_DEFAULT = "ZDesigner ZT231-203dpi ZPL"
 
 # Presets de rollo: solo cambian columnas/tiras/margen/paso.
 # El resto (oscuridad, velocidad, invertir, ajustes, ancho cabezal) es común.
-# 4 = rollo definitivo calibrado.
-# 2 = dos tiras del centro del cabezal (2ª y 3ª del de 4: 241 y 429).
-#     En la prueba, 429 sí marcaba la 2ª manilla física; 53 dejaba todo en blanco.
-# invertir_orden: en 4, la 1ª del lote va arriba tras ^POI; en 2 no (1ª → tira 241).
+# 4 = rollo definitivo calibrado (cabezal completo ~832 dots).
+# 2 = solo las 2 manillas físicas del rollo viejo (2ª y 3ª tira del de 4).
+#     Ancho de impresión se recorta a esas tiras para no “disparar” fuera del papel.
+# invertir_orden: en 4, la 1ª del lote va arriba tras ^POI; en 2 no (1ª → 241).
 ROLLO_PRESETS = {
     4: {
         "columnas": 4, "margen": 53, "paso": 188,
         "tiras": "53,241,429,632", "env_tiras": "ZEBRA_ETQ_TIRAS",
         "invertir_orden": True,
+        "ancho_total": 832,
     },
     2: {
         "columnas": 2, "margen": 241, "paso": 188,
         "tiras": "241,429", "env_tiras": "ZEBRA_ETQ_TIRAS_2",
         "invertir_orden": False,
+        # Desde el inicio de la 1ª tira hasta el final de la 2ª (no usar las 4 del cabezal).
+        "ancho_total": 429 + 197,  # 626
     },
 }
 
@@ -86,7 +89,13 @@ def config_impresora() -> dict:
         "ajuste_ancho": int(os.getenv("ZEBRA_ETQ_AJUSTE_ANCHO", "0") or 0),
         # Rollo de varias tiras por pasada: ancho del cabezal, nº de tiras,
         # dónde empieza la primera y distancia entre el inicio de una tira y la siguiente
-        "ancho_total": int(os.getenv("ZEBRA_ETQ_ANCHO_TOTAL", "832") or 832),
+        "ancho_total": (
+            int(os.getenv("ZEBRA_ETQ_ANCHO_TOTAL", "832") or 832)
+            if cols == 4
+            else int(preset.get("ancho_total") or (max(
+                [int(v) for v in re.findall(r"-?\d+", tiras_txt)] or [241]
+            ) + ANCHO_DOTS))
+        ),
         "columnas": preset["columnas"],
         # En rollo de 4 se respetan env de margen/paso; en 2 solo el preset (no mezclar).
         "margen": (
