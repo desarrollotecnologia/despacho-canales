@@ -754,8 +754,14 @@
     <div class="zb-bar">
       <span id="zbEstado" class="zb-estado">Buscando Zebra en este equipo…</span>
       <select id="zbImpresora" onchange="zbElegir(this.value)" style="display:none;"></select>
+      <label title="Rollo físico: 2 para gastar manillas viejas; 4 es el definitivo">Rollo
+        <select id="zbRollo" onchange="cambiarRolloEtiquetas(this.value)">
+          <option value="4">4 manillas</option>
+          <option value="2">2 manillas</option>
+        </select>
+      </label>
       <button class="btn btn-secondary btn-sm" onclick="zbDetectar()" title="Volver a buscar la Zebra">🔄 Buscar</button>
-      <button class="btn btn-secondary btn-sm" onclick="zbCalibrar()" title="Imprime una regla para ubicar las 4 tiras del rollo">📏 Calibración</button>
+      <button class="btn btn-secondary btn-sm" onclick="zbCalibrar()" title="Imprime una regla para ubicar las tiras del rollo">📏 Calibración</button>
     </div>
 
     <div class="etl-box">
@@ -1159,6 +1165,7 @@ function irModulo(m) {
       $('etlOrden').value = (o === 'cliente' || o === 'ubicacion') ? o : 'ubicacion';
     } catch (_) { $('etlOrden').value = 'ubicacion'; }
     if (!ZB.buscado) zbDetectar(); else renderZb();
+    cargarRolloEtiquetas();
     cargarEtiquetasOpl(false);
     setTimeout(() => $('etCodigo').focus(), 50);
   }
@@ -2400,6 +2407,39 @@ async function imprimirEtiquetas(endpoint, body) {
     catch (e) { alertWarn('Se imprimió, pero no se pudo registrar como impresas: ' + e.message); }
   }
   return { ...j, destino: ZB.device.name };
+}
+
+async function cargarRolloEtiquetas() {
+  try {
+    const r = await fetch(API('/etiquetas/rollo'));
+    if (!r.ok) return;
+    const j = await r.json();
+    const sel = $('zbRollo');
+    if (sel && (j.columnas === 2 || j.columnas === 4)) sel.value = String(j.columnas);
+    if (j.impresora) ZB.servidor = j.impresora;
+  } catch (_) {}
+}
+
+async function cambiarRolloEtiquetas(valor) {
+  const columnas = Number(valor) === 2 ? 2 : 4;
+  try {
+    const r = await fetch(API('/etiquetas/rollo'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ columnas }),
+    });
+    if (!r.ok) throw new Error(await apiError(r));
+    const j = await r.json();
+    if (j.impresora) ZB.servidor = j.impresora;
+    const sel = $('zbRollo');
+    if (sel) sel.value = String(j.columnas || columnas);
+    alertWarn(columnas === 2
+      ? 'Rollo de 2 manillas activo (para gastar rollos viejos). El diseño de la etiqueta no cambia.'
+      : 'Rollo de 4 manillas activo (configuración definitiva).');
+  } catch (e) {
+    alertErr('No se pudo cambiar el rollo: ' + e.message);
+    cargarRolloEtiquetas();
+  }
 }
 
 async function zbCalibrar() {

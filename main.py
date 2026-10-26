@@ -29,6 +29,9 @@ import usability
 
 load_dotenv()
 
+# Rollo 2/4 manillas: lee la preferencia guardada en local_data (UI Reetiquetado).
+etiquetas.set_columnas_provider(apps_script_local.get_etiquetas_rollo_columnas)
+
 app = FastAPI(title="Despacho de Canales Colbeef", version="1.0")
 
 # ─── IDs tipo_parte_producto para canales (verificados en BD sirt) ──
@@ -3385,6 +3388,35 @@ def post_etiquetas_calibrar(solo_zpl: bool = False):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"No se pudo imprimir: {e}")
     return {"success": True, "impresora": etiquetas.config_impresora(), **envio}
+
+
+class EtiquetasRolloIn(BaseModel):
+    columnas: int = 4
+
+
+@app.get("/api/etiquetas/rollo")
+def get_etiquetas_rollo():
+    """Rollo activo: 2 o 4 manillas por pasada (solo cambia columnas/tiras)."""
+    cols = apps_script_local.get_etiquetas_rollo_columnas()
+    return {
+        "success": True,
+        "columnas": cols,
+        "opciones": [2, 4],
+        "impresora": etiquetas.config_impresora(),
+    }
+
+
+@app.post("/api/etiquetas/rollo")
+def post_etiquetas_rollo(payload: EtiquetasRolloIn):
+    """Cambia entre rollo de 2 (temporal) y 4 manillas sin tocar el resto del diseño."""
+    out = apps_script_local.set_etiquetas_rollo_columnas(payload.columnas)
+    if not out.get("success"):
+        raise HTTPException(status_code=400, detail=out.get("message") or "Valor inválido")
+    return {
+        "success": True,
+        "columnas": out["columnas"],
+        "impresora": etiquetas.config_impresora(),
+    }
 
 
 @app.post("/api/etiquetas/opl/imprimir")

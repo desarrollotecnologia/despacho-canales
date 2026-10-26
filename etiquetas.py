@@ -25,9 +25,42 @@ LARGO_DOTS = 2106
 ANCHO_DOTS = 197
 IMPRESORA_DEFAULT = "ZDesigner ZT231-203dpi ZPL"
 
+# Presets de rollo: solo cambian columnas/tiras/margen/paso.
+# El resto (oscuridad, velocidad, invertir, ajustes, ancho cabezal) es común.
+# 4 = rollo definitivo calibrado. 2 = para gastar rollos viejos de 2 manillas
+# (1ª y 3ª tira del de 4; afinable con ZEBRA_ETQ_TIRAS_2).
+ROLLO_PRESETS = {
+    4: {"columnas": 4, "margen": 53, "paso": 188, "tiras": "53,241,429,632", "env_tiras": "ZEBRA_ETQ_TIRAS"},
+    2: {"columnas": 2, "margen": 53, "paso": 376, "tiras": "53,429", "env_tiras": "ZEBRA_ETQ_TIRAS_2"},
+}
+
+# Provider opcional (p. ej. estado local) → 2 u 4. Si no hay, env o default 4.
+_columnas_provider = None
+
+
+def set_columnas_provider(fn) -> None:
+    global _columnas_provider
+    _columnas_provider = fn
+
+
+def columnas_rollo_activas() -> int:
+    if _columnas_provider:
+        try:
+            n = int(_columnas_provider() or 4)
+            if n in ROLLO_PRESETS:
+                return n
+        except Exception:
+            pass
+    n = int(os.getenv("ZEBRA_ETQ_COLUMNAS", "4") or 4)
+    return n if n in ROLLO_PRESETS else 4
+
 
 def config_impresora() -> dict:
     host = (os.getenv("ZEBRA_HOST") or "").strip()
+    cols = columnas_rollo_activas()
+    preset = ROLLO_PRESETS[cols]
+    tiras_txt = (os.getenv(preset["env_tiras"]) or "").strip() or preset["tiras"]
+    # Fallback: si el de 2 no tiene env propio, no heredar el de 4 (rompería el preset)
     return {
         "impresora": (os.getenv("ZEBRA_PRINTER") or IMPRESORA_DEFAULT).strip(),
         "host": host,
@@ -44,13 +77,20 @@ def config_impresora() -> dict:
         # Rollo de varias tiras por pasada: ancho del cabezal, nº de tiras,
         # dónde empieza la primera y distancia entre el inicio de una tira y la siguiente
         "ancho_total": int(os.getenv("ZEBRA_ETQ_ANCHO_TOTAL", "832") or 832),
-        "columnas": max(1, int(os.getenv("ZEBRA_ETQ_COLUMNAS", "4") or 4)),
-        # Medido con la regla de calibración (tiras de ~185 dots útiles cada 188)
-        "margen": int(os.getenv("ZEBRA_ETQ_MARGEN", "53") or 53),
-        "paso": int(os.getenv("ZEBRA_ETQ_PASO", "188") or 188),
-        # Inicio exacto de cada tira (dots, separados por coma); manda sobre margen/paso.
-        # La tira de arriba quedó 15 dots más adentro que el paso parejo.
-        "tiras": [int(v) for v in re.findall(r"-?\d+", os.getenv("ZEBRA_ETQ_TIRAS", "53,241,429,632"))],
+        "columnas": preset["columnas"],
+        # En rollo de 4 se respetan env de margen/paso; en 2 solo el preset (no mezclar).
+        "margen": (
+            int(os.getenv("ZEBRA_ETQ_MARGEN", "53") or 53)
+            if cols == 4
+            else preset["margen"]
+        ),
+        "paso": (
+            int(os.getenv("ZEBRA_ETQ_PASO", "188") or 188)
+            if cols == 4
+            else preset["paso"]
+        ),
+        # Inicio exacto de cada tira (dots). 4 = calibración actual; 2 = preset temporal.
+        "tiras": [int(v) for v in re.findall(r"-?\d+", tiras_txt)],
     }
 
 

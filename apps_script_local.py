@@ -51,6 +51,8 @@ def _blank_state():
         "adicionales_por_fecha": {},
         # Etiquetas de despacho ya impresas: {fecha: {codigo: "dd/mm/yyyy HH:MM"}}
         "etiquetas_impresas": {},
+        # Rollo Zebra: 4 (definitivo) o 2 (gastar rollos viejos de 2 manillas).
+        "etiquetas_rollo_columnas": 4,
     }
 
 
@@ -268,6 +270,31 @@ def setOplsParticulares(opls):
     state["opls_particulares"] = limpios
     _save_state(state)
     return {"success": True, "opls": limpios}
+
+
+# ═══════════════════════════════════════════════════════
+# ETIQUETAS — rollo 2 o 4 manillas por pasada
+# ═══════════════════════════════════════════════════════
+def get_etiquetas_rollo_columnas():
+    state = _load_state()
+    try:
+        n = int(state.get("etiquetas_rollo_columnas") or 4)
+    except (TypeError, ValueError):
+        n = 4
+    return 2 if n == 2 else 4
+
+
+def set_etiquetas_rollo_columnas(columnas):
+    try:
+        n = int(columnas)
+    except (TypeError, ValueError):
+        return {"success": False, "message": "columnas debe ser 2 o 4"}
+    if n not in (2, 4):
+        return {"success": False, "message": "columnas debe ser 2 o 4"}
+    state = _load_state()
+    state["etiquetas_rollo_columnas"] = n
+    _save_state(state)
+    return {"success": True, "columnas": n}
 
 
 # ═══════════════════════════════════════════════════════
