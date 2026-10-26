@@ -237,6 +237,20 @@ def zpl_lote(layouts: list) -> str:
     return "\n".join(formatos)
 
 
+def meta_pasadas(slots_codigo: list, fecha: str = "") -> list:
+    """
+    Alineado con zpl_lote: un ítem por layout (None = separadora, str = código).
+    Devuelve [{codigos, marcas}] por cada ^XA…^XZ para marcar solo lo ya enviado.
+    """
+    n = max(1, int(config_impresora().get("columnas") or 4))
+    out = []
+    for i in range(0, len(slots_codigo), n):
+        codigos = [c for c in slots_codigo[i:i + n] if c]
+        marcas = [{"codigo": c, "fecha": fecha} for c in codigos if fecha]
+        out.append({"codigos": codigos, "marcas": marcas})
+    return out
+
+
 def zpl_calibracion() -> str:
     """Regla para ubicar las tiras: números a lo ancho (dots) y a lo largo cada 200 dots."""
     cfg = config_impresora()

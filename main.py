@@ -3133,14 +3133,32 @@ def post_etiqueta_imprimir(payload: EtiquetaImprimirIn):
     datos = []
     for c in codigos[:200]:
         datos.extend(buscar_etiquetas(c))
-    zpl = etiquetas.zpl_lote(_layouts_con_copias(datos, payload.copias))
+    copias = max(1, min(int(payload.copias or 1), 20))
+    layouts = _layouts_con_copias(datos, copias)
+    # Un slot por layout (con copias); fecha de programación para marcar.
+    slots = []
+    for d in datos:
+        fecha_m = d.get("fecha_programacion") or ""
+        for _ in range(copias):
+            slots.append((d.get("codigo_barras") or "", fecha_m))
+    zpl = etiquetas.zpl_lote(layouts)
     marcas = [{"codigo": d["codigo_barras"], "fecha": d["fecha_programacion"]}
               for d in datos if d.get("fecha_programacion")]
+    # Pasadas: agrupar códigos; marcas con la fecha de cada slot
+    n_cols = max(1, int(etiquetas.config_impresora().get("columnas") or 4))
+    pasadas = []
+    for i in range(0, len(slots), n_cols):
+        chunk = slots[i:i + n_cols]
+        cods = [c for c, _ in chunk if c]
+        marcas_p = [{"codigo": c, "fecha": f} for c, f in chunk if c and f]
+        pasadas.append({"codigos": cods, "marcas": marcas_p})
     resumen = {
         "success": True,
         "impresas": len(datos),
-        "copias": max(1, min(int(payload.copias or 1), 20)),
+        "copias": copias,
         "codigos": [d["codigo_barras"] for d in datos],
+        "columnas": n_cols,
+        "pasadas": pasadas,
     }
     if payload.solo_zpl:
         return {**resumen, "zpl": zpl, "marcas": marcas}
@@ -3502,15 +3520,18 @@ def post_etiquetas_opl_imprimir(payload: EtiquetasOplImprimirIn):
             "opl": g["opl"], "cliente": g["cliente"],
             "total": len(g["piezas"]), "puestos": ", ".join(g["puestos"]),
         }), g["piezas"]) for g in grupos]
-    layouts, codigos = [], []
+    layouts, codigos, slots = [], [], []
     for sep, piezas_sec in secciones:
         if payload.separadores:
             layouts.append(sep)
+            slots.append(None)  # separadora: ocupa tira, no se marca
         for r in piezas_sec:
             d = datos_etiqueta_desde_pieza(r, fecha_filtro)
             layouts.append(d["layout"])
             codigos.append(d["codigo_barras"])
+            slots.append(d["codigo_barras"])
     zpl = etiquetas.zpl_lote(layouts)
+    pasadas = etiquetas.meta_pasadas(slots, fecha_filtro)
     resumen = {
         "success": True,
         "fecha": fecha_filtro,
@@ -3519,6 +3540,8 @@ def post_etiquetas_opl_imprimir(payload: EtiquetasOplImprimirIn):
         "separadores": len(secciones) if payload.separadores else 0,
         "clientes": len(grupos),
         "rieles": len({ubicacion_pieza(r) for g in grupos for r in g["piezas"]}),
+        "columnas": etiquetas.config_impresora().get("columnas"),
+        "pasadas": pasadas,
     }
     if payload.solo_zpl:
         return {**resumen, "zpl": zpl, "marcas": [{"codigo": c, "fecha": fecha_filtro} for c in codigos]}

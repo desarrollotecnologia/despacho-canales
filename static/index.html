@@ -401,6 +401,15 @@
     .spinner{width:40px;height:40px;border:4px solid var(--vc);border-top-color:var(--vp);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 1rem;}
     @keyframes spin{to{transform:rotate(360deg);}}
 
+    /* PROGRESO IMPRESIÓN ETIQUETAS */
+    #modalPrintJob{z-index:2100;}
+    .print-job-msg{font-size:1.15rem;font-weight:700;color:var(--vp);margin:0.4rem 0 0.8rem;text-align:center;}
+    .print-job-sub{font-size:0.85rem;color:var(--gris);text-align:center;margin-bottom:0.8rem;}
+    .print-job-bar{height:12px;background:#e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:0.9rem;}
+    .print-job-bar>div{height:100%;width:0%;background:linear-gradient(90deg,var(--vp),#34d399);transition:width 0.2s ease;}
+    .print-job-hint{font-size:0.82rem;color:#64748b;line-height:1.4;margin:0 0 1rem;}
+    .print-job-acciones{display:flex;gap:0.5rem;flex-wrap:wrap;justify-content:center;}
+
     /* ALERTAS */
     .alert{padding:1rem 1.2rem;border-radius:12px;margin:1rem 0;display:none;font-size:0.9rem;}
     .alert.show{display:block;}
@@ -901,6 +910,22 @@
   </div>
 
 </div><!-- /container -->
+
+<!-- MODAL PROGRESO IMPRESIÓN (pausa / restantes) -->
+<div class="modal-overlay" id="modalPrintJob">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <div class="modal-title" id="printJobTitulo">Imprimiendo etiquetas…</div>
+    </div>
+    <div class="print-job-msg" id="printJobMsg">Enviadas 0 / 0</div>
+    <div class="print-job-sub" id="printJobSub"></div>
+    <div class="print-job-bar"><div id="printJobBar"></div></div>
+    <p class="print-job-hint" id="printJobHint">
+      Si se acaba el rollo, pulsa <strong>Pausar</strong>, pon rollo nuevo, usa <strong>Calibración</strong> y luego <strong>Continuar</strong> o <strong>Imprimir restantes</strong>.
+    </p>
+    <div class="print-job-acciones" id="printJobAcciones"></div>
+  </div>
+</div>
 
 <!-- MODAL DETALLE OPL / DESPACHO -->
 <div class="modal-overlay" id="modalDetalle">
@@ -2386,8 +2411,178 @@ async function zbEnviar(zpl) {
   }
 }
 
+// ── Trabajo de impresión con progreso / pausa / restantes ──
+const PRINT_JOB = {
+  activo: false,
+  pausado: false,
+  cancelar: false,
+  partes: [],
+  pasadas: [],
+  idx: 0,
+  enviadas: 0,
+  total: 0,
+  post: null,
+  waitContinue: null,
+};
+
+function _printJobPartes(zpl) {
+  const bloques = String(zpl || '').split(/(?=\^XA)/).map(s => s.trim()).filter(s => s.startsWith('^XA'));
+  return bloques.length ? bloques : [String(zpl || '')];
+}
+
+function _printJobMostrar(estado) {
+  const m = $('modalPrintJob');
+  if (!m) return;
+  m.classList.add('show');
+  const total = PRINT_JOB.total || 0;
+  const env = PRINT_JOB.enviadas || 0;
+  const faltan = Math.max(0, total - env);
+  $('printJobTitulo').textContent =
+    estado === 'pausado' ? 'Impresión en pausa'
+    : estado === 'listo' ? 'Impresión terminada'
+    : estado === 'cancelado' ? 'Impresión detenida'
+    : 'Imprimiendo etiquetas…';
+  $('printJobMsg').textContent = `Enviadas ${env} / ${total}`;
+  $('printJobSub').textContent = faltan
+    ? (estado === 'pausado' || estado === 'cancelado'
+      ? `Faltan ${faltan} etiqueta(s). Cuadra el rollo, calibra si hace falta y continúa.`
+      : `Pasada ${Math.min(PRINT_JOB.idx + 1, PRINT_JOB.partes.length)} de ${PRINT_JOB.partes.length}`)
+    : (estado === 'listo' ? 'Todas las del lote se enviaron a la Zebra.' : '');
+  const pct = total ? Math.round((env / total) * 100) : 0;
+  $('printJobBar').style.width = pct + '%';
+  const acc = $('printJobAcciones');
+  if (estado === 'imprimiendo') {
+    acc.innerHTML = `
+      <button type="button" class="btn btn-secondary btn-sm" onclick="printJobPausar()">⏸ Pausar</button>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="printJobCancelar()">⏹ Cancelar resto</button>`;
+  } else if (estado === 'pausado') {
+    acc.innerHTML = `
+      <button type="button" class="btn btn-primary btn-sm" onclick="printJobContinuar()">▶ Continuar / Imprimir restantes</button>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="printJobCancelar()">⏹ Cancelar resto</button>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="zbCalibrar()" title="Calibrar con el rollo nuevo">📏 Calibración</button>`;
+  } else {
+    acc.innerHTML = `<button type="button" class="btn btn-primary btn-sm" onclick="printJobCerrar()">Listo</button>`;
+  }
+}
+
+function printJobPausar() {
+  if (!PRINT_JOB.activo) return;
+  PRINT_JOB.pausado = true;
+  _printJobMostrar('pausado');
+}
+
+function printJobContinuar() {
+  PRINT_JOB.pausado = false;
+  if (PRINT_JOB.waitContinue) {
+    const r = PRINT_JOB.waitContinue;
+    PRINT_JOB.waitContinue = null;
+    r();
+  }
+  if (PRINT_JOB.activo) _printJobMostrar('imprimiendo');
+}
+
+function printJobCancelar() {
+  PRINT_JOB.cancelar = true;
+  PRINT_JOB.pausado = false;
+  if (PRINT_JOB.waitContinue) {
+    const r = PRINT_JOB.waitContinue;
+    PRINT_JOB.waitContinue = null;
+    r();
+  }
+}
+
+function printJobCerrar() {
+  const m = $('modalPrintJob');
+  if (m) m.classList.remove('show');
+  PRINT_JOB.activo = false;
+}
+
+function _printJobEsperaPausa() {
+  if (!PRINT_JOB.pausado) return Promise.resolve();
+  _printJobMostrar('pausado');
+  return new Promise(resolve => { PRINT_JOB.waitContinue = resolve; });
+}
+
+async function _printJobMarcar(marcas) {
+  if (!(marcas || []).length || !PRINT_JOB.post) return;
+  try {
+    await PRINT_JOB.post('/etiquetas/marcar', { marcas });
+  } catch (e) {
+    console.warn('marcar pasada', e);
+  }
+}
+
+/** Envía ZPL pasada a pasada, marca solo lo enviado, permite pausar y dejar restantes. */
+async function zbEnviarConProgreso(zpl, pasadas, postFn) {
+  if (!ZB.device) throw new Error('No hay una Zebra conectada en este equipo (revisa Zebra Browser Print y pulsa «Buscar»)');
+  const partes = _printJobPartes(zpl);
+  const meta = Array.isArray(pasadas) && pasadas.length ? pasadas : partes.map(() => ({ codigos: [], marcas: [] }));
+  // Alinear longitudes (por si el servidor y el split difieren)
+  while (meta.length < partes.length) meta.push({ codigos: [], marcas: [] });
+  const totalEtq = meta.reduce((s, p) => s + ((p.codigos || []).length), 0)
+    || meta.reduce((s, p) => s + ((p.marcas || []).length), 0);
+
+  PRINT_JOB.activo = true;
+  PRINT_JOB.pausado = false;
+  PRINT_JOB.cancelar = false;
+  PRINT_JOB.partes = partes;
+  PRINT_JOB.pasadas = meta;
+  PRINT_JOB.idx = 0;
+  PRINT_JOB.enviadas = 0;
+  PRINT_JOB.total = totalEtq;
+  PRINT_JOB.post = postFn;
+  PRINT_JOB.waitContinue = null;
+  _printJobMostrar('imprimiendo');
+
+  let error = null;
+  for (let i = 0; i < partes.length; i++) {
+    PRINT_JOB.idx = i;
+    await _printJobEsperaPausa();
+    if (PRINT_JOB.cancelar) break;
+    _printJobMostrar('imprimiendo');
+    try {
+      const r = await zbFetch('/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify({ device: ZB.device, data: partes[i] }),
+      }, 60000);
+      if (!r.ok) throw new Error(`La Zebra rechazó el trabajo: ${(await r.text()) || 'HTTP ' + r.status}`);
+    } catch (e) {
+      error = e.message || String(e);
+      break;
+    }
+    const marcas = (meta[i] && meta[i].marcas) || [];
+    const nCod = (meta[i] && meta[i].codigos && meta[i].codigos.length)
+      || marcas.length
+      || 0;
+    await _printJobMarcar(marcas);
+    PRINT_JOB.enviadas += nCod;
+    _printJobMostrar('imprimiendo');
+  }
+
+  const faltan = Math.max(0, PRINT_JOB.total - PRINT_JOB.enviadas);
+  const estadoFinal = error ? 'cancelado' : (PRINT_JOB.cancelar || faltan ? 'cancelado' : 'listo');
+  if (error) {
+    $('printJobHint').textContent = 'Error al enviar: ' + error + (faltan ? ` Quedaron ${faltan} pendientes.` : '');
+  } else if (faltan) {
+    $('printJobHint').textContent = `Quedaron ${faltan} etiqueta(s) sin enviar. Con «Solo las que no se han impreso» puedes sacar solo las restantes (ya están sin marcar).`;
+  } else {
+    $('printJobHint').textContent = 'Lote completo enviado. Si alguna no salió en papel, usa «Permitir reimprimir».';
+  }
+  _printJobMostrar(estadoFinal);
+  PRINT_JOB.activo = false;
+  return {
+    enviadas: PRINT_JOB.enviadas,
+    total: PRINT_JOB.total,
+    faltan,
+    cancelado: !!PRINT_JOB.cancelar || !!error,
+    error,
+  };
+}
+
 /** Imprime por el servidor o, en modo local, pide el ZPL al servidor y lo manda a la Zebra del equipo. */
-async function imprimirEtiquetas(endpoint, body) {
+async function imprimirEtiquetas(endpoint, body, opts) {
+  const conProgreso = !opts || opts.progreso !== false;
   const post = async (url, data) => {
     const r = await fetch(API(url), {
       method: 'POST',
@@ -2401,6 +2596,17 @@ async function imprimirEtiquetas(endpoint, body) {
   if (ZB.modo === 'servidor') return post(endpoint, body);
   if (!ZB.device) throw new Error('No hay una Zebra conectada en este equipo (revisa Zebra Browser Print y pulsa «Buscar»)');
   const j = await post(endpoint, { ...body, solo_zpl: true });
+  if (conProgreso && (j.pasadas || []).length) {
+    const prog = await zbEnviarConProgreso(j.zpl, j.pasadas, post);
+    return {
+      ...j,
+      destino: ZB.device.name,
+      impresas: prog.enviadas,
+      faltan: prog.faltan,
+      cancelado: prog.cancelado,
+      progreso: prog,
+    };
+  }
   await zbEnviar(j.zpl);
   if ((j.marcas || []).length) {
     try { await post('/etiquetas/marcar', { marcas: j.marcas }); }
@@ -2826,20 +3032,24 @@ async function imprimirEtiquetasOpl() {
     solo_tempranas: soloTemp,
   };
   if (ubiFiltro !== null) body.ubicaciones = ubiFiltro;
-  showSpinner();
+  // El progreso va en el modal (Pausar / Continuar / restantes); no tapar con spinner.
   try {
-    const j = await imprimirEtiquetas('/etiquetas/opl/imprimir', body);
+    const j = await imprimirEtiquetas('/etiquetas/opl/imprimir', body, { progreso: true });
     if (window.ColbeefUsage) ColbeefUsage.track('etiquetas_opl', 'etiquetas', `${j.impresas} etiquetas ${opls.join(', ')}`);
     const a = $('alertGlobal');
     const grupoTxt = j.orden === 'ubicacion' ? `${j.rieles} riel(es)` : `${j.clientes} cliente(s)`;
-    a.textContent = `✅ Enviadas ${j.impresas} etiqueta(s) de ${grupoTxt}${j.separadores ? ` + ${j.separadores} separadora(s)` : ''} a ${j.destino}`;
-    a.className = 'alert alert-success show';
-    setTimeout(() => a.classList.remove('show'), 6000);
+    const faltan = j.faltan || 0;
+    if (faltan) {
+      a.textContent = `⏸ Enviadas ${j.impresas} de ${(j.impresas || 0) + faltan}. Faltan ${faltan}: pon rollo nuevo, calibra y vuelve a pulsar Imprimir (con «Solo las que no se han impreso»).`;
+      a.className = 'alert alert-warn show';
+    } else {
+      a.textContent = `✅ Enviadas ${j.impresas} etiqueta(s) de ${grupoTxt}${j.separadores ? ` + ${j.separadores} separadora(s)` : ''} a ${j.destino}`;
+      a.className = 'alert alert-success show';
+    }
+    setTimeout(() => a.classList.remove('show'), 8000);
     await cargarEtiquetasOpl(false);
   } catch (e) {
     alertErr('Imprimir por OPL: ' + e.message);
-  } finally {
-    hideSpinner();
   }
 }
 
