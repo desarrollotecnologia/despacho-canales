@@ -3222,13 +3222,32 @@ def ubicacion_pieza(r: dict) -> str:
     return riel or cava or "Sin ubicación"
 
 
+def _lado_orden_etiqueta(r: dict) -> int:
+    """0 = Media Canal 1 (-1001), 1 = Media Canal 2 (-1002); desconocido al final."""
+    try:
+        id_tipo = int(r.get("id_tipo") or 0)
+    except (TypeError, ValueError):
+        id_tipo = 0
+    if id_tipo == ID_MC1:
+        return 0
+    if id_tipo == ID_MC2:
+        return 1
+    codigo = str(r.get("codigo_completo") or r.get("codigo") or "").upper()
+    if codigo.endswith("-1001") or codigo.endswith("-001"):
+        return 0
+    if codigo.endswith("-1002") or codigo.endswith("-002"):
+        return 1
+    return 2
+
+
 def orden_ubicacion(r: dict) -> tuple:
-    """Cava 1 Riel 1, Cava 1 Riel 2 … Cava 2 Riel 1 …; cavas virtuales al final."""
+    """Cava → riel; en cada riel lado 1 (-1001) y luego lado 2 (-1002); cavas virtuales al final."""
     cava = str(r.get("cava") or "")
     return (
         1 if "VIRT" in cava.upper() or not cava else 0,
         _clave_natural(cava),
         _clave_natural(ubicacion_pieza(r)),
+        _lado_orden_etiqueta(r),
         str(r.get("codigo_completo") or r.get("codigo") or ""),
     )
 
