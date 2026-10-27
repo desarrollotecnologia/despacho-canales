@@ -254,6 +254,8 @@
     .etl-preview{display:flex;flex-direction:column;gap:0.6rem;margin-top:0.8rem;overflow-x:auto;}
     .etl-preview .etl-cap{font-size:0.78rem;color:var(--gris);}
     #etlBtnTempranas.active{background:#dc2626;border-color:#dc2626;color:#fff;}
+    #etlBtnAdicionales.active{background:#1e3a5f;border-color:#1e3a5f;color:#fff;}
+    .badge-adi-etl{display:inline-block;font-size:0.68rem;background:#1e3a5f;color:#fff;border-radius:4px;padding:0 5px;margin-left:0.3rem;vertical-align:middle;}
     .et-barras{background:repeating-linear-gradient(90deg,#000 0 2px,#fff 2px 3px,#000 3px 4px,#fff 4px 7px,#000 7px 10px,#fff 10px 12px);}
     .et-meta{font-size:0.78rem;color:var(--gris);line-height:1.4;}
     .et-meta strong{color:#1f2937;}
@@ -775,7 +777,7 @@
 
     <div class="etl-box">
       <h3>🖨️ Etiquetas de despacho por OPL</h3>
-      <p class="etl-ayuda">Imprime sin pistolear las medias pendientes por OPL. <strong>Tempranas TRANSCARNES</strong> saca solo TEMP1 de ese OPL; en el lote normal de TRANSCARNES esas TEMP1 no salen (así no se duplican). Filtra también por cava/riel. Orden por defecto: cava → riel.</p>
+      <p class="etl-ayuda">Imprime sin pistolear las medias pendientes por OPL. <strong>Tempranas</strong> = solo TEMP1 de TRANSCARNES. <strong>Adicionales</strong> = asignadas desde las 15:30. En el lote normal no salen ni unas ni otras (así no se duplican). Orden por defecto: cava → riel.</p>
       <div class="etl-filtros">
         <label>Fecha <input type="date" id="etlFecha"></label>
         <label>Turno
@@ -788,6 +790,7 @@
         </label>
         <button class="btn btn-secondary btn-sm" onclick="cargarEtiquetasOpl(true)">🔄 Cargar OPL</button>
         <button type="button" class="btn btn-secondary btn-sm" id="etlBtnTempranas" onclick="etlToggleTempranas()" title="Solo TEMP1 de TRANSCARNES (no salen en el lote normal de ese OPL)">⏱ Tempranas TRANSCARNES</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="etlBtnAdicionales" onclick="etlToggleAdicionales()" title="Solo medias asignadas desde las 15:30 (no salen en el lote normal)">➕ Adicionales</button>
         <label>Orden
           <select id="etlOrden" onchange="etlCambiarOrden()">
             <option value="ubicacion" selected>Por cava y riel (para pegar)</option>
@@ -2670,7 +2673,7 @@ async function zbCalibrar() {
 }
 
 // ── Etiquetas de despacho por OPL (sin pistolear) ──
-const ETL = { datos: null, oplsSel: new Set(), excluidos: new Set(), abiertos: new Set(), preseleccion: null, soloTempranas: false };
+const ETL = { datos: null, oplsSel: new Set(), excluidos: new Set(), abiertos: new Set(), preseleccion: null, soloTempranas: false, soloAdicionales: false };
 
 function abrirEtiquetasOpl(opl) {
   ETL.preseleccion = opl && opl !== 'TODOS' ? opl : '';
@@ -2801,12 +2804,17 @@ function etlEsOplTempranas(opl) {
 
 function etlToggleTempranas() {
   ETL.soloTempranas = !ETL.soloTempranas;
+  if (ETL.soloTempranas) ETL.soloAdicionales = false;
   const btn = $('etlBtnTempranas');
   if (btn) {
     btn.classList.toggle('active', ETL.soloTempranas);
     btn.setAttribute('aria-pressed', ETL.soloTempranas ? 'true' : 'false');
   }
-  // Al activar Tempranas, marcar solo TRANSCARNES
+  const btnA = $('etlBtnAdicionales');
+  if (btnA) {
+    btnA.classList.toggle('active', false);
+    btnA.setAttribute('aria-pressed', 'false');
+  }
   if (ETL.soloTempranas && ETL.datos?.opls) {
     const t = (ETL.datos.opls || []).find(o => etlEsOplTempranas(o.opl));
     ETL.oplsSel = t ? new Set([t.opl]) : new Set();
@@ -2814,32 +2822,54 @@ function etlToggleTempranas() {
   renderEtiquetasOpl();
 }
 
-function _etlCantRiel(v, soloNuevas, soloTemp, opl) {
+function etlToggleAdicionales() {
+  ETL.soloAdicionales = !ETL.soloAdicionales;
+  if (ETL.soloAdicionales) ETL.soloTempranas = false;
+  const btnA = $('etlBtnAdicionales');
+  if (btnA) {
+    btnA.classList.toggle('active', ETL.soloAdicionales);
+    btnA.setAttribute('aria-pressed', ETL.soloAdicionales ? 'true' : 'false');
+  }
+  const btnT = $('etlBtnTempranas');
+  if (btnT) {
+    btnT.classList.toggle('active', false);
+    btnT.setAttribute('aria-pressed', 'false');
+  }
+  if (ETL.soloAdicionales && ETL.datos?.opls) {
+    ETL.oplsSel = new Set(
+      (ETL.datos.opls || []).filter(o => (o.adicionales || 0) > 0).map(o => o.opl)
+    );
+  }
+  renderEtiquetasOpl();
+}
+
+function _etlCantRiel(v, soloNuevas, soloTemp, soloAdi, opl) {
   const tot = soloNuevas ? (v.nuevas || 0) : (v.total || 0);
   const temp = soloNuevas ? (v.tempranas_nuevas || 0) : (v.tempranas || 0);
-  if (soloTemp) {
-    // Solo TEMP1 de Transcarnes
-    return etlEsOplTempranas(opl) ? temp : 0;
-  }
-  // Lote normal: en Transcarnes restar TEMP1 (van por el botón Tempranas)
-  if (etlEsOplTempranas(opl)) return Math.max(0, tot - temp);
-  return tot;
+  const adi = soloNuevas ? (v.adicionales_nuevas || 0) : (v.adicionales || 0);
+  if (soloTemp) return etlEsOplTempranas(opl) ? temp : 0;
+  if (soloAdi) return adi;
+  let n = tot - adi;
+  if (etlEsOplTempranas(opl)) n -= temp;
+  return Math.max(0, n);
 }
 
 function _etlConteo() {
   const soloNuevas = $('etlSoloNuevas').checked;
   const soloTemp = !!ETL.soloTempranas;
+  const soloAdi = !!ETL.soloAdicionales;
   let etiquetas = 0, clientes = 0;
   const rieles = new Set();
   (ETL.datos?.opls || []).forEach(o => {
     if (soloTemp && !etlEsOplTempranas(o.opl)) return;
+    if (soloAdi && !(o.adicionales || 0)) return;
     if (!ETL.oplsSel.has(o.opl)) return;
     o.clientes.forEach(c => {
       if (ETL.excluidos.has(c.clave)) return;
       let nCli = 0;
       Object.entries(c.rieles || {}).forEach(([ubi, v]) => {
         if (!etlUbiMatch(ubi)) return;
-        const n = _etlCantRiel(v, soloNuevas, soloTemp, o.opl);
+        const n = _etlCantRiel(v, soloNuevas, soloTemp, soloAdi, o.opl);
         if (n > 0) {
           nCli += n;
           rieles.add(ubi);
@@ -2862,57 +2892,87 @@ function renderEtiquetasOpl() {
   const box = $('etlLista');
   const opls = d.opls || [];
   const soloTemp = !!ETL.soloTempranas;
+  const soloAdi = !!ETL.soloAdicionales;
   const btnT = $('etlBtnTempranas');
   if (btnT) btnT.classList.toggle('active', soloTemp);
+  const btnA = $('etlBtnAdicionales');
+  if (btnA) {
+    btnA.classList.toggle('active', soloAdi);
+    const corte = d.corteAdicional || '15:30';
+    btnA.title = `Solo medias asignadas desde las ${corte} (no salen en el lote normal)`;
+    btnA.textContent = `➕ Adicionales (≥ ${corte})`;
+  }
   if (!opls.length) {
     box.innerHTML = '<div class="empty-state">No hay medias pendientes para esa fecha y turno.</div>';
   } else {
-    const visible = soloTemp ? opls.filter(o => etlEsOplTempranas(o.opl)) : opls;
+    const visible = soloTemp
+      ? opls.filter(o => etlEsOplTempranas(o.opl))
+      : (soloAdi ? opls.filter(o => (o.adicionales || 0) > 0) : opls);
     const marcados = visible.filter(o => ETL.oplsSel.has(o.opl)).length;
     const cantOpl = (o, nuevas) => {
       const tot = nuevas ? (o.nuevas || 0) : (o.total || 0);
       const temp = nuevas ? (o.tempranas_nuevas || 0) : (o.tempranas || 0);
+      const adi = nuevas ? (o.adicionales_nuevas || 0) : (o.adicionales || 0);
       if (soloTemp) return etlEsOplTempranas(o.opl) ? temp : 0;
-      if (etlEsOplTempranas(o.opl)) return Math.max(0, tot - temp);
-      return tot;
+      if (soloAdi) return adi;
+      let n = tot - adi;
+      if (etlEsOplTempranas(o.opl)) n -= temp;
+      return Math.max(0, n);
     };
     const totMed = visible.reduce((a, o) => a + cantOpl(o, false), 0);
     const totNue = visible.reduce((a, o) => a + cantOpl(o, true), 0);
+    const modoTxt = soloTemp ? ' tempranas' : (soloAdi ? ' adicionales' : '');
+    const badgeModo = soloTemp
+      ? ' <span class="badge-temprana">TEMP1 TRANSCARNES</span>'
+      : (soloAdi ? ` <span class="badge-adi-etl">≥ ${escHtml(d.corteAdicional || '15:30')}</span>` : '');
     let html = `<label class="etl-fila todos">
         <input type="checkbox" id="etlTodos" ${visible.length && marcados === visible.length ? 'checked' : ''} onchange="etlToggleTodos(this.checked)">
-        <span class="etl-nom">Seleccionar todos${soloTemp ? ' <span class="badge-temprana">TEMP1 TRANSCARNES</span>' : ''}</span>
-        <span class="etl-cant">${visible.length} OPL · ${totMed} medias${soloTemp ? ' tempranas' : ''} · ${totNue} sin imprimir</span>
+        <span class="etl-nom">Seleccionar todos${badgeModo}</span>
+        <span class="etl-cant">${visible.length} OPL · ${totMed} medias${modoTxt} · ${totNue} sin imprimir</span>
       </label>`;
     opls.forEach((o, i) => {
       if (soloTemp && !etlEsOplTempranas(o.opl)) return;
+      if (soloAdi && !(o.adicionales || 0)) return;
       const sel = ETL.oplsSel.has(o.opl);
       const abierto = ETL.abiertos.has(o.opl);
       const oTot = cantOpl(o, false);
       const oNue = cantOpl(o, true);
-      if (soloTemp && !oTot) return;
+      if ((soloTemp || soloAdi) && !oTot) return;
       const badgeTemp = o.tempranas
         ? ` <span class="badge-temprana" title="TEMP1: van con botón Tempranas">${o.tempranas}</span>`
         : '';
+      const badgeAdi = o.adicionales
+        ? ` <span class="badge-adi-etl" title="Asignadas desde las ${escHtml(d.corteAdicional || '15:30')}: van con botón Adicionales">${o.adicionales}</span>`
+        : '';
       html += `<div class="etl-fila opl">
           <input type="checkbox" ${sel ? 'checked' : ''} onchange="etlToggleOpl(${i}, this.checked)">
-          <span class="etl-nom">${escHtml(o.opl)}${badgeTemp}</span>
-          <span class="etl-cant">${o.clientes.length} cliente(s) · ${oTot} medias${soloTemp ? ' tempranas' : ''} · ${oNue} sin imprimir</span>
+          <span class="etl-nom">${escHtml(o.opl)}${badgeTemp}${badgeAdi}</span>
+          <span class="etl-cant">${o.clientes.length} cliente(s) · ${oTot} medias${modoTxt} · ${oNue} sin imprimir</span>
           <button type="button" onclick="etlAbrir(${i})">${abierto ? '▲ Ocultar clientes' : '▼ Ver clientes'}</button>
         </div>`;
       if (!abierto) return;
       o.clientes.forEach((c, j) => {
-        const cTotRaw = soloTemp ? (c.tempranas || 0) : (c.total || 0);
-        const cTemp = c.tempranas || 0;
-        const cTot = (!soloTemp && etlEsOplTempranas(o.opl)) ? Math.max(0, cTotRaw - cTemp) : cTotRaw;
-        const cNueRaw = soloTemp ? (c.tempranas_nuevas || 0) : (c.nuevas || 0);
-        const cTempN = c.tempranas_nuevas || 0;
-        const cNue = (!soloTemp && etlEsOplTempranas(o.opl)) ? Math.max(0, cNueRaw - cTempN) : cNueRaw;
-        if (soloTemp && !cTot) return;
-        if (!soloTemp && etlEsOplTempranas(o.opl) && !cTot) return;
+        let cTot, cNue;
+        if (soloTemp) {
+          cTot = c.tempranas || 0;
+          cNue = c.tempranas_nuevas || 0;
+        } else if (soloAdi) {
+          cTot = c.adicionales || 0;
+          cNue = c.adicionales_nuevas || 0;
+        } else {
+          const adi = c.adicionales || 0;
+          const adiN = c.adicionales_nuevas || 0;
+          const temp = c.tempranas || 0;
+          const tempN = c.tempranas_nuevas || 0;
+          cTot = Math.max(0, (c.total || 0) - adi - (etlEsOplTempranas(o.opl) ? temp : 0));
+          cNue = Math.max(0, (c.nuevas || 0) - adiN - (etlEsOplTempranas(o.opl) ? tempN : 0));
+        }
+        if ((soloTemp || soloAdi) && !cTot) return;
+        if (!soloTemp && !soloAdi && !cTot) return;
         html += `<label class="etl-fila cli">
             <input type="checkbox" ${ETL.excluidos.has(c.clave) ? '' : 'checked'} ${sel ? '' : 'disabled'} onchange="etlToggleCliente(${i}, ${j}, this.checked)">
             <span class="etl-nom">${escHtml(c.cliente)} <small style="color:var(--gris);">${escHtml((c.puestos || []).join(', '))}</small></span>
-            <span class="etl-cant">${cTot} medias${soloTemp ? ' tempranas' : ''} · ${cNue} sin imprimir</span>
+            <span class="etl-cant">${cTot} medias${modoTxt} · ${cNue} sin imprimir</span>
           </label>`;
       });
     });
@@ -2924,27 +2984,32 @@ function renderEtiquetasOpl() {
   const { etiquetas, separadoras } = conteo;
   const fCava = ($('etlFiltroCava') && $('etlFiltroCava').value) || '';
   const fRiel = ($('etlFiltroRiel') && $('etlFiltroRiel').value) || '';
+  const corte = d.corteAdicional || '15:30';
   const filtroHint = [
     soloTemp ? ' · solo TEMP1 TRANSCARNES' : '',
+    soloAdi ? ` · solo adicionales ≥ ${corte}` : '',
     (fCava || fRiel) ? ` · filtro ${fCava || 'todas las cavas'}${fRiel ? ' · ' + fRiel : ''}` : '',
   ].join('');
+  const tipoRes = soloTemp ? ' tempranas TRANSCARNES' : (soloAdi ? ' adicionales' : '');
   $('etlSepTxt').textContent = etlPorUbicacion() ? 'Separadora por riel' : 'Separadora por cliente';
   $('etlResumen').innerHTML = etiquetas
-    ? `<strong>${etiquetas}</strong> etiqueta(s)${soloTemp ? ' tempranas TRANSCARNES' : ''} de ${_etlTextoGrupos(conteo)}${separadoras ? ` + ${separadoras} separadora(s)` : ''}`
+    ? `<strong>${etiquetas}</strong> etiqueta(s)${tipoRes} de ${_etlTextoGrupos(conteo)}${separadoras ? ` + ${separadoras} separadora(s)` : ''}`
       + (etlPorUbicacion() ? ' · orden Cava 1 Riel 1, Cava 1 Riel 2…' : '')
       + filtroHint
     : (ETL.oplsSel.size
       ? (soloTemp
         ? 'No hay TEMP1 de TRANSCARNES (o ya se imprimieron)'
-        : ((fCava || fRiel)
-          ? 'Ninguna media coincide con el filtro de cava/riel'
-          : ($('etlSoloNuevas').checked
-            ? 'Todo lo marcado ya se imprimió (desmarca «Solo las que no se han impreso» para reimprimir)'
-            : 'Marca uno o más OPL')))
+        : (soloAdi
+          ? `No hay adicionales ≥ ${corte} (o ya se imprimieron)`
+          : ((fCava || fRiel)
+            ? 'Ninguna media coincide con el filtro de cava/riel'
+            : ($('etlSoloNuevas').checked
+              ? 'Todo lo marcado ya se imprimió (desmarca «Solo las que no se han impreso» para reimprimir)'
+              : 'Marca uno o más OPL'))))
       : 'Marca uno o más OPL');
   $('etlBtnImprimir').disabled = !etiquetas;
   $('etlBtnImprimir').textContent = etiquetas
-    ? `🖨️ Imprimir ${etiquetas + separadoras}${soloTemp ? ' tempranas TRANSCARNES' : ' etiquetas'}`
+    ? `🖨️ Imprimir ${etiquetas + separadoras}${soloTemp ? ' tempranas TRANSCARNES' : (soloAdi ? ' adicionales' : ' etiquetas')}`
     : '🖨️ Imprimir';
 
   let prev = '';
@@ -2959,7 +3024,11 @@ function renderEtiquetasOpl() {
 }
 
 function etlToggleTodos(marcar) {
-  const lista = (ETL.datos?.opls || []).filter(o => !ETL.soloTempranas || etlEsOplTempranas(o.opl));
+  const lista = (ETL.datos?.opls || []).filter(o => {
+    if (ETL.soloTempranas) return etlEsOplTempranas(o.opl);
+    if (ETL.soloAdicionales) return (o.adicionales || 0) > 0;
+    return true;
+  });
   ETL.oplsSel = marcar ? new Set(lista.map(o => o.opl)) : new Set();
   renderEtiquetasOpl();
 }
@@ -3011,14 +3080,18 @@ async function imprimirEtiquetasOpl() {
   const ordenTxt = etlPorUbicacion() ? ' en orden de cava y riel' : '';
   const ubiFiltro = etlUbicacionesFiltro();
   const soloTemp = !!ETL.soloTempranas;
+  const soloAdi = !!ETL.soloAdicionales;
+  const corte = (ETL.datos && ETL.datos.corteAdicional) || '15:30';
+  const tipoTxt = soloTemp ? ' tempranas' : (soloAdi ? ' adicionales' : '');
   const filtroTxt = [
     soloTemp ? ' solo tempranas TEMP1' : '',
+    soloAdi ? ` solo adicionales (≥ ${corte})` : '',
     ubiFiltro
       ? ` (filtro: ${(($('etlFiltroCava') && $('etlFiltroCava').value) || 'todas las cavas')}`
         + `${($('etlFiltroRiel') && $('etlFiltroRiel').value) ? ' · ' + $('etlFiltroRiel').value : ''})`
       : '',
   ].join('');
-  if (!confirm(`¿Imprimir ${etiquetas} etiqueta(s)${soloTemp ? ' tempranas' : ''} de ${_etlTextoGrupos(conteo)}${separadoras ? ` + ${separadoras} separadora(s)` : ''}${ordenTxt}${filtroTxt} en ${zbDestinoTexto()}?`)) return;
+  if (!confirm(`¿Imprimir ${etiquetas} etiqueta(s)${tipoTxt} de ${_etlTextoGrupos(conteo)}${separadoras ? ` + ${separadoras} separadora(s)` : ''}${ordenTxt}${filtroTxt} en ${zbDestinoTexto()}?`)) return;
   const opls = [...ETL.oplsSel];
   const claves = new Set(ETL.datos.opls.filter(o => ETL.oplsSel.has(o.opl)).flatMap(o => o.clientes.map(c => c.clave)));
   const body = {
@@ -3030,6 +3103,7 @@ async function imprimirEtiquetasOpl() {
     separadores: $('etlSeparadores').checked,
     orden: $('etlOrden').value,
     solo_tempranas: soloTemp,
+    solo_adicionales: soloAdi,
   };
   if (ubiFiltro !== null) body.ubicaciones = ubiFiltro;
   // El progreso va en el modal (Pausar / Continuar / restantes); no tapar con spinner.

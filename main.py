@@ -174,6 +174,30 @@ def es_temprana_impresion_separada(destino, opl) -> bool:
     )
 
 
+def es_pieza_adicional_asignacion(r: dict, asignacion: Optional[dict] = None) -> bool:
+    """
+    Adicional para impresión = primera asignación del día desde el corte (15:30),
+    o media cargada por Excel de adicionales (origen local).
+    """
+    if str(r.get("origen") or "").strip().lower() == "adicional":
+        return True
+    if r.get("adicional") is True:
+        return True
+    info = _info_asignacion(r, asignacion) if asignacion is not None else {}
+    return bool(info.get("adicional"))
+
+
+def es_adicional_impresion_separada(r: dict, opl=None, asignacion: Optional[dict] = None) -> bool:
+    """
+    Van solo con el botón Adicionales (no en lote normal ni en Tempranas).
+    Si también es TEMP1 Transcarnes, gana Tempranas (no se duplica aquí).
+    """
+    opl_r = opl if opl is not None else r.get("opl")
+    if es_temprana_impresion_separada(r.get("destino_real"), opl_r):
+        return False
+    return es_pieza_adicional_asignacion(r, asignacion)
+
+
 def _orden_marcador_temp(m) -> int:
     """TEMP1 < TEMP2 < TEMP3 < TEMP (catálogo sin número) < sin marcador."""
     if not m:
@@ -3280,6 +3304,7 @@ def grupos_etiquetas_opl(fecha: str, turno: Optional[str], opls: List[str],
     todos = not sel or "TODOS" in sel
     excl = {str(x).upper() for x in (excluir or [])}
     impresas = apps_script_local.get_etiquetas_impresas(fecha)
+    asignacion = mapa_asignacion_dia(fecha)
     piezas = [
         r for r in obtener_piezas_programadas(fecha, turno)
         if todos or str(r.get("opl") or "").upper() in sel
@@ -3300,26 +3325,41 @@ def grupos_etiquetas_opl(fecha: str, turno: Optional[str], opls: List[str],
             grupos.append({
                 "clave": clave, "opl": opl, "cliente": cliente, "piezas": [],
                 "total": 0, "nuevas": 0, "tempranas": 0, "tempranas_nuevas": 0,
+                "adicionales": 0, "adicionales_nuevas": 0,
                 "puestos": [], "rieles": {},
             })
         g = grupos[-1]
         codigo = str(r.get("codigo_completo") or r.get("codigo") or "").strip().upper()
         ya = codigo in impresas
         es_temp = bool(marcador_destino_temp(r.get("destino_real"), opl))
+        info_asig = _info_asignacion(r, asignacion)
+        es_adi = es_pieza_adicional_asignacion(r, asignacion)
+        es_adi_imp = es_adicional_impresion_separada(r, opl, asignacion)
+        r["adicional"] = es_adi
+        r["hora_asignacion"] = info_asig.get("hora") or r.get("hora_asignacion") or ""
         g["total"] += 1
         g["nuevas"] += 0 if ya else 1
         if es_temp:
             g["tempranas"] += 1
             g["tempranas_nuevas"] += 0 if ya else 1
+        if es_adi_imp:
+            g["adicionales"] += 1
+            g["adicionales_nuevas"] += 0 if ya else 1
         rl = g["rieles"].setdefault(
             ubicacion_pieza(r),
-            {"total": 0, "nuevas": 0, "tempranas": 0, "tempranas_nuevas": 0},
+            {
+                "total": 0, "nuevas": 0, "tempranas": 0, "tempranas_nuevas": 0,
+                "adicionales": 0, "adicionales_nuevas": 0,
+            },
         )
         rl["total"] += 1
         rl["nuevas"] += 0 if ya else 1
         if es_temp:
             rl["tempranas"] += 1
             rl["tempranas_nuevas"] += 0 if ya else 1
+        if es_adi_imp:
+            rl["adicionales"] += 1
+            rl["adicionales_nuevas"] += 0 if ya else 1
         puesto = str(r.get("puesto") or "").strip()
         if puesto and puesto not in g["puestos"]:
             g["puestos"].append(puesto)
@@ -3345,16 +3385,20 @@ def get_etiquetas_opl(
     for g in grupos:
         o = por_opl.setdefault(g["opl"], {
             "opl": g["opl"], "total": 0, "nuevas": 0,
-            "tempranas": 0, "tempranas_nuevas": 0, "clientes": [],
+            "tempranas": 0, "tempranas_nuevas": 0,
+            "adicionales": 0, "adicionales_nuevas": 0, "clientes": [],
         })
         o["total"] += g["total"]
         o["nuevas"] += g["nuevas"]
         o["tempranas"] += g.get("tempranas", 0)
         o["tempranas_nuevas"] += g.get("tempranas_nuevas", 0)
+        o["adicionales"] += g.get("adicionales", 0)
+        o["adicionales_nuevas"] += g.get("adicionales_nuevas", 0)
         o["clientes"].append({
             k: g[k] for k in (
                 "clave", "cliente", "total", "nuevas",
-                "tempranas", "tempranas_nuevas", "puestos", "rieles",
+                "tempranas", "tempranas_nuevas",
+                "adicionales", "adicionales_nuevas", "puestos", "rieles",
             )
         })
     primera = next((g["piezas"][0] for g in grupos if g["piezas"]), None)
@@ -3370,11 +3414,14 @@ def get_etiquetas_opl(
         "success": True,
         "fecha": fecha_filtro,
         "turno": turno,
+        "corteAdicional": get_salida_adicional_corte_label(),
         "opls": list(por_opl.values()),
         "totalEtiquetas": sum(g["total"] for g in grupos),
         "totalNuevas": sum(g["nuevas"] for g in grupos),
         "totalTempranas": sum(g.get("tempranas", 0) for g in grupos),
         "totalTempranasNuevas": sum(g.get("tempranas_nuevas", 0) for g in grupos),
+        "totalAdicionales": sum(g.get("adicionales", 0) for g in grupos),
+        "totalAdicionalesNuevas": sum(g.get("adicionales_nuevas", 0) for g in grupos),
         "preview": datos_etiqueta_desde_pieza(primera, fecha_filtro) if primera else None,
         "previewSeparador": etiquetas.layout_separador({
             "opl": grupos[0]["opl"], "cliente": grupos[0]["cliente"],
@@ -3412,6 +3459,8 @@ class EtiquetasOplImprimirIn(BaseModel):
     ubicaciones: Optional[List[str]] = None
     # Igual que columna Temprana del Excel: destino TEMP1 / Temp 1 …
     solo_tempranas: bool = False
+    # Asignadas desde el corte (15:30): solo con botón Adicionales
+    solo_adicionales: bool = False
     solo_zpl: bool = False
 
 
@@ -3461,12 +3510,18 @@ def post_etiquetas_opl_imprimir(payload: EtiquetasOplImprimirIn):
     fecha_filtro = payload.fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, payload.turno)
     opls_req = list(payload.opls or [])
+    if payload.solo_tempranas and payload.solo_adicionales:
+        raise HTTPException(
+            status_code=400,
+            detail="Elige Tempranas o Adicionales, no ambos a la vez",
+        )
     if payload.solo_tempranas:
         # Solo TEMP1 del OPL Transcarnes (impresión separada)
         opls_req = [opl_tempranas_impresion()]
     grupos = [g for g in grupos_etiquetas_opl(
         fecha_filtro, turno, opls_req, payload.solo_nuevas, payload.excluir,
     ) if g["piezas"]]
+    asignacion = mapa_asignacion_dia(fecha_filtro)
     if payload.solo_tempranas:
         for g in grupos:
             g["piezas"] = [
@@ -3476,14 +3531,23 @@ def post_etiquetas_opl_imprimir(payload: EtiquetasOplImprimirIn):
                 )
             ]
         grupos = [g for g in grupos if g["piezas"]]
-    else:
-        # Lote normal: no incluir TEMP1 de Transcarnes (ya salen con botón Tempranas)
+    elif payload.solo_adicionales:
         for g in grupos:
             g["piezas"] = [
                 r for r in g["piezas"]
-                if not es_temprana_impresion_separada(
-                    r.get("destino_real"), g.get("opl") or r.get("opl"),
+                if es_adicional_impresion_separada(
+                    r, g.get("opl") or r.get("opl"), asignacion,
                 )
+            ]
+        grupos = [g for g in grupos if g["piezas"]]
+    else:
+        # Lote normal: sin TEMP1 Transcarnes ni adicionales ≥ corte (van por sus botones)
+        for g in grupos:
+            opl_g = g.get("opl")
+            g["piezas"] = [
+                r for r in g["piezas"]
+                if not es_temprana_impresion_separada(r.get("destino_real"), opl_g or r.get("opl"))
+                and not es_adicional_impresion_separada(r, opl_g or r.get("opl"), asignacion)
             ]
         grupos = [g for g in grupos if g["piezas"]]
     if payload.ubicaciones is not None:
@@ -3501,7 +3565,11 @@ def post_etiquetas_opl_imprimir(payload: EtiquetasOplImprimirIn):
             detail=(
                 "No hay tempranas TEMP1 de TRANSCARNES para imprimir"
                 if payload.solo_tempranas
-                else "No hay etiquetas para imprimir con esa selección o filtro (cava/riel)"
+                else (
+                    f"No hay adicionales (asignadas desde las {get_salida_adicional_corte_label()}) para imprimir"
+                    if payload.solo_adicionales
+                    else "No hay etiquetas para imprimir con esa selección o filtro (cava/riel)"
+                )
             ),
         )
     if total > MAX_ETIQUETAS_LOTE:
