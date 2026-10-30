@@ -600,15 +600,25 @@ def pasa_filtro_turno(log: dict, turno: Optional[str]) -> bool:
     return str(log.get("turno_ruta") or "").upper() == str(turno).upper()
 
 
-def enriquecer_logistica(rows: List[dict], fecha_filtro: str, turno: Optional[str], solo_despacho: bool = True) -> List[dict]:
-    """Aplica parseo de ruta + filtro de turno (calendario si la ruta no trae código)."""
+def enriquecer_logistica(
+    rows: List[dict],
+    fecha_filtro: str,
+    turno: Optional[str],
+    solo_despacho: bool = True,
+    filtrar_turno: bool = True,
+) -> List[dict]:
+    """
+    Aplica parseo de ruta. `filtrar_turno=False` en foto del día / Excel para
+    cuadrar con el progreso (que cuenta todas las programadas del día, sin
+    exigir que la ruta SIRT traiga el mismo código de turno).
+    """
     cal = turno or turno_de_fecha(fecha_filtro)
     out = []
     for r in rows:
         log = resolver_logistica_pieza(r, cal)
         if solo_despacho and not es_destino_despacho(log):
             continue
-        if not pasa_filtro_turno(log, turno):
+        if filtrar_turno and not pasa_filtro_turno(log, turno):
             continue
         r.update(log)
         # Destino visible = zona (Floridablanca), no la bandera "S"
@@ -1066,12 +1076,15 @@ def consultar_canales_planilla(
     Por defecto solo en cava; con incluir_despachadas=True también las ya
     pistoleadas (foto del día para planilla/Excel).
 
-    Foto del día: MISMO criterio que el progreso (/api/planilla_opl) —
-    último movimiento por fecha_ingreso. Abierto (fecha_salida NULL) = En cava;
-    cerrado = Despachado. Ventana de salidas desde fecha-2 (turno cruza medianoche).
+    Foto del día: MISMO universo que el progreso (/api/planilla_opl y
+    asignadas_dia) — programadas del día sin stock de planta, último
+    movimiento por fecha_ingreso. Abierto (fecha_salida NULL) = En cava;
+    cerrado = Despachado. Sin filtrar por código de turno en la ruta SIRT
+    (el progreso tampoco lo filtra).
     """
+    # Progreso usa PROGRAMADO_DESPACHO (excluye CAVA/PLANTA/COLBEEF).
+    exists_sql = SQL_EXISTS_PROGRAMADO_DESPACHO if incluir_despachadas else SQL_EXISTS_PROGRAMADO
     if incluir_despachadas:
-        # Igual que planilla_opl / consultar_asignadas_dia (último movimiento).
         filtro_mov = """
             WHERE (
                     mov.fecha_salida IS NULL
@@ -1085,7 +1098,7 @@ def consultar_canales_planilla(
                 mov.fecha_ingreso DESC NULLS LAST,
                 mov.id DESC
         """
-        # IDS + EXISTS fecha + 1 filtro_mov + JOINS fecha
+        # IDS + EXISTS fecha + filtro_mov fecha + JOINS fecha
         params = (IDS_CANAL, fecha_filtro, fecha_filtro, fecha_filtro)
     else:
         filtro_mov = "WHERE mov.fecha_salida IS NULL"
@@ -1104,7 +1117,7 @@ def consultar_canales_planilla(
             SELECT pp.*
             FROM trazabilidad_proceso.parte_producto pp
             WHERE pp.id_tipo_parte_producto IN %s
-              {SQL_EXISTS_PROGRAMADO}
+              {exists_sql}
         ),
         actuales AS MATERIALIZED (
             SELECT DISTINCT ON (pp.id_producto, pp.id)
@@ -1139,7 +1152,16 @@ def consultar_canales_planilla(
         ORDER BY pp.id_producto, pp.id, e3.nombre NULLS LAST, c.orden NULLS LAST, r.nombre
     """
     rows = safe_query(sql, params, "planilla_puntos")
-    data = enriquecer_logistica(serializable(rows), fecha_filtro, turno, solo_despacho=True)
+    # Foto del día: mismo universo que progreso (EXISTS_DESPACHO ya excluyó
+    # stock de planta). No filtrar otra vez por zona/turno de ruta.
+    # Solo en cava (impresión/etiquetas): sí aplicar filtros operativos.
+    data = enriquecer_logistica(
+        serializable(rows),
+        fecha_filtro,
+        turno,
+        solo_despacho=not incluir_despachadas,
+        filtrar_turno=not incluir_despachadas,
+    )
     for r in data:
         enriquecer_codigo(r)
         r["opl"] = resolver_opl_de_propietario(r.get("propietario") or "")
@@ -1166,7 +1188,7 @@ def obtener_piezas_programadas(
     incluir_despachadas=False → solo en cava (despachos / reetiquetado).
     incluir_despachadas=True → foto del día (planilla / Excel con Estado).
     """
-    ck = ("programados", fecha_filtro, turno, "v6_igual_progreso", bool(incluir_despachadas))
+    ck = ("programados", fecha_filtro, turno, "v7_igual_progreso", bool(incluir_despachadas))
     hit = cache_get(ck)
     if hit is not None:
         return hit
@@ -1663,18 +1685,31 @@ def _escribir_hoja_excel_opl(
     n_temp = sum(tempranas)
     n_cava = sum(1 for e in estados if e == "En cava")
     n_desp = sum(1 for e in estados if e == "Despachado")
+    n_tot = len(filas)
+    can_cava = round(n_cava * 0.5, 2)
+    can_desp = round(n_desp * 0.5, 2)
+    can_tot = round(n_tot * 0.5, 2)
+    pct = round((n_desp / n_tot) * 100) if n_tot else 0
+    if n_cava > 0:
+        pct = min(99, pct)
+    elif n_tot > 0:
+        pct = 100
     turno_txt = turno or "Todos"
     ws.merge_cells(f"A2:{ultima}2")
     ws["A2"] = (
-        f"Medias del día · {fecha} · turno {turno_txt} · {len(filas)} registros"
-        f" · En cava: {n_cava} · Despachado: {n_desp}"
-        f" · Tempranas TEMP1: {n_temp} medias ({_fmt_canales(n_temp * 0.5)} canales)"
-        f" · {n_adi} adicionales · Filtra columna Estado = «En cava» para ver lo pendiente"
-        f" · Fila roja = temprana · Fila azul = adicional · Fila gris = despachada"
+        f"Foto del día (= progreso) · {fecha} · ref. turno {turno_txt}"
+        f" · {n_tot} medias ({_fmt_canales(can_tot)} canales)"
+        f" · En cava: {n_cava} medias / {_fmt_canales(can_cava)} c."
+        f" · Despachado: {n_desp} medias / {_fmt_canales(can_desp)} c."
+        f" · Progreso {pct}%"
+        f" · TEMP1: {n_temp} · Adic.: {n_adi}"
+        f" · Filtra Estado = «En cava» para pendientes"
+        f" · Rojo=temprana · Azul=adicional · Gris=despachada"
     )
     ws["A2"].font = Font(name="Calibri", size=10, italic=True, color="374151")
-    ws["A2"].alignment = Alignment(horizontal="center")
-    ws.row_dimensions[2].height = 18
+    ws["A2"].alignment = Alignment(horizontal="center", wrap_text=True)
+    ws.row_dimensions[2].height = 28
+
 
     for i, (h, ancho, _) in enumerate(columnas, 1):
         cell = ws.cell(3, i, h)
@@ -2679,7 +2714,7 @@ def get_planilla_puntos(
     if es_refresh(refresh):
         cache_invalidate_fecha(fecha_filtro)
     opl_key = (opl or "").strip() or "TODOS"
-    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v8_igual_progreso")
+    ck = ("planilla_puntos", fecha_filtro, turno, opl_key, "v9_igual_progreso")
     hit = cache_get(ck)
     if hit is not None:
         return hit
@@ -2711,12 +2746,15 @@ def excel_planilla_puntos(
     opl: str,
     fecha: Optional[str] = None,
     turno: Optional[str] = None,
+    refresh: Optional[str] = None,
 ):
     opl = (opl or "").strip()
     if not opl:
         raise HTTPException(status_code=400, detail="Indica el OPL")
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
+    # Siempre datos vivos al descargar (igual que progreso)
+    cache_invalidate_fecha(fecha_filtro)
     items = [
         r for r in obtener_piezas_programadas(fecha_filtro, turno, incluir_despachadas=True)
         if (r.get("opl") or "") == opl
@@ -2761,8 +2799,8 @@ def excel_planilla_particulares(
     """
     fecha_filtro = fecha or date.today().isoformat()
     turno = resolver_turno(fecha_filtro, turno)
-    if es_refresh(refresh):
-        cache_invalidate_fecha(fecha_filtro)
+    # Siempre refrescar: el Excel debe cuadrar con el progreso del momento
+    cache_invalidate_fecha(fecha_filtro)
 
     origen = None
     if opls:

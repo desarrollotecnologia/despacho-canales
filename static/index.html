@@ -3439,7 +3439,7 @@ function descargarExcelOpl(opl) {
   if (window.ColbeefUsage) ColbeefUsage.track('excel_download', 'planilla', 'Excel OPL '+opl);
   const fecha = getFecha();
   const a = document.createElement('a');
-  a.href = API(`/planilla_puntos/excel?opl=${encodeURIComponent(opl)}&fecha=${fecha}&${planillaTurnoQ()}`);
+  a.href = API(`/planilla_puntos/excel?opl=${encodeURIComponent(opl)}&fecha=${fecha}&${planillaTurnoQ()}&refresh=1`);
   a.download = '';
   document.body.appendChild(a);
   a.click();
