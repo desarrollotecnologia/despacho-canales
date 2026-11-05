@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
+from urllib.parse import unquote, urlparse
 
 from dotenv import load_dotenv
 
@@ -36,31 +38,71 @@ _LOCK = threading.Lock()
 _READY = False
 _READY_LOCK = threading.Lock()
 _OPL_MAP_CACHE: Optional[Dict[str, str]] = None
+_MYSQL_CFG: Optional[Dict[str, Any]] = None
+_ENGINE = "sqlite"
 
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def resolve_db_path() -> Path:
-    """GESTOR_DB_URL: sqlite:///ruta o ruta de archivo. Default: local_data/gestor_canales.db."""
+def _parse_gestor_url() -> Dict[str, Any]:
     url = (os.getenv("GESTOR_DB_URL") or "").strip()
     if not url:
-        return DEFAULT_DB_PATH
+        return {"engine": "sqlite", "path": DEFAULT_DB_PATH}
     lower = url.lower()
+    if lower.startswith("mysql://") or lower.startswith("mysql+pymysql://"):
+        parsed = urlparse(url)
+        dbname = (parsed.path or "").lstrip("/")
+        if not dbname:
+            raise RuntimeError("GESTOR_DB_URL MySQL debe incluir la base, p.ej. mysql://user:pass@127.0.0.1:3306/gestor_canales")
+        return {
+            "engine": "mysql",
+            "host": parsed.hostname or "127.0.0.1",
+            "port": parsed.port or 3306,
+            "user": unquote(parsed.username or "root"),
+            "password": unquote(parsed.password or ""),
+            "database": dbname,
+        }
     if lower.startswith("postgresql://") or lower.startswith("postgres://"):
         raise RuntimeError(
             "GESTOR_DB_URL PostgreSQL aún no está habilitado. "
-            "Use sqlite:///local_data/gestor_canales.db (default)."
+            "Use mysql://.../gestor_canales o sqlite:///local_data/gestor_canales.db"
         )
     if lower.startswith("sqlite:////"):
-        # sqlite:////C:/abs  o sqlite:////abs
-        return Path(url[len("sqlite:////") :])
+        return {"engine": "sqlite", "path": Path(url[len("sqlite:////") :])}
     if lower.startswith("sqlite:///"):
         raw = url[len("sqlite:///") :]
         p = Path(raw)
-        return p if p.is_absolute() else ROOT / p
-    return Path(url)
+        return {"engine": "sqlite", "path": p if p.is_absolute() else ROOT / p}
+    return {"engine": "sqlite", "path": Path(url)}
+
+
+def _cfg() -> Dict[str, Any]:
+    global _MYSQL_CFG, _ENGINE
+    if _MYSQL_CFG is None:
+        _MYSQL_CFG = _parse_gestor_url()
+        _ENGINE = str(_MYSQL_CFG.get("engine") or "sqlite")
+    return _MYSQL_CFG
+
+
+def engine_name() -> str:
+    return str(_cfg().get("engine") or "sqlite")
+
+
+def resolve_db_path() -> Path:
+    """Ruta SQLite (si aplica). Con MySQL no se usa archivo."""
+    cfg = _cfg()
+    if cfg.get("engine") == "mysql":
+        return DEFAULT_DB_PATH
+    return Path(cfg["path"])
+
+
+def db_label() -> str:
+    cfg = _cfg()
+    if cfg.get("engine") == "mysql":
+        return f"mysql://{cfg['user']}@{cfg['host']}:{cfg['port']}/{cfg['database']}"
+    return str(cfg["path"])
 
 
 def db_path() -> Path:
@@ -141,8 +183,147 @@ CREATE INDEX IF NOT EXISTS idx_override_pieza_fecha_codigo
     ON override_pieza(fecha, codigo);
 """
 
+MYSQL_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS schema_meta (
+    clave VARCHAR(191) PRIMARY KEY,
+    valor TEXT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-def _connect() -> sqlite3.Connection:
+CREATE TABLE IF NOT EXISTS opl_propietario (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    propietario VARCHAR(191) NOT NULL UNIQUE,
+    opl VARCHAR(191) NOT NULL,
+    extra INT NOT NULL DEFAULT 0,
+    updated_at VARCHAR(32) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS opl_particular (
+    opl VARCHAR(191) PRIMARY KEY,
+    orden INT NOT NULL,
+    created_at VARCHAR(32) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS asignado_congelado (
+    fecha VARCHAR(16) NOT NULL,
+    turno VARCHAR(32) NOT NULL,
+    payload LONGTEXT NOT NULL,
+    updated_at VARCHAR(32) NOT NULL,
+    PRIMARY KEY (fecha, turno)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS etiqueta_impresa (
+    fecha VARCHAR(16) NOT NULL,
+    codigo VARCHAR(64) NOT NULL,
+    impresa_en VARCHAR(64) NOT NULL,
+    PRIMARY KEY (fecha, codigo),
+    INDEX idx_etiqueta_impresa_fecha (fecha)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS app_setting (
+    clave VARCHAR(191) PRIMARY KEY,
+    valor TEXT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS adicionales_dia (
+    fecha VARCHAR(16) PRIMARY KEY,
+    payload LONGTEXT NOT NULL,
+    updated_at VARCHAR(32) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS opl_progreso_snapshot (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    guardado_en VARCHAR(32) NOT NULL,
+    payload LONGTEXT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS historico_operacion (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    fecha VARCHAR(64),
+    payload LONGTEXT NOT NULL,
+    created_at VARCHAR(32) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS override_pieza (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    fecha VARCHAR(16) NOT NULL,
+    codigo VARCHAR(64) NOT NULL,
+    campo VARCHAR(64) NOT NULL,
+    valor TEXT,
+    usuario VARCHAR(128),
+    motivo TEXT,
+    created_at VARCHAR(32) NOT NULL,
+    INDEX idx_override_pieza_fecha_codigo (fecha, codigo)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+"""
+
+
+_CONFLICT_OPL = re.compile(
+    r"ON CONFLICT\(propietario\) DO UPDATE SET\s+opl=excluded\.opl,\s+updated_at=excluded\.updated_at",
+    re.I | re.S,
+)
+
+
+def _to_mysql_sql(sql: str) -> str:
+    s = _CONFLICT_OPL.sub(
+        "ON DUPLICATE KEY UPDATE opl=VALUES(opl), updated_at=VALUES(updated_at)",
+        sql,
+    )
+    s = s.replace("INSERT OR IGNORE INTO", "INSERT IGNORE INTO")
+    s = s.replace("INSERT OR REPLACE INTO", "REPLACE INTO")
+    s = s.replace("?", "%s")
+    return s
+
+
+class _Row(dict):
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+
+class _MysqlCursor:
+    def __init__(self, cur):
+        self._cur = cur
+        self.lastrowid = getattr(cur, "lastrowid", None)
+        self.rowcount = getattr(cur, "rowcount", -1)
+
+    def fetchone(self):
+        row = self._cur.fetchone()
+        return _Row(row) if row is not None else None
+
+    def fetchall(self):
+        return [_Row(r) for r in (self._cur.fetchall() or [])]
+
+
+class _MysqlConn:
+    def __init__(self, raw):
+        self._raw = raw
+        self._cur = raw.cursor()
+
+    def execute(self, sql, params=()):
+        self._cur.execute(_to_mysql_sql(sql), tuple(params) if params is not None else ())
+        return _MysqlCursor(self._cur)
+
+    def executescript(self, script: str) -> None:
+        for stmt in script.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                self._cur.execute(stmt)
+
+    def commit(self):
+        self._raw.commit()
+
+    def rollback(self):
+        self._raw.rollback()
+
+    def close(self):
+        try:
+            self._cur.close()
+        finally:
+            self._raw.close()
+
+
+def _connect_sqlite() -> sqlite3.Connection:
     path = resolve_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=8, check_same_thread=False)
@@ -152,6 +333,33 @@ def _connect() -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
+
+
+def _connect_mysql() -> _MysqlConn:
+    import pymysql
+    from pymysql.cursors import DictCursor
+
+    cfg = _cfg()
+    raw = pymysql.connect(
+        host=cfg["host"],
+        port=int(cfg["port"]),
+        user=cfg["user"],
+        password=cfg["password"],
+        database=cfg["database"],
+        charset="utf8mb4",
+        cursorclass=DictCursor,
+        autocommit=False,
+        connect_timeout=8,
+        read_timeout=30,
+        write_timeout=30,
+    )
+    return _MysqlConn(raw)
+
+
+def _connect():
+    if engine_name() == "mysql":
+        return _connect_mysql()
+    return _connect_sqlite()
 
 
 @contextmanager
@@ -168,18 +376,21 @@ def get_conn():
         conn.close()
 
 
-def init_schema() -> Path:
+def init_schema() -> str:
     with get_conn() as conn:
-        conn.executescript(SCHEMA_SQL)
+        if engine_name() == "mysql":
+            conn.executescript(MYSQL_SCHEMA_SQL)
+        else:
+            conn.executescript(SCHEMA_SQL)
         conn.execute(
             "INSERT OR REPLACE INTO schema_meta(clave, valor) VALUES (?, ?)",
             ("schema_version", SCHEMA_VERSION),
         )
-    return resolve_db_path()
+    return db_label()
 
 
-def _count(conn: sqlite3.Connection, table: str) -> int:
-    return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+def _count(conn: Any, table: str) -> int:
+    return int(conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()[0])
 
 
 def is_operationally_empty() -> bool:
@@ -211,7 +422,7 @@ def _json_loads(raw: Any, default: Any) -> Any:
         return default
 
 
-def _seed_opl_defaults(conn: sqlite3.Connection, defaults: Sequence[Sequence[Any]]) -> None:
+def _seed_opl_defaults(conn: Any, defaults: Sequence[Sequence[Any]]) -> None:
     now = _now()
     for row in defaults:
         if not row:
@@ -219,7 +430,7 @@ def _seed_opl_defaults(conn: sqlite3.Connection, defaults: Sequence[Sequence[Any
         prop = str(row[0] or "").strip().upper()
         opl = str(row[1] if len(row) > 1 else "").strip()
         extra = 1 if (len(row) > 2 and row[2]) else 0
-        if not prop:
+        if not prop or "\t" in prop or len(prop) > 120:
             continue
         conn.execute(
             """
@@ -242,7 +453,7 @@ def import_state_dict(data: Dict[str, Any], opl_defaults: Sequence[Sequence[Any]
             prop = str(row[0] or "").strip().upper()
             opl = str(row[1] if len(row) > 1 else "").strip()
             extra = 1 if (len(row) > 2 and row[2]) else 0
-            if not prop:
+            if not prop or "\t" in prop or len(prop) > 120:
                 continue
             conn.execute(
                 """
@@ -367,7 +578,7 @@ def migrate_from_json(
     init_schema()
     src = Path(json_path) if json_path else DATA_DIR / STATE_JSON_NAME
     out: Dict[str, Any] = {
-        "db": str(resolve_db_path()),
+        "db": db_label(),
         "json": str(src),
         "imported": False,
         "backup": None,
@@ -409,13 +620,110 @@ def migrate_from_json(
     return out
 
 
+def export_state_from_sqlite(path: Optional[Path] = None) -> Dict[str, Any]:
+    """Lee el SQLite local (backup) sin usar GESTOR_DB_URL."""
+    src = Path(path) if path else DEFAULT_DB_PATH
+    if not src.exists():
+        raise FileNotFoundError(str(src))
+    con = sqlite3.connect(str(src), timeout=8)
+    con.row_factory = sqlite3.Row
+    try:
+        def rows(sql: str):
+            return con.execute(sql).fetchall()
+
+        opl = [[r["propietario"], r["opl"], r["extra"]] for r in rows(
+            "SELECT propietario, opl, extra FROM opl_propietario ORDER BY id"
+        )]
+        particulares = [r["opl"] for r in rows("SELECT opl FROM opl_particular ORDER BY orden, opl")]
+        bag = {}
+        for r in rows("SELECT fecha, turno, payload FROM asignado_congelado"):
+            bag[f"{r['fecha']}|{r['turno']}"] = _json_loads(r["payload"], {})
+        etiq: Dict[str, Dict[str, str]] = {}
+        for r in rows("SELECT fecha, codigo, impresa_en FROM etiqueta_impresa"):
+            etiq.setdefault(r["fecha"], {})[r["codigo"]] = r["impresa_en"]
+        settings = {r["clave"]: r["valor"] for r in rows("SELECT clave, valor FROM app_setting")}
+        adic = {}
+        for r in rows("SELECT fecha, payload FROM adicionales_dia"):
+            data = _json_loads(r["payload"], [])
+            adic[r["fecha"]] = data if isinstance(data, list) else []
+        prog_row = con.execute(
+            "SELECT payload FROM opl_progreso_snapshot ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        progreso = _json_loads(prog_row["payload"] if prog_row else None, [])
+        if not isinstance(progreso, list):
+            progreso = []
+        historico = []
+        for r in rows("SELECT payload FROM historico_operacion ORDER BY id"):
+            item = _json_loads(r["payload"], None)
+            if item is not None:
+                historico.append(item)
+        cols = settings.get("etiquetas_rollo_columnas", "4")
+        try:
+            cols_int = int(cols)
+        except (TypeError, ValueError):
+            cols_int = 4
+        return {
+            "opl_config": opl,
+            "opl_progreso": progreso,
+            "historico": historico,
+            "operacion_finalizada": settings.get("operacion_finalizada", "0") == "1",
+            "asignado_congelado": bag,
+            "opls_particulares": particulares,
+            "adicionales_por_fecha": adic,
+            "etiquetas_impresas": etiq,
+            "etiquetas_rollo_columnas": 2 if cols_int == 2 else 4,
+        }
+    finally:
+        con.close()
+
+
+def migrate_from_sqlite(
+    sqlite_path: Optional[Path] = None,
+    opl_defaults: Sequence[Sequence[Any]] = (),
+) -> Dict[str, Any]:
+    """Copia SQLite → motor actual (MySQL) si el destino está vacío."""
+    init_schema()
+    src = Path(sqlite_path) if sqlite_path else DEFAULT_DB_PATH
+    out: Dict[str, Any] = {
+        "db": db_label(),
+        "sqlite": str(src),
+        "imported": False,
+        "reason": "",
+    }
+    if engine_name() != "mysql":
+        out["reason"] = "destino_no_es_mysql"
+        return out
+    if not is_operationally_empty():
+        out["reason"] = "bd_ya_tiene_datos"
+        return out
+    if not src.exists():
+        out["reason"] = "sin_sqlite"
+        return out
+    data = export_state_from_sqlite(src)
+    import_state_dict(data, opl_defaults=())
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_meta(clave, valor) VALUES (?, ?)",
+            ("sqlite_migrated_at", _now()),
+        )
+    out["imported"] = True
+    out["reason"] = "ok"
+    return out
+
+
 def ensure_ready(opl_defaults: Sequence[Sequence[Any]] = ()) -> Dict[str, Any]:
     global _READY
     with _READY_LOCK:
         if _READY:
             return {"ready": True, "skipped": True}
         init_schema()
-        info = migrate_from_json(opl_defaults=opl_defaults, backup=True)
+        info: Dict[str, Any] = {"db": db_label(), "engine": engine_name()}
+        if engine_name() == "mysql" and is_operationally_empty():
+            info["sqlite"] = migrate_from_sqlite(opl_defaults=opl_defaults)
+        if is_operationally_empty():
+            info["json"] = migrate_from_json(opl_defaults=opl_defaults, backup=True)
+        else:
+            info.setdefault("json", {"imported": False, "reason": "bd_ya_tiene_datos"})
         if opl_defaults:
             with get_conn() as conn:
                 if _count(conn, "opl_propietario") == 0:
@@ -880,7 +1188,8 @@ def stats() -> Dict[str, Any]:
             "SELECT valor FROM schema_meta WHERE clave=?", ("json_migrated_at",)
         ).fetchone()
     return {
-        "db": str(resolve_db_path()),
+        "db": db_label(),
+        "engine": engine_name(),
         "json_migrated_at": migrated["valor"] if migrated else None,
         "counts": counts,
     }

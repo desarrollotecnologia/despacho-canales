@@ -1,28 +1,34 @@
 # BD propia del gestor
 
 SIRT (PostgreSQL) es **solo consulta**: canales, cavas, salidas y programación.
-Esta BD guarda la **capa operativa** del gestor (lo que antes estaba en `canales_state.json`).
+Esta BD guarda la **capa operativa** del gestor (lo que antes estaba en JSON / SQLite).
 
 Foto del día = consulta SIRT + overrides de esta BD (`override_pieza`).
 Los overrides están preparados y **aún no se aplican** en las consultas.
 
-## Dónde está
+## Dónde está (este servidor)
 
-Por defecto: `local_data/gestor_canales.db` (SQLite, un archivo, sin servicio extra).
+MySQL 8 local, base **`gestor_canales`** (no mezclar con SIRT ni con `colbeef_gestor` de Vísceras).
 
-Variable de entorno:
+En MySQL Workbench: conexión `root` @ `127.0.0.1:3306` → schema `gestor_canales`.
+
+Variable de entorno (en `.env`, no se sube a git):
+
+```env
+GESTOR_DB_URL=mysql://USER:PASSWORD@127.0.0.1:3306/gestor_canales
+```
+
+Si no hay MySQL, se puede usar SQLite:
 
 ```env
 GESTOR_DB_URL=sqlite:///local_data/gestor_canales.db
 ```
 
-PostgreSQL (`postgresql://...`) queda documentado para una migración futura; hoy el motor activo es SQLite.
-
 ## Arranque
 
-Al importar `apps_script_local` se crea el schema y, si existe `local_data/canales_state.json` y la BD está vacía, se importa todo en una transacción y el JSON se renombra a `canales_state.json.bak`.
+Al importar `apps_script_local` se crea el schema. Si MySQL está vacío y existe `local_data/gestor_canales.db`, copia SQLite → MySQL. Si tampoco hay SQLite y existe el JSON, lo importa y lo renombra a `.bak`.
 
-También se puede forzar a mano (con el servidor detenido):
+A mano (servidor detenido):
 
 ```bat
 venv\Scripts\python.exe migrate_json_to_db.py
@@ -32,9 +38,10 @@ Luego `restart.bat`.
 
 ## Backup
 
-- Tras migrar: `local_data/canales_state.json.bak`
-- La BD SQLite: copiar `local_data/gestor_canales.db` (y si existen, `-wal` / `-shm`)
-- `local_data/` no se sube a git
+- SQLite anterior: `local_data/gestor_canales.db`
+- JSON: `local_data/canales_state.json.bak`
+- MySQL: dump de `gestor_canales` (Workbench o `mysqldump gestor_canales`)
+- `local_data/` y `.env` no se suben a git
 
 ## Qué persiste aquí (no en SIRT)
 
@@ -49,9 +56,5 @@ Luego `restart.bat`.
 | Progreso OPL | `opl_progreso_snapshot` |
 | Histórico de cierres | `historico_operacion` |
 | Overrides futuros sobre SIRT | `override_pieza` |
-
-## Concurrencia
-
-SQLite con WAL, `busy_timeout=8000` y lock de proceso. Escrituras en transacción.
 
 No se escribe en tablas SIRT (`trazabilidad_proceso`, `organizaciones`, etc.).

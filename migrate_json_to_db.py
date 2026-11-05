@@ -1,11 +1,13 @@
 """
-Migra local_data/canales_state.json a la BD propia del gestor (SQLite).
+Migra el estado operativo a la BD propia del gestor (MySQL o SQLite).
+
+Orden: si GESTOR_DB_URL es MySQL y está vacía, copia local_data/gestor_canales.db;
+si sigue vacía, importa canales_state.json.
 
 Uso (con el venv del proyecto):
     venv\\Scripts\\python.exe migrate_json_to_db.py
 
 Idempotente: si la BD ya tiene datos, no vuelve a importar.
-Tras un import exitoso el JSON se renombra a canales_state.json.bak.
 """
 from __future__ import annotations
 
@@ -24,6 +26,7 @@ import db_gestor  # noqa: E402
 def main() -> int:
     info = db_gestor.ensure_ready(opl_defaults=apps_script_local.OPL_EXCEPCIONES_DEFAULT)
     st = db_gestor.stats()
+    print("Motor:", st.get("engine"))
     print("BD:", st["db"])
     print("Migración:", json.dumps(info, ensure_ascii=False, indent=2))
     print("Conteos:", json.dumps(st["counts"], ensure_ascii=False, indent=2))

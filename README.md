@@ -48,12 +48,12 @@ POSTGRES_PASSWORD=...
 POSTGRES_PORT=5432
 APP_HOST=0.0.0.0
 APP_PORT=8012
-GESTOR_DB_URL=sqlite:///local_data/gestor_canales.db
+GESTOR_DB_URL=mysql://USER:PASSWORD@127.0.0.1:3306/gestor_canales
 ```
 
 ## Base de datos propia del gestor
 
-SIRT se consulta igual (canales, cavas, salidas). Lo operativo (OPLs, etiquetas impresas, meta congelada, particulares, rollo 2/4) vive en SQLite `local_data/gestor_canales.db`, no en JSON.
+SIRT se consulta igual (canales, cavas, salidas). Lo operativo (OPLs, etiquetas impresas, meta congelada, particulares, rollo 2/4) vive en MySQL local, base `gestor_canales` (Workbench: `127.0.0.1` → schema `gestor_canales`).
 
 Detalle, migración y backup: `docs/BD_GESTOR.md`.
 
