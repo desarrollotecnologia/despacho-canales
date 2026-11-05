@@ -3,10 +3,11 @@ Reetiquetado de media canal — Zebra ZT231 203 dpi (ZPL).
 
 Misma tira que la etiqueta original de SIRT: 2.5 × 26.35 cm = 197 × 2106 dots,
 sale a lo largo (el texto va rotado 90° para leerse a lo largo de la tira).
-Bloques, de izquierda a derecha como en la original:
+Bloques, de izquierda a derecha, centrados en la tira (margen en los cantos
+y corte antes del logo preimpreso, para que no se recorten al imprimir):
   · Bloque 1: puesto + turno, código de barras, código del animal y tipo de media.
   · (espacio del QR: vacío, el reetiquetado no lleva QR)
-  · Bloque 3: código de barras, cuarto + CAM1/CAM2, ubicación, zona y fecha de despacho.
+  · Bloque 3: cuarto + CAM1/CAM2, ubicación, zona y fecha de despacho.
   · Bloque 4: cliente, puesto, turno, OPL, destino, dirección, especie.
   · (espacio del logo: vacío, el logo viene preimpreso en el rollo)
 
@@ -146,56 +147,165 @@ def _fecha_dmy(iso: str) -> str:
     return f"{m.group(3)}-{m.group(2)}-{m.group(1)}" if m else ""
 
 
+# Área útil de la tira: el logo preimpreso empieza ~1670 y los bordes
+# largos de la manilla recortan lo que queda a menos de ~2.5 mm del canto.
+LOGO_X = 1600
+MARGEN_LARGO = 80
+MARGEN_ANCHO = 22
+GAP_BLOQUES = 36
+
+
+def _dots_texto(texto: str, w: int) -> int:
+    return len(texto) * max(1, int(w))
+
+
+def _dots_barras(texto: str, modulo: int) -> int:
+    # Code 128: inicio + datos + checksum + stop ≈ 11*n + 35 módulos.
+    return (11 * max(len(texto), 1) + 35) * max(1, int(modulo))
+
+
+def _ancho_elemento(e: dict) -> int:
+    x = int(e.get("x_rel") or 0)
+    if e["tipo"] == "barras":
+        return x + _dots_barras(e["texto"], e.get("modulo") or 2)
+    if e["tipo"] == "linea":
+        return x + int(e.get("largo") or 0)
+    return x + _dots_texto(e["texto"], int(e.get("w") or e["h"]))
+
+
+def _centrar_en_ancho(elementos: list, margen: int = MARGEN_ANCHO) -> None:
+    """Deja el mismo margen arriba y abajo de la tira para que no se corte el canto."""
+    if not elementos:
+        return
+    top = min(e["y"] for e in elementos)
+    bot = max(e["y"] + int(e["h"]) for e in elementos)
+    alto = bot - top
+    libre = ANCHO_DOTS - 2 * margen
+    y0 = margen + max(0, (libre - alto) // 2)
+    dy = y0 - top
+    for e in elementos:
+        e["y"] += dy
+
+
+def _centrar_en_largo(grupos: list) -> list:
+    """Centra los bloques entre el inicio de la tira y el logo preimpreso."""
+    presentes = [g for g in grupos if g]
+    if not presentes:
+        return []
+    anchos = [max(_ancho_elemento(e) for e in g) for g in presentes]
+    total = sum(anchos) + GAP_BLOQUES * (len(presentes) - 1)
+    zona = LOGO_X - MARGEN_LARGO
+    x = MARGEN_LARGO + max(0, (zona - total) // 2)
+    out = []
+    for grupo, ancho in zip(presentes, anchos):
+        for e in grupo:
+            e["x"] = x + int(e.pop("x_rel", 0))
+            out.append(e)
+        x += ancho + GAP_BLOQUES
+    return out
+
+
 def layout_etiqueta(et: dict) -> list:
-    """Elementos de la tira en coordenadas a lo largo: x (largo), y (ancho), h (alto)."""
+    """Elementos de la tira en coordenadas a lo largo: x (largo), y (ancho), h (alto).
+
+    El bloque queda centrado en la manilla (margen arriba/abajo) y termina
+    antes del logo, para que la Zebra no recorte los cantos ni lo imprima encima.
+    """
     codigo = _zpl_txt(et.get("codigo_barras"))
-    # El logo preimpreso empieza hacia el dot 1670 del largo y cada tira útil
-    # mide ~185 dots de ancho: todo va entre y=6 y y=172 y termina antes de x≈1600.
-    # Solo un código de barras (bloque 1). Bloque 3/4 corridos a la derecha hacia el logo.
-    # b1 más cerca de b3 (ubicación) para reducir el hueco entre barras y Ubicacion.
-    b1, b3, b4 = 520, 920, 1340
-    c4 = 40
-    elementos = [
-        # Bloque 1 — puesto + único código de barras + animal
-        {"tipo": "texto", "x": b1, "y": 4, "h": 48, "w": 64, "texto": _corto(et.get("puesto_turno") or "SIN PUESTO", 22)},
-        {"tipo": "barras", "x": b1, "y": 56, "h": 46, "modulo": 2, "texto": codigo},
-        {"tipo": "texto", "x": b1, "y": 106, "h": 46, "w": 60, "texto": _zpl_txt(et.get("codigo_animal"))},
-        {"tipo": "texto", "x": b1, "y": 156, "h": 16, "texto": _zpl_txt(et.get("tipo"))},
-        # Bloque 3 — CAM más chico; Ubicación (cava/riel) más grande para leer rápido
-        {"tipo": "texto", "x": b3, "y": 8, "h": 24, "texto": _zpl_txt(et.get("cuarto"))},
-        {"tipo": "texto", "x": b3 + 300, "y": 6, "h": 28, "texto": _zpl_txt(et.get("cam"))},
-        {"tipo": "texto", "x": b3, "y": 42, "h": 42, "w": 54, "texto": f"Ubicacion: {_zpl_txt(et.get('ubicacion')) or '-'}"},
-        {"tipo": "texto", "x": b3, "y": 98, "h": 24, "texto": f"Zona: {_corto(et.get('zona') or '-', 26)}"},
-        {"tipo": "texto", "x": b3, "y": 134, "h": 22, "texto": f"Despacho: {_fecha_dmy(et.get('fecha_programacion')) or '-'}"},
-        # Bloque 4 — más cerca del logo
-        {"tipo": "texto", "x": b4, "y": 6, "h": 17, "texto": _corto(f"Cliente {et.get('cliente') or '-'}", c4)},
-        {"tipo": "texto", "x": b4, "y": 29, "h": 17, "texto": _corto(f"Puesto {et.get('puesto') or '-'}", c4)},
-        {"tipo": "texto", "x": b4, "y": 52, "h": 17, "texto": _corto(f"Turno {et.get('turno') or '-'}", c4)},
-        {"tipo": "texto", "x": b4, "y": 75, "h": 17, "texto": _corto(f"OPL {et.get('opl') or '-'}", c4)},
-        {"tipo": "texto", "x": b4, "y": 98, "h": 17, "texto": _corto(f"Destino {et.get('destino') or '-'}", c4)},
-        {"tipo": "texto", "x": b4, "y": 121, "h": 17, "texto": _corto(et.get("direccion") or "", c4)},
-        {"tipo": "texto", "x": b4, "y": 144, "h": 17, "texto": "Especie Bovino"},
+    puesto = _corto(et.get("puesto_turno") or "SIN PUESTO", 16)
+    animal = _zpl_txt(et.get("codigo_animal"))
+    tipo = _zpl_txt(et.get("tipo"))
+    cuarto = _zpl_txt(et.get("cuarto"))
+    cam = _zpl_txt(et.get("cam"))
+    ubi = f"Ubicacion: {_zpl_txt(et.get('ubicacion')) or '-'}"
+    zona = f"Zona: {_corto(et.get('zona') or '-', 18)}"
+    desp = f"Despacho: {_fecha_dmy(et.get('fecha_programacion')) or '-'}"
+    c4 = 36
+    f_w = 14
+
+    b1 = []
+    y = 0
+    if puesto:
+        b1.append({"tipo": "texto", "x_rel": 0, "y": y, "h": 36, "w": 26, "texto": puesto})
+        y += 40
+    if codigo:
+        b1.append({"tipo": "barras", "x_rel": 0, "y": y, "h": 40, "modulo": 2, "texto": codigo})
+        y += 44
+    if animal:
+        b1.append({"tipo": "texto", "x_rel": 0, "y": y, "h": 32, "w": 26, "texto": animal})
+        y += 34
+    if tipo:
+        b1.append({"tipo": "texto", "x_rel": 0, "y": y, "h": 16, "w": 14, "texto": tipo})
+
+    b3 = []
+    y = 0
+    if cuarto or cam:
+        if cuarto:
+            b3.append({"tipo": "texto", "x_rel": 0, "y": 0, "h": 20, "w": 15, "texto": cuarto})
+        if cam:
+            x_cam = (_dots_texto(cuarto, 15) + 16) if cuarto else 0
+            b3.append({"tipo": "texto", "x_rel": x_cam, "y": 0, "h": 22, "w": 18, "texto": cam})
+        y = 26
+    if ubi:
+        b3.append({"tipo": "texto", "x_rel": 0, "y": y, "h": 34, "w": 20, "texto": ubi})
+        y += 38
+    if zona:
+        b3.append({"tipo": "texto", "x_rel": 0, "y": y, "h": 18, "w": 15, "texto": zona})
+        y += 22
+    if desp:
+        b3.append({"tipo": "texto", "x_rel": 0, "y": y, "h": 18, "w": 15, "texto": desp})
+
+    lineas = [
+        _corto(f"Cliente {et.get('cliente') or '-'}", c4),
+        _corto(f"Puesto {et.get('puesto') or '-'}", c4),
+        _corto(f"Turno {et.get('turno') or '-'}", c4),
+        _corto(f"OPL {et.get('opl') or '-'}", c4),
+        _corto(f"Destino {et.get('destino') or '-'}", c4),
+        _corto(et.get("direccion") or "", c4),
+        "Especie Bovino",
     ]
-    return [e for e in elementos if e["texto"]]
+    b4 = []
+    y = 0
+    for txt in lineas:
+        if not txt:
+            continue
+        b4.append({"tipo": "texto", "x_rel": 0, "y": y, "h": 16, "w": f_w, "texto": txt})
+        y += 20
+
+    for grupo in (b1, b3, b4):
+        _centrar_en_ancho(grupo)
+    return _centrar_en_largo([b1, b3, b4])
 
 
 def layout_separador(sep: dict) -> list:
-    """Etiqueta que encabeza cada cliente (o cada riel) en la impresión por lote."""
-    x0 = 220
+    """Etiqueta que encabeza cada cliente (o cada riel), centrada en la tira."""
     total = int(sep.get("total") or 0)
     detalle = f"{total} etiqueta{'s' if total != 1 else ''}"
     if sep.get("puestos"):
-        detalle += f" · Puestos: {_corto(sep.get('puestos'), 40)}"
+        detalle += f" · Puestos: {_corto(sep.get('puestos'), 28)}"
     if sep.get("opls"):
-        detalle += f" · OPL: {_corto(sep.get('opls'), 45)}"
-    titulo = sep.get("titulo") or f"OPL {_corto(sep.get('opl') or '-', 30)}  ·  INICIO CLIENTE"
+        detalle += f" · OPL: {_corto(sep.get('opls'), 24)}"
+    titulo = sep.get("titulo") or f"OPL {_corto(sep.get('opl') or '-', 24)}  ·  INICIO CLIENTE"
+    titulo = _corto(titulo, 42)
+    detalle = _corto(detalle, 52)
+    cliente = _corto(sep.get("cliente") or "SIN CLIENTE", 28)
+    # El ancho de la raya se ajusta al texto más largo, sin llegar al logo.
+    ancho_txt = max(
+        _dots_texto(titulo, 18),
+        _dots_texto(cliente, 22),
+        _dots_texto(detalle, 16),
+        480,
+    )
+    largo = min(ancho_txt, LOGO_X - MARGEN_LARGO - 40)
     elementos = [
-        {"tipo": "texto", "x": x0, "y": 10, "h": 28, "texto": titulo},
-        {"tipo": "linea", "x": x0, "y": 44, "h": 5, "largo": 1180, "texto": "-"},
-        {"tipo": "texto", "x": x0, "y": 60, "h": 50, "texto": _corto(sep.get("cliente") or "SIN CLIENTE", 40)},
-        {"tipo": "texto", "x": x0, "y": 124, "h": 30, "texto": detalle},
+        {"tipo": "texto", "x_rel": 0, "y": 0, "h": 26, "w": 18, "texto": titulo},
+        {"tipo": "linea", "x_rel": 0, "y": 32, "h": 4, "largo": largo, "texto": "-"},
+        {"tipo": "texto", "x_rel": 0, "y": 44, "h": 40, "w": 22, "texto": cliente},
+        {"tipo": "texto", "x_rel": 0, "y": 90, "h": 24, "w": 16, "texto": detalle},
     ]
-    return [e for e in elementos if e["texto"]]
+    elementos = [e for e in elementos if e["texto"]]
+    _centrar_en_ancho(elementos)
+    return _centrar_en_largo([elementos])
 
 
 def zpl_etiqueta(et: dict, copias: int = 1) -> str:
