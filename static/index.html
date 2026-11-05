@@ -474,7 +474,7 @@
             <div class="split-sub">Congelado · no baja al pistolear</div>
             <div class="split-sub" id="numAsignadasMedias" style="margin-top:0.45rem;font-weight:700;color:var(--vp);"></div>
             <button type="button" onclick="recalcularAsignado()" title="Usar solo si cancelaron canales: vuelve a fijar la meta con lo asignado actual en SIRT" style="margin-top:0.45rem;font-size:0.7rem;padding:0.2rem 0.5rem;border:1px solid var(--vp);background:transparent;color:var(--vp);border-radius:6px;cursor:pointer;">↻ Recalcular meta</button>
-          </div>
+      </div>
           <div class="split-right">
             <div class="split-label">◀ MC1</div>
             <div class="split-valor teal" id="numMC1" style="font-size:1.7rem;">—</div>
@@ -483,13 +483,13 @@
               <div class="split-label">▶ MC2</div>
               <div class="split-valor teal" id="numMC2" style="font-size:1.7rem;">—</div>
               <div class="split-sub">medias derecha</div>
-            </div>
+      </div>
             <div style="margin-top:0.55rem;padding-top:0.55rem;border-top:1px solid rgba(96,165,250,0.25);">
               <div class="split-label" style="font-size:0.7rem;color:#1e3a5f;">➕ Adicionales</div>
               <div class="split-valor" id="dashAdicionales" style="font-size:1.4rem;color:#1e3a5f;">—</div>
               <div class="split-sub" id="dashAdicionalesSub">Asignadas ≥ 15:30</div>
-            </div>
-          </div>
+      </div>
+      </div>
         </div>
         <div class="resumen-icon">📤</div>
         <span id="numCanalesComp" style="display:none">—</span>
@@ -864,6 +864,7 @@
       <div style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center;">
         <button class="btn btn-secondary" id="btnProcesarPlanilla" onclick="procesarPlanilla(true)" style="padding:0.5rem 1.1rem;font-size:0.85rem;">⚙️ Procesar Planilla</button>
         <button class="btn btn-secondary" id="btnEtiquetasOpl" onclick="abrirEtiquetasOpl(_planillaOplActivo)" style="padding:0.5rem 1.1rem;font-size:0.85rem;" title="Imprimir las etiquetas de despacho del OPL seleccionado (por defecto en orden de cava y riel)">🏷️ Etiquetas OPL</button>
+        <button class="btn btn-primary" id="btnExportarPdfPlanilla" onclick="exportarPlanillaPDF()" style="padding:0.5rem 1.1rem;font-size:0.85rem;" title="Abre la planilla del OPL en ventana para imprimir o guardar como PDF">🖨️ Exportar PDF</button>
         <button class="btn btn-primary" id="btnParticulares" onclick="abrirModalParticulares()" style="padding:0.5rem 1.1rem;font-size:0.85rem;background:#ff9800;border:none;" title="Excel multi-hoja foto del día (columna Estado: En cava / Despachado)">📥 Descargar particulares</button>
       </div>
     </div>
@@ -1493,7 +1494,7 @@ function renderProgresoOplHome(planilla) {
   let sorted = (planilla && planilla.todosOPL) || [];
   if (!sorted.length) {
     // Fallback: agrupar desde data por propietario
-    const lista = (planilla && planilla.data) || [];
+  const lista = (planilla && planilla.data) || [];
     const byOpl = {};
     lista.forEach(r => {
       const key = (r.opl || r.propietario || 'SIN OPL').trim() || 'SIN OPL';
@@ -1535,14 +1536,14 @@ function renderProgresoOplHome(planilla) {
         <div class="poc-meta">
           <span class="poc-pct-row">${pct}%</span>
           ${pendHtml}
-        </div>
+      </div>
       </div>
       <div class="poc-bar"><div style="width:${Math.max(pct, pct > 0 ? 4 : 0)}%;background:${barColor};"></div></div>
     </div>`;
   });
   box.innerHTML = html;
   if (mas) {
-    if (extra > 0) {
+  if (extra > 0) {
       mas.style.display = '';
       mas.textContent = `+ ${extra} más — clic para ver todo`;
     } else {
@@ -3425,6 +3426,47 @@ function renderPlanilla(res) {
 
 function sumResumenPlanilla(data) {
   return (data.resumen || []).reduce((a, r) => a + (r.total_medias || 0), 0);
+}
+
+async function exportarPlanillaPDF() {
+  if (!_planillaOplActivo || _planillaOplActivo === 'TODOS') {
+    alertWarn('Selecciona un OPL primero para exportar el PDF.');
+    const alert = $('planillaAlert');
+    if (alert) {
+      alert.className = 'alert alert-warn show';
+      alert.textContent = 'Selecciona un OPL primero.';
+      setTimeout(() => alert.classList.remove('show'), 4000);
+    }
+    return;
+  }
+  const fecha = getFecha();
+  const opl = _planillaOplActivo;
+  try {
+    showSpinner();
+    const j = await apiFetch(API(
+      `/planilla_puntos/pdf_html?opl=${encodeURIComponent(opl)}&fecha=${encodeURIComponent(fecha)}&${planillaTurnoQ()}&refresh=1`
+    ));
+    if (!j || !j.success || !j.html) throw new Error((j && j.detail) || 'No se pudo generar el PDF');
+    const win = window.open('', '_blank', 'width=1050,height=900,scrollbars=yes');
+    if (!win) {
+      alertWarn('El navegador bloqueó la ventana emergente. Permite pop-ups para este sitio.');
+      return;
+    }
+    win.document.open('text/html', 'replace');
+    win.document.write(j.html);
+    win.document.close();
+    if (window.ColbeefUsage) ColbeefUsage.track('planilla_pdf', opl, fecha);
+    const alert = $('planillaAlert');
+    if (alert) {
+      alert.className = 'alert alert-success show';
+      alert.textContent = `✅ PDF de ${opl} listo en la ventana nueva (Imprimir / Guardar PDF).`;
+      setTimeout(() => alert.classList.remove('show'), 5000);
+    }
+  } catch (e) {
+    alertErr('Exportar PDF: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
 }
 
 function descargarExcelOplActivo() {

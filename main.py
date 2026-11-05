@@ -2741,6 +2741,127 @@ def get_planilla_puntos(
     return pack
 
 
+def _html_esc(val) -> str:
+    import html as _html
+    return _html.escape(str(val if val is not None else ""), quote=True)
+
+
+def _fmt_cant_planilla(v) -> str:
+    try:
+        n = float(v or 0)
+    except (TypeError, ValueError):
+        return str(v or "0")
+    return str(int(n)) if n == int(n) else f"{n:.2f}".rstrip("0").rstrip(".")
+
+
+def construir_html_planilla_pdf(datos: dict) -> str:
+    """
+    Vista imprimible estilo Gestor Vísceras: tarjetas por zona con Puesto + Cant.
+    Se abre en ventana nueva; el usuario guarda/imprime como PDF desde el navegador.
+    """
+    head_bg = "#259c39"
+    border = "#b7e4c7"
+    th_bg = "#e8f5e9"
+    zonas_html = []
+    for z in datos.get("zonas") or []:
+        filas = []
+        for p in z.get("puestos") or []:
+            cant = _fmt_cant_planilla(p.get("cantidad"))
+            puesto = _html_esc(p.get("puesto") or "—")
+            if p.get("temprana"):
+                marc = _html_esc(p.get("marcadorTemp") or "TEMP")
+                filas.append(
+                    "<tr style='background:#fef2f2;border-left:3px solid #dc2626;'>"
+                    f"<td style='padding:5px 6px;font-weight:700;color:#dc2626;'>"
+                    f"<span style='display:inline-block;background:#dc2626;color:#fff;"
+                    f"font-size:0.62rem;padding:1px 5px;border-radius:3px;margin-right:4px;'>"
+                    f"{marc}</span>{puesto}</td>"
+                    f"<td style='padding:5px 6px;text-align:center;font-weight:700;color:#dc2626;'>"
+                    f"{cant}</td></tr>"
+                )
+            else:
+                filas.append(
+                    f"<tr style='border-bottom:1px solid {border};'>"
+                    f"<td style='padding:5px 6px;'>{puesto}</td>"
+                    f"<td style='padding:5px 6px;text-align:center;font-weight:700;color:#1a6fc4;'>"
+                    f"{cant}</td></tr>"
+                )
+        nombre = _html_esc(z.get("nombre") or "—")
+        total = _fmt_cant_planilla(z.get("total"))
+        zonas_html.append(
+            "<div style='background:white;border-radius:8px;border:1px solid "
+            f"{border};overflow:hidden;min-width:160px;max-width:200px;flex:0 0 auto;"
+            "page-break-inside:avoid;'>"
+            f"<div style='background:{head_bg};color:white;font-weight:700;padding:6px 8px;"
+            "text-align:center;font-size:0.8rem;white-space:nowrap;"
+            "-webkit-print-color-adjust:exact;print-color-adjust:exact;'>"
+            f"{nombre} <span style='background:rgba(255,255,255,0.2);padding:2px 6px;"
+            f"border-radius:20px;font-size:0.7rem;'>{total}</span></div>"
+            "<table style='width:100%;border-collapse:collapse;font-size:0.7rem;'>"
+            f"<thead><tr><th style='background:{th_bg};padding:5px 6px;text-align:left;"
+            f"font-size:0.7rem;'>Puesto</th>"
+            f"<th style='background:{th_bg};padding:5px 6px;text-align:center;"
+            f"font-size:0.7rem;'>Cant</th></tr></thead>"
+            f"<tbody>{''.join(filas)}</tbody></table></div>"
+        )
+    opl = _html_esc(datos.get("opl") or "")
+    total_opl = _fmt_cant_planilla(datos.get("totalOPL"))
+    pct = _html_esc(datos.get("porcentaje") or "0")
+    fecha = _html_esc(datos.get("fecha") or "")
+    turno = _html_esc(datos.get("turno") or "")
+    return (
+        "<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
+        f"<title>Planilla {opl}</title>"
+        "<style>@media print{.no-print{display:none!important;}body{padding:0.5rem;}}</style>"
+        "</head><body style='font-family:Segoe UI,Arial,sans-serif;padding:1rem;'>"
+        "<div class='no-print' style='text-align:center;margin-bottom:1rem;'>"
+        "<button onclick='window.print()' style='padding:0.55rem 1.2rem;background:#259c39;"
+        "color:#fff;border:none;border-radius:30px;font-weight:700;cursor:pointer;font-size:0.9rem;'>"
+        "🖨️ Imprimir / Guardar PDF</button></div>"
+        "<h2 style='color:#259c39;text-align:center;margin:0 0 0.4rem;'>"
+        "LISTA DE PUESTOS: CANALES DE SALIDA DE CAVA</h2>"
+        f"<p style='text-align:center;color:#6b7280;margin:0 0 1rem;'>"
+        f"OPL: <strong>{opl}</strong> · {fecha} · turno {turno} · "
+        f"Total: {total_opl} canales · {pct}%</p>"
+        f"<div style='display:flex;flex-wrap:wrap;gap:0.5rem;justify-content:center;'>"
+        f"{''.join(zonas_html)}</div></body></html>"
+    )
+
+
+@app.get("/api/planilla_puntos/pdf_html")
+def planilla_puntos_pdf_html(
+    opl: str,
+    fecha: Optional[str] = None,
+    turno: Optional[str] = None,
+    refresh: Optional[str] = None,
+):
+    """
+    HTML imprimible de la planilla del OPL (como Exportar PDF en Gestor Vísceras).
+    Abre en ventana nueva; no guarda archivo en historial.
+    """
+    opl = (opl or "").strip()
+    if not opl or opl.upper() == "TODOS":
+        raise HTTPException(status_code=400, detail="Selecciona un OPL primero")
+    fecha_filtro = fecha or date.today().isoformat()
+    turno = resolver_turno(fecha_filtro, turno)
+    if es_refresh(refresh):
+        cache_invalidate_fecha(fecha_filtro)
+    items = obtener_piezas_programadas(fecha_filtro, turno, incluir_despachadas=True)
+    datos = armar_planilla_estilo_visceras(items, opl, fecha_filtro, turno)
+    if not (datos.get("zonas") or []):
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay puestos para el OPL {opl} en {fecha_filtro}",
+        )
+    return {
+        "success": True,
+        "opl": opl,
+        "fecha": fecha_filtro,
+        "turno": turno,
+        "html": construir_html_planilla_pdf(datos),
+    }
+
+
 @app.get("/api/planilla_puntos/excel")
 def excel_planilla_puntos(
     opl: str,
