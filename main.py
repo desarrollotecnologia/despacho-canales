@@ -1030,7 +1030,7 @@ def resolver_opl_de_propietario(propietario: str) -> str:
     prop_up = prop.upper()
     if prop_up in conocidos:
         return prop
-    mapa = apps_script_local._opl_map(apps_script_local._load_state())
+    mapa = apps_script_local._opl_map()
     return apps_script_local._resolver_opl(prop, mapa)
 
 

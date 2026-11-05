@@ -1,14 +1,11 @@
 """
 apps_script_local.py — Despacho de Canales (Colbeef)
-Estado local persistente para planilla OPL, historial y configuración.
+Capa operativa del gestor. Persistencia en BD propia (db_gestor / SQLite).
+SIRT no se escribe. La firma pública hacia main.py se mantiene.
 """
-import json
-import re
 from datetime import datetime
-from pathlib import Path
 
-DATA_DIR = Path(__file__).resolve().parent / "local_data"
-STATE_PATH = DATA_DIR / "canales_state.json"
+import db_gestor
 
 OPL_DEFAULT = "TRANSCARNES"
 OPL_EXCEPCIONES_DEFAULT = [
@@ -29,54 +26,24 @@ OPL_EXCEPCIONES_DEFAULT = [
 ]
 
 TURNOS = ["SxD", "VxS", "JxV", "MxJ", "MxM", "LxM", "DxL"]
+ETIQUETAS_DIAS_GUARDADOS = 15
+
+db_gestor.ensure_ready(opl_defaults=OPL_EXCEPCIONES_DEFAULT)
 
 
 def _now():
     return datetime.now().strftime("%d/%m/%Y %H:%M")
 
 
-def _blank_state():
-    return {
-        "opl_config": OPL_EXCEPCIONES_DEFAULT.copy(),
-        "opl_progreso": [],
-        "historico": [],
-        "operacion_finalizada": False,
-        # Asignado congelado estilo Vísceras: meta del día por fecha/turno.
-        # Solo sube si asignan más; solo baja si el total vivo (pend+sal) baja
-        # (cancelación / se quita la asignación o una salida deja de contar).
-        "asignado_congelado": {},
-        # OPLs marcados como particulares para Excel multi-hoja.
-        "opls_particulares": [],
-        # Adicionales del día (Excel), estilo Vísceras Estado_Cavas.
-        "adicionales_por_fecha": {},
-        # Etiquetas de despacho ya impresas: {fecha: {codigo: "dd/mm/yyyy HH:MM"}}
-        "etiquetas_impresas": {},
-        # Rollo Zebra: 4 (definitivo) o 2 (gastar rollos viejos de 2 manillas).
-        "etiquetas_rollo_columnas": 4,
-    }
-
-
 def _load_state():
-    DATA_DIR.mkdir(exist_ok=True)
-    if not STATE_PATH.exists():
-        state = _blank_state()
-        _save_state(state)
-        return state
-    with STATE_PATH.open("r", encoding="utf-8") as fh:
-        state = json.load(fh)
-    base = _blank_state()
-    for key, value in base.items():
-        state.setdefault(key, value)
-    if not state.get("opl_config"):
-        state["opl_config"] = OPL_EXCEPCIONES_DEFAULT.copy()
-        _save_state(state)
-    return state
+    """Compatibilidad: snapshot con la forma del JSON anterior, leído de la BD."""
+    db_gestor.ensure_ready(opl_defaults=OPL_EXCEPCIONES_DEFAULT)
+    return db_gestor.export_state_dict()
 
 
-def _save_state(state):
-    DATA_DIR.mkdir(exist_ok=True)
-    with STATE_PATH.open("w", encoding="utf-8") as fh:
-        json.dump(state, fh, ensure_ascii=False, indent=2, default=str)
+def _save_state(_state):
+    """No-op de compatibilidad. Las escrituras van por CRUD transaccional en db_gestor."""
+    return None
 
 
 def _as_str(value):
@@ -90,52 +57,51 @@ def _num(value):
         return 0
 
 
-def _opl_map(state):
+def _opl_map(state=None):
+    if state is None:
+        return db_gestor.opl_map()
     config = state.get("opl_config") or []
-    return {_as_str(row[0]).upper(): (_as_str(row[1]) or OPL_DEFAULT) for row in config if row and _as_str(row[0])}
+    return {
+        _as_str(row[0]).upper(): (_as_str(row[1]) or OPL_DEFAULT)
+        for row in config
+        if row and _as_str(row[0])
+    }
 
 
 def _resolver_opl(prop, mapa):
     return mapa.get(_as_str(prop).upper(), OPL_DEFAULT)
 
 
-# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # OPL CONFIG
-# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 def getOplConfig():
-    state = _load_state()
-    config = state.get("opl_config", [])
+    config = db_gestor.list_opl_config()
+    if not config:
+        for row in OPL_EXCEPCIONES_DEFAULT:
+            db_gestor.upsert_opl(row[0], row[1], row[2] if len(row) > 2 else 0)
+        config = db_gestor.list_opl_config()
     opls = sorted({_as_str(r[1]) for r in config if len(r) > 1 and _as_str(r[1])} | {OPL_DEFAULT})
     return {"success": True, "config": config, "opls": opls}
 
 
 def upsertOpl(propietario, opl):
-    state = _load_state()
     prop_key = _as_str(propietario).upper()
     if not prop_key or not _as_str(opl):
         return {"success": False, "message": "Propietario y OPL son obligatorios"}
-    for row in state.get("opl_config", []):
-        if _as_str(row[0]).upper() == prop_key:
-            row[1] = _as_str(opl)
-            _save_state(state)
-            return {"success": True}
-    state.setdefault("opl_config", []).append([prop_key, _as_str(opl), 0])
-    _save_state(state)
+    db_gestor.upsert_opl(prop_key, _as_str(opl), 0)
     return {"success": True}
 
 
 def eliminarOpl(rowIdx):
-    state = _load_state()
     idx = int(rowIdx) - 2
-    if 0 <= idx < len(state.get("opl_config", [])):
-        state["opl_config"].pop(idx)
-        _save_state(state)
+    db_gestor.delete_opl_by_index(idx)
     return {"success": True}
 
 
-# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # ASIGNADO CONGELADO — meta del día (estilo Vísceras)
-# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 def _clave_asignado(fecha, turno=None):
     t = _as_str(turno) or "Todos"
     return f"{_as_str(fecha)}|{t}"
@@ -157,10 +123,8 @@ def actualizar_asignado_congelado(fecha, turno, snapshot):
     - Nunca baja solo: para bajarlo hay que usar recalcular_asignado_congelado.
     - Un snapshot vacío (BD caída / consulta fallida) no toca lo guardado.
     """
-    state = _load_state()
-    key = _clave_asignado(fecha, turno)
-    bag = state.setdefault("asignado_congelado", {})
-    prev = bag.get(key) or {}
+    key_turno = _as_str(turno) or "Todos"
+    prev = db_gestor.get_asignado(_as_str(fecha), key_turno) or {}
 
     vivo_medias = int(_num(snapshot.get("medias")))
     vivo_mc1 = int(_num(snapshot.get("mc1")))
@@ -202,7 +166,7 @@ def actualizar_asignado_congelado(fecha, turno, snapshot):
 
     nuevo = {
         "fecha": _as_str(fecha),
-        "turno": _as_str(turno) or "Todos",
+        "turno": key_turno,
         "medias": medias,
         "mc1": mc1,
         "mc2": mc2,
@@ -212,35 +176,25 @@ def actualizar_asignado_congelado(fecha, turno, snapshot):
         "vivo_medias": vivo_medias,
         "prev_medias": prev_medias,
     }
-    bag[key] = nuevo
-    state["asignado_congelado"] = bag
-    _save_state(state)
+    db_gestor.upsert_asignado(_as_str(fecha), key_turno, nuevo)
     return nuevo
 
 
 def recalcular_asignado_congelado(fecha):
     """Borra la meta congelada de la fecha (todos los turnos); la próxima consulta la fija con el vivo."""
-    state = _load_state()
-    bag = state.setdefault("asignado_congelado", {})
-    prefijo = f"{_as_str(fecha)}|"
-    borrados = {k: bag.pop(k) for k in [k for k in bag if k.startswith(prefijo)]}
-    state["asignado_congelado"] = bag
-    _save_state(state)
+    borrados = db_gestor.delete_asignado_fecha(_as_str(fecha))
     return {"success": True, "borrados": list(borrados)}
 
 
 def get_asignado_congelado(fecha, turno=None):
-    state = _load_state()
-    return (state.get("asignado_congelado") or {}).get(_clave_asignado(fecha, turno))
+    return db_gestor.get_asignado(_as_str(fecha), _as_str(turno) or "Todos")
 
 
-# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # OPLS PARTICULARES — selección para Excel multi-hoja
-# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 def getOplsParticulares():
-    state = _load_state()
-    lista = [_as_str(x) for x in (state.get("opls_particulares") or []) if _as_str(x)]
-    # únicos preservando orden
+    lista = [_as_str(x) for x in db_gestor.list_opls_particulares() if _as_str(x)]
     vistos = set()
     out = []
     for opl in lista:
@@ -255,30 +209,16 @@ def getOplsParticulares():
 def setOplsParticulares(opls):
     if not isinstance(opls, list):
         return {"success": False, "message": "opls debe ser una lista"}
-    limpios = []
-    vistos = set()
-    for item in opls:
-        opl = _as_str(item)
-        if not opl:
-            continue
-        key = opl.upper()
-        if key in vistos:
-            continue
-        vistos.add(key)
-        limpios.append(opl)
-    state = _load_state()
-    state["opls_particulares"] = limpios
-    _save_state(state)
+    limpios = db_gestor.set_opls_particulares(opls)
     return {"success": True, "opls": limpios}
 
 
-# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # ETIQUETAS — rollo 2 o 4 manillas por pasada
-# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 def get_etiquetas_rollo_columnas():
-    state = _load_state()
     try:
-        n = int(state.get("etiquetas_rollo_columnas") or 4)
+        n = int(db_gestor.get_setting("etiquetas_rollo_columnas") or 4)
     except (TypeError, ValueError):
         n = 4
     return 2 if n == 2 else 4
@@ -291,92 +231,60 @@ def set_etiquetas_rollo_columnas(columnas):
         return {"success": False, "message": "columnas debe ser 2 o 4"}
     if n not in (2, 4):
         return {"success": False, "message": "columnas debe ser 2 o 4"}
-    state = _load_state()
-    state["etiquetas_rollo_columnas"] = n
-    _save_state(state)
+    db_gestor.set_setting("etiquetas_rollo_columnas", n)
     return {"success": True, "columnas": n}
 
 
-# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # ETIQUETAS DE DESPACHO — registro de impresas por fecha
-# ═══════════════════════════════════════════════════════
-ETIQUETAS_DIAS_GUARDADOS = 15
-
-
+# ═══════════════════════════════════════════════════════════════════════════
 def get_etiquetas_impresas(fecha):
-    state = _load_state()
-    return dict((state.get("etiquetas_impresas") or {}).get(_as_str(fecha)) or {})
+    return db_gestor.get_etiquetas_fecha(_as_str(fecha))
 
 
 def marcar_etiquetas_impresas(fecha, codigos):
-    state = _load_state()
-    bag = state.setdefault("etiquetas_impresas", {})
-    dia = bag.setdefault(_as_str(fecha), {})
-    ahora = _now()
-    for c in codigos or []:
-        c = _as_str(c).upper()
-        if c:
-            dia[c] = ahora
-    for vieja in sorted(bag)[:-ETIQUETAS_DIAS_GUARDADOS]:
-        bag.pop(vieja, None)
-    _save_state(state)
-    return {"success": True, "fecha": _as_str(fecha), "total": len(dia)}
+    key = _as_str(fecha)
+    db_gestor.marcar_etiquetas(key, codigos or [], _now())
+    db_gestor.prune_etiquetas_keep_last_n(ETIQUETAS_DIAS_GUARDADOS)
+    dia = db_gestor.get_etiquetas_fecha(key)
+    return {"success": True, "fecha": key, "total": len(dia)}
 
 
 def limpiar_etiquetas_impresas(fecha, codigos=None):
     """Borra marcas de impresión del día (todas, o solo los códigos indicados)."""
-    state = _load_state()
-    bag = state.setdefault("etiquetas_impresas", {})
     key = _as_str(fecha)
-    dia = bag.get(key) or {}
-    if not codigos:
-        n = len(dia)
-        bag.pop(key, None)
-    else:
-        n = 0
-        for c in codigos:
-            c = _as_str(c).upper()
-            if c and c in dia:
-                dia.pop(c, None)
-                n += 1
-        if dia:
-            bag[key] = dia
-        else:
-            bag.pop(key, None)
-    _save_state(state)
-    return {"success": True, "fecha": key, "limpiadas": n, "quedan": len(bag.get(key) or {})}
-
-
-# ═══════════════════════════════════════════════════════
-# ADICIONALES — salidas extra del día (estilo Vísceras)
-# ═══════════════════════════════════════════════════════
-def getAdicionales(fecha):
-    state = _load_state()
-    bag = state.get("adicionales_por_fecha") or {}
-    filas = bag.get(_as_str(fecha)) or []
+    res = db_gestor.limpiar_etiquetas_fecha(key, codigos)
     return {
         "success": True,
-        "fecha": _as_str(fecha),
+        "fecha": key,
+        "limpiadas": res["limpiadas"],
+        "quedan": res["quedan"],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ADICIONALES — salidas extra del día (estilo Vísceras)
+# ═══════════════════════════════════════════════════════════════════════════
+def getAdicionales(fecha):
+    key = _as_str(fecha)
+    filas = db_gestor.get_adicionales(key)
+    return {
+        "success": True,
+        "fecha": key,
         "total": len(filas),
         "filas": filas,
     }
 
 
 def reemplazarAdicionales(fecha, filas):
-    state = _load_state()
-    bag = state.setdefault("adicionales_por_fecha", {})
-    bag[_as_str(fecha)] = filas or []
-    state["adicionales_por_fecha"] = bag
-    _save_state(state)
+    db_gestor.set_adicionales(_as_str(fecha), filas or [])
     return getAdicionales(fecha)
 
 
 def agregarAdicionales(fecha, nuevas):
     """Agrega adicionales evitando duplicados por código."""
-    state = _load_state()
-    bag = state.setdefault("adicionales_por_fecha", {})
     key = _as_str(fecha)
-    actuales = list(bag.get(key) or [])
+    actuales = list(db_gestor.get_adicionales(key))
     vistos = {_as_str(r.get("codigo")).upper() for r in actuales if _as_str(r.get("codigo"))}
     agregados = 0
     ignorados = 0
@@ -391,9 +299,7 @@ def agregarAdicionales(fecha, nuevas):
         vistos.add(cup)
         actuales.append(row)
         agregados += 1
-    bag[key] = actuales
-    state["adicionales_por_fecha"] = bag
-    _save_state(state)
+    db_gestor.set_adicionales(key, actuales)
     return {
         "success": True,
         "fecha": key,
@@ -405,27 +311,21 @@ def agregarAdicionales(fecha, nuevas):
 
 
 def quitarAdicionalesPorCodigos(fecha, codigos):
-    state = _load_state()
-    bag = state.setdefault("adicionales_por_fecha", {})
     key = _as_str(fecha)
-    actuales = list(bag.get(key) or [])
+    actuales = list(db_gestor.get_adicionales(key))
     quitar = {_as_str(c).upper() for c in (codigos or []) if _as_str(c)}
     if not quitar:
         return {"success": True, "eliminados": 0, "total": len(actuales), "filas": actuales}
     queda = [r for r in actuales if _as_str(r.get("codigo")).upper() not in quitar]
     eliminados = len(actuales) - len(queda)
-    bag[key] = queda
-    state["adicionales_por_fecha"] = bag
-    _save_state(state)
+    db_gestor.set_adicionales(key, queda)
     return {"success": True, "eliminados": eliminados, "total": len(queda), "filas": queda}
 
 
 def actualizarDestinoAdicionales(fecha, cambios):
     """cambios: [{codigo, zona|destino}]"""
-    state = _load_state()
-    bag = state.setdefault("adicionales_por_fecha", {})
     key = _as_str(fecha)
-    actuales = list(bag.get(key) or [])
+    actuales = list(db_gestor.get_adicionales(key))
     mapa = {
         _as_str(c.get("codigo")).upper(): _as_str(c.get("zona") or c.get("destino"))
         for c in (cambios or [])
@@ -438,79 +338,63 @@ def actualizarDestinoAdicionales(fecha, cambios):
             row["zona"] = mapa[cup]
             row["destino"] = mapa[cup]
             actualizados += 1
-    bag[key] = actuales
-    state["adicionales_por_fecha"] = bag
-    _save_state(state)
+    db_gestor.set_adicionales(key, actuales)
     return {"success": True, "actualizados": actualizados, "total": len(actuales), "filas": actuales}
 
 
 def limpiarAdicionales(fecha=None):
-    state = _load_state()
-    bag = state.setdefault("adicionales_por_fecha", {})
-    if fecha:
-        bag.pop(_as_str(fecha), None)
-    else:
-        bag.clear()
-    state["adicionales_por_fecha"] = bag
-    _save_state(state)
+    db_gestor.clear_adicionales(_as_str(fecha) if fecha else None)
     return {"success": True}
 
 
-# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # PROGRESO OPL — guarda snapshot del progreso actual
-# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 def guardarProgresoOpl(progreso_list):
     """
     Recibe lista de dicts con progreso de cada propietario y los guarda.
     Llamado desde el frontend cuando se actualiza la planilla.
     """
-    state = _load_state()
-    state["opl_progreso"] = progreso_list or []
-    state["operacion_finalizada"] = all(
-        (r.get("total_pendiente", 1) == 0) for r in progreso_list
-    ) if progreso_list else False
-    _save_state(state)
+    items = progreso_list or []
+    db_gestor.save_opl_progreso(items)
+    finalizada = all((r.get("total_pendiente", 1) == 0) for r in items) if items else False
+    db_gestor.set_setting("operacion_finalizada", "1" if finalizada else "0")
     return {"success": True}
 
 
 def getProgresoOpl():
-    state = _load_state()
     return {
         "success": True,
-        "progreso": state.get("opl_progreso", []),
-        "operacionFinalizada": state.get("operacion_finalizada", False),
+        "progreso": db_gestor.get_opl_progreso(),
+        "operacionFinalizada": db_gestor.get_setting("operacion_finalizada", "0") == "1",
         "fecha": _now(),
     }
 
 
 def cerrarOperacion():
-    state = _load_state()
-    progreso = state.get("opl_progreso", [])
+    progreso = db_gestor.get_opl_progreso()
+    stamp = _now()
     for row in progreso:
         item = dict(row)
-        item["fecha"] = _now()
-        state.setdefault("historico", []).append(item)
-    state["opl_progreso"] = []
-    state["operacion_finalizada"] = False
-    _save_state(state)
+        item["fecha"] = stamp
+        db_gestor.append_historico(item, fecha=stamp)
+    db_gestor.clear_opl_progreso()
+    db_gestor.set_setting("operacion_finalizada", "0")
     return {"success": True, "insertados": len(progreso)}
 
 
 def getHistorico():
-    state = _load_state()
-    return {"success": True, "historico": state.get("historico", [])}
+    return {"success": True, "historico": db_gestor.list_historico()}
 
 
 def limpiarHistorico():
-    state = _load_state()
-    state["historico"] = []
-    _save_state(state)
+    db_gestor.clear_historico()
     return {"success": True}
 
 
-# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # DISPATCH
-# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 def dispatch(function_name, args):
     allowed = globals().get(function_name)
     if not callable(allowed) or function_name.startswith("_"):

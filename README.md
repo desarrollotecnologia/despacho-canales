@@ -48,7 +48,14 @@ POSTGRES_PASSWORD=...
 POSTGRES_PORT=5432
 APP_HOST=0.0.0.0
 APP_PORT=8012
+GESTOR_DB_URL=sqlite:///local_data/gestor_canales.db
 ```
+
+## Base de datos propia del gestor
+
+SIRT se consulta igual (canales, cavas, salidas). Lo operativo (OPLs, etiquetas impresas, meta congelada, particulares, rollo 2/4) vive en SQLite `local_data/gestor_canales.db`, no en JSON.
+
+Detalle, migración y backup: `docs/BD_GESTOR.md`.
 
 ## Importante: IDs de tipo_parte_producto
 
