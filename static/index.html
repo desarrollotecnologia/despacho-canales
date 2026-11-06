@@ -1361,14 +1361,43 @@ function actualizarBarraProgreso(tot, operacionFinalizada) {
 // ═══════════════════════════════════════════════════
 async function actualizarDashboard(silent, forceRefresh) {
   const fecha = getFecha();
+  let spinnerOn = !silent;
   try {
-    if (!silent) showSpinner();
+    if (spinnerOn) showSpinner();
     if (forceRefresh) await invalidarCache();
-    const [dash, planilla] = await Promise.all([
-      apiFetch(API(`/dashboard?fecha=${fecha}&turno=${encodeURIComponent(turnoDeFecha(fecha))}`)),
-      apiFetch(API(`/planilla_opl?fecha=${fecha}&turno=${encodeURIComponent(turnoDeFecha(fecha))}`)),
-    ]);
+    const turnoQ = encodeURIComponent(turnoDeFecha(fecha));
+    const dashP = apiFetch(API(`/dashboard?fecha=${fecha}&turno=${turnoQ}`));
+    const planP = apiFetch(API(`/planilla_opl?fecha=${fecha}&turno=${turnoQ}`));
+    const dash = await dashP;
     S.dashData = dash;
+    if (dash.cavas && dash.cavas.length && $('cavasResumenDiv') && $('cavasResumenBody')) {
+      $('cavasResumenDiv').style.display = '';
+      let html = '';
+      let totMC1=0, totMC2=0, totT=0;
+      dash.cavas.forEach(c => {
+        const mc1 = c.mc1||0, mc2=c.mc2||0, t=c.total||0;
+        totMC1+=mc1; totMC2+=mc2; totT+=t;
+        html += `<tr>
+          <td>${c.cava||'Sin cava'}</td>
+          <td class="num"><span class="badge badge-mc1">${fmt(mc1)}</span></td>
+          <td class="num"><span class="badge badge-mc2">${fmt(mc2)}</span></td>
+          <td class="num"><strong>${fmt(t)}</strong></td>
+        </tr>`;
+      });
+      html += `<tr class="total-row">
+        <td>TOTAL</td>
+        <td class="num">${fmt(totMC1)}</td>
+        <td class="num">${fmt(totMC2)}</td>
+        <td class="num">${fmt(totT)}</td>
+      </tr>`;
+      $('cavasResumenBody').innerHTML = html;
+    }
+    if ($('numPuestosDash')) {
+      const nP = (dash.top_destinos && dash.top_destinos.length) || 0;
+      $('numPuestosDash').textContent = fmt(nP);
+    }
+    if (spinnerOn) { hideSpinner(); spinnerOn = false; }
+    const planilla = await planP;
     S.planillaData = planilla;
 
     // Resumen estilo Vísceras (3 tarjetas):
@@ -1433,10 +1462,6 @@ async function actualizarDashboard(silent, forceRefresh) {
     // Pasar desglose a la barra de progreso
     tot._canalesNormales = norCanales;
     tot._canalesAdicionales = adiCanales;
-    if ($('numPuestosDash')) {
-      const nP = (dash.top_destinos && dash.top_destinos.length) || 0;
-      $('numPuestosDash').textContent = fmt(nP);
-    }
 
     // Progreso global + ficha OPL
     actualizarBarraProgreso(tot, planilla.operacionFinalizada);
@@ -1444,35 +1469,10 @@ async function actualizarDashboard(silent, forceRefresh) {
     if ($('progPend')) $('progPend').textContent = fmt(tot.pend_total);
     if ($('progCanSal')) $('progCanSal').textContent = fmtD(tot.canales_sal);
     renderProgresoOplHome(planilla);
-
-    // Cavas mini
-    if (dash.cavas && dash.cavas.length) {
-      $('cavasResumenDiv').style.display = '';
-      const tbody = $('cavasResumenBody');
-      let html = '';
-      let totMC1=0, totMC2=0, totT=0;
-      dash.cavas.forEach(c => {
-        const mc1 = c.mc1||0, mc2=c.mc2||0, t=c.total||0;
-        totMC1+=mc1; totMC2+=mc2; totT+=t;
-        html += `<tr>
-          <td>${c.cava||'Sin cava'}</td>
-          <td class="num"><span class="badge badge-mc1">${fmt(mc1)}</span></td>
-          <td class="num"><span class="badge badge-mc2">${fmt(mc2)}</span></td>
-          <td class="num"><strong>${fmt(t)}</strong></td>
-        </tr>`;
-      });
-      html += `<tr class="total-row">
-        <td>TOTAL</td>
-        <td class="num">${fmt(totMC1)}</td>
-        <td class="num">${fmt(totMC2)}</td>
-        <td class="num">${fmt(totT)}</td>
-      </tr>`;
-      tbody.innerHTML = html;
-    }
   } catch(e) {
     alertErr('Error al cargar dashboard: ' + e.message);
   } finally {
-    if (!silent) hideSpinner();
+    if (spinnerOn) hideSpinner();
   }
 }
 
@@ -1564,8 +1564,10 @@ function iniciarPollHome() {
     const main = $('viewMain');
     if (!main || main.style.display === 'none') return;
     if ($('modalOPL') && $('modalOPL').classList.contains('show')) return;
-    actualizarDashboard(true, true);
-  }, 25000);
+    // Sin invalidar caché: el TTL del servidor (60s) ya refresca SIRT.
+    // forceRefresh=true saturaba SIRT con varios usuarios y retrasaba la apertura.
+    actualizarDashboard(true);
+  }, 60000);
 }
 
 function abrirModalOPL() {

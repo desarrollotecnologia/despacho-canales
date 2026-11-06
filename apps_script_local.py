@@ -244,10 +244,10 @@ def get_etiquetas_impresas(fecha):
 
 def marcar_etiquetas_impresas(fecha, codigos):
     key = _as_str(fecha)
-    db_gestor.marcar_etiquetas(key, codigos or [], _now())
-    db_gestor.prune_etiquetas_keep_last_n(ETIQUETAS_DIAS_GUARDADOS)
-    dia = db_gestor.get_etiquetas_fecha(key)
-    return {"success": True, "fecha": key, "total": len(dia)}
+    n = db_gestor.marcar_etiquetas(
+        key, codigos or [], _now(), prune_keep=ETIQUETAS_DIAS_GUARDADOS
+    )
+    return {"success": True, "fecha": key, "total": n}
 
 
 def limpiar_etiquetas_impresas(fecha, codigos=None):

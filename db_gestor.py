@@ -18,6 +18,7 @@ import os
 import re
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +41,10 @@ _READY_LOCK = threading.Lock()
 _OPL_MAP_CACHE: Optional[Dict[str, str]] = None
 _MYSQL_CFG: Optional[Dict[str, Any]] = None
 _ENGINE = "sqlite"
+_MYSQL_POOL: List[Any] = []
+_MYSQL_POOL_LOCK = threading.Lock()
+_MYSQL_CREATED = 0
+_MYSQL_POOL_MAX = 8
 
 
 def _now() -> str:
@@ -296,12 +301,20 @@ class _MysqlCursor:
 
 
 class _MysqlConn:
-    def __init__(self, raw):
+    def __init__(self, raw, pooled: bool = True):
         self._raw = raw
         self._cur = raw.cursor()
+        self._pooled = pooled
 
     def execute(self, sql, params=()):
         self._cur.execute(_to_mysql_sql(sql), tuple(params) if params is not None else ())
+        return _MysqlCursor(self._cur)
+
+    def executemany(self, sql, seq_of_params):
+        self._cur.executemany(
+            _to_mysql_sql(sql),
+            [tuple(p) for p in seq_of_params],
+        )
         return _MysqlCursor(self._cur)
 
     def executescript(self, script: str) -> None:
@@ -319,8 +332,15 @@ class _MysqlConn:
     def close(self):
         try:
             self._cur.close()
-        finally:
-            self._raw.close()
+        except Exception:
+            pass
+        if self._pooled:
+            _release_mysql(self._raw)
+        else:
+            try:
+                self._raw.close()
+            except Exception:
+                pass
 
 
 def _connect_sqlite() -> sqlite3.Connection:
@@ -335,12 +355,12 @@ def _connect_sqlite() -> sqlite3.Connection:
     return conn
 
 
-def _connect_mysql() -> _MysqlConn:
+def _new_mysql():
     import pymysql
     from pymysql.cursors import DictCursor
 
     cfg = _cfg()
-    raw = pymysql.connect(
+    return pymysql.connect(
         host=cfg["host"],
         port=int(cfg["port"]),
         user=cfg["user"],
@@ -353,7 +373,67 @@ def _connect_mysql() -> _MysqlConn:
         read_timeout=30,
         write_timeout=30,
     )
-    return _MysqlConn(raw)
+
+
+def _mysql_raw():
+    global _MYSQL_CREATED
+    with _MYSQL_POOL_LOCK:
+        while _MYSQL_POOL:
+            raw = _MYSQL_POOL.pop()
+            try:
+                raw.ping(reconnect=True)
+                return raw
+            except Exception:
+                try:
+                    raw.close()
+                except Exception:
+                    pass
+                _MYSQL_CREATED = max(0, _MYSQL_CREATED - 1)
+        if _MYSQL_CREATED < _MYSQL_POOL_MAX:
+            _MYSQL_CREATED += 1
+            create = True
+        else:
+            create = False
+    if create:
+        try:
+            return _new_mysql()
+        except Exception:
+            with _MYSQL_POOL_LOCK:
+                _MYSQL_CREATED = max(0, _MYSQL_CREATED - 1)
+            raise
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        with _MYSQL_POOL_LOCK:
+            if _MYSQL_POOL:
+                raw = _MYSQL_POOL.pop()
+                try:
+                    raw.ping(reconnect=True)
+                    return raw
+                except Exception:
+                    try:
+                        raw.close()
+                    except Exception:
+                        pass
+                    _MYSQL_CREATED = max(0, _MYSQL_CREATED - 1)
+        time.sleep(0.01)
+    return _new_mysql()
+
+
+def _release_mysql(raw) -> None:
+    if raw is None:
+        return
+    with _MYSQL_POOL_LOCK:
+        if len(_MYSQL_POOL) < _MYSQL_POOL_MAX:
+            _MYSQL_POOL.append(raw)
+            return
+    try:
+        raw.close()
+    except Exception:
+        pass
+
+
+def _connect_mysql() -> _MysqlConn:
+    return _MysqlConn(_mysql_raw(), pooled=True)
 
 
 def _connect():
@@ -364,11 +444,16 @@ def _connect():
 
 @contextmanager
 def get_conn():
+    mysql = engine_name() == "mysql"
     conn = _connect()
     try:
-        with _LOCK:
+        if mysql:
             yield conn
             conn.commit()
+        else:
+            with _LOCK:
+                yield conn
+                conn.commit()
     except Exception:
         conn.rollback()
         raise
@@ -911,19 +996,44 @@ def get_etiquetas_fecha(fecha: str) -> Dict[str, str]:
     return {r["codigo"]: r["impresa_en"] for r in rows}
 
 
-def marcar_etiquetas(fecha: str, codigos: Iterable[str], impresa_en: str) -> None:
+def marcar_etiquetas(
+    fecha: str,
+    codigos: Iterable[str],
+    impresa_en: str,
+    prune_keep: Optional[int] = None,
+) -> int:
+    rows = []
+    for c in codigos:
+        cod = str(c or "").strip().upper()
+        if cod:
+            rows.append((fecha, cod, impresa_en))
+    if not rows:
+        return 0
+    sql = """
+        INSERT OR REPLACE INTO etiqueta_impresa(fecha, codigo, impresa_en)
+        VALUES (?, ?, ?)
+    """
     with get_conn() as conn:
-        for c in codigos:
-            cod = str(c or "").strip().upper()
-            if not cod:
-                continue
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO etiqueta_impresa(fecha, codigo, impresa_en)
-                VALUES (?, ?, ?)
-                """,
-                (fecha, cod, impresa_en),
-            )
+        if hasattr(conn, "executemany"):
+            conn.executemany(sql, rows)
+        else:
+            for row in rows:
+                conn.execute(sql, row)
+        if prune_keep:
+            fechas = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT DISTINCT fecha FROM etiqueta_impresa ORDER BY fecha"
+                ).fetchall()
+            ]
+            if len(fechas) > prune_keep:
+                drop = fechas[:-prune_keep]
+                placeholders = ",".join("?" * len(drop))
+                conn.execute(
+                    f"DELETE FROM etiqueta_impresa WHERE fecha IN ({placeholders})",
+                    drop,
+                )
+    return len(rows)
 
 
 def limpiar_etiquetas_fecha(fecha: str, codigos: Optional[Sequence[str]] = None) -> Dict[str, int]:
