@@ -864,7 +864,9 @@
     <button class="back-btn" onclick="irMain()">← Volver al inicio</button>
     <h2 style="color:var(--vp);margin-bottom:0.35rem;">🥩 Beneficio · Plan de faena</h2>
     <p style="font-size:0.88rem;color:var(--gris);margin-bottom:1rem;">
-      Lo que va entrando / insensibilizado del plan. No se edita: consulta directa a SIRT. La config OPL es aparte de Despacho.
+      La <strong>tabla</strong> muestra lo <strong>planillado</strong> del plan (total rápido por cliente/OPL).
+      Las tarjetas <strong>Insensibilizados / Pendientes</strong> son el avance en vivo.
+      Solo lectura SIRT · config OPL aparte de Despacho.
     </p>
     <div style="display:flex;gap:0.8rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
       <label style="font-size:0.85rem;font-weight:600;color:var(--vp);">Fecha del plan
@@ -883,21 +885,20 @@
       <button class="tab-btn" id="benBtnConfig" type="button" onclick="switchBenTab('benTabConfig');cargarConfigBeneficioOpl()">⚙️ Configuración</button>
     </div>
     <div id="benTabResumen">
+      <p style="font-size:0.8rem;color:var(--gris);margin-bottom:0.55rem;">Resumen de planillados del plan (como el total del día). Clic en un cliente para ver animales.</p>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>OPL</th>
               <th>Cliente</th>
-              <th class="num">Canales plan</th>
-              <th class="num">Insensibilizados</th>
-              <th class="num">Pendientes</th>
-              <th class="num">%</th>
+              <th class="num">Canales</th>
             </tr>
           </thead>
           <tbody id="benResumenBody">
-            <tr><td colspan="6" class="empty-state">Elige fecha del plan y actualiza.</td></tr>
+            <tr><td colspan="3" class="empty-state">Elige fecha del plan y actualiza.</td></tr>
           </tbody>
+          <tfoot id="benResumenFoot"></tfoot>
         </table>
       </div>
     </div>
@@ -1912,7 +1913,7 @@ async function cargarBeneficio(force) {
   } catch (e) {
     alertErr('Beneficio: ' + e.message);
     const tb = $('benResumenBody');
-    if (tb) tb.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:#991b1b;">${escHtml(e.message)}</td></tr>`;
+    if (tb) tb.innerHTML = `<tr><td colspan="3" class="empty-state" style="color:#991b1b;">${escHtml(e.message)}</td></tr>`;
   } finally {
     hideSpinner();
   }
@@ -1922,33 +1923,40 @@ function renderBeneficio() {
   const j = BEN.data;
   const kpis = $('benKpis');
   const tb = $('benResumenBody');
+  const tf = $('benResumenFoot');
   if (!j) return;
   const t = j.totales || {};
   if (kpis) {
+    // Insensibilizados / Pendientes = avance en vivo (como las tarjetas de la imagen).
+    // Planillados = total del plan de faena de la fecha (llena la tabla).
     kpis.innerHTML = `
-      <div class="stat-card"><div class="stat-label">Planificados</div><div class="stat-valor">${t.canales_plan || 0}</div><div class="stat-sub">canales del plan</div></div>
+      <div class="stat-card"><div class="stat-label">Planillados</div><div class="stat-valor">${t.canales_plan || 0}</div><div class="stat-sub">total del plan de faena</div></div>
       <div class="stat-card"><div class="stat-label">Insensibilizados</div><div class="stat-valor" style="color:#065f46;">${t.canales_insensibilizados || 0}</div><div class="stat-sub">${t.progreso_pct || 0}%</div></div>
       <div class="stat-card"><div class="stat-label">Pendientes</div><div class="stat-valor" style="color:#b45309;">${t.canales_pendientes || 0}</div><div class="stat-sub">aún sin insensibilizar</div></div>
-      <div class="stat-card"><div class="stat-label">Ventana</div><div class="stat-valor" style="font-size:1rem;">${t.primera_ins ? escHtml(String(t.primera_ins).slice(11, 16)) : '—'} → ${t.ultima_ins ? escHtml(String(t.ultima_ins).slice(11, 16)) : '—'}</div><div class="stat-sub">primera / última</div></div>`;
+      <div class="stat-card"><div class="stat-label">Ventana</div><div class="stat-valor" style="font-size:1rem;">${t.primera_ins ? escHtml(String(t.primera_ins).slice(11, 16)) : '—'} → ${t.ultima_ins ? escHtml(String(t.ultima_ins).slice(11, 16)) : '—'}</div><div class="stat-sub">primera / última insensib.</div></div>`;
   }
   const filtro = ($('benFiltroOpl') && $('benFiltroOpl').value) || '';
   const rows = (j.clientes || []).filter(c => !filtro || c.opl === filtro);
   if (!tb) return;
+  if (tf) tf.innerHTML = '';
   if (!rows.length) {
-    tb.innerHTML = '<tr><td colspan="6" class="empty-state">Sin animales en el plan de esa fecha.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="3" class="empty-state">Sin planillados en el plan de esa fecha.</td></tr>';
     return;
   }
+  const totFiltrado = rows.reduce((s, c) => s + (c.canales_plan || 0), 0);
   tb.innerHTML = rows.map((c, i) => {
-    const pct = c.animales_plan ? Math.round(100 * c.animales_insensibilizados / c.animales_plan) : 0;
-    return `<tr style="cursor:pointer;" title="Ver detalle" data-ben-cli="${i}" onclick="verDetalleBeneficioIdx(this)">
+    return `<tr style="cursor:pointer;" title="Ver detalle de animales" data-ben-cli="${i}" onclick="verDetalleBeneficioIdx(this)">
       <td><span class="badge-opl${c.opl === 'TRANSCARNES' ? ' default' : ''}">${escHtml(c.opl)}</span></td>
       <td style="font-weight:600;">${escHtml(c.cliente)}</td>
-      <td class="num">${c.canales_plan}</td>
-      <td class="num">${c.canales_insensibilizados}</td>
-      <td class="num">${c.canales_pendientes}</td>
-      <td class="num">${pct}%</td>
+      <td class="num" style="font-weight:800;">${c.canales_plan}</td>
     </tr>`;
   }).join('');
+  if (tf) {
+    tf.innerHTML = `<tr style="background:#ecfdf5;font-weight:800;">
+      <td colspan="2">Total canales planillados${filtro ? ' · ' + escHtml(filtro) : ''}</td>
+      <td class="num">${totFiltrado}</td>
+    </tr>`;
+  }
 }
 
 function verDetalleBeneficioIdx(tr) {
