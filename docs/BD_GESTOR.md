@@ -47,7 +47,8 @@ Luego `restart.bat`.
 
 | Dato | Tabla |
 |------|--------|
-| OPL por propietario | `opl_propietario` |
+| OPL por propietario (Despacho) | `opl_propietario` |
+| OPL por propietario (Beneficio) | `beneficio_opl_propietario` |
 | OPLs particulares (Excel) | `opl_particular` |
 | Meta congelada fecha+turno | `asignado_congelado` |
 | Etiquetas impresas | `etiqueta_impresa` |

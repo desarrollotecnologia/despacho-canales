@@ -100,6 +100,40 @@ def eliminarOpl(rowIdx):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# OPL BENEFICIO (config aparte de Despacho)
+# ═══════════════════════════════════════════════════════════════════════════
+def getBeneficioOplConfig():
+    db_gestor.seed_beneficio_opl_from_despacho()
+    config = db_gestor.list_beneficio_opl_config()
+    if not config:
+        for row in OPL_EXCEPCIONES_DEFAULT:
+            db_gestor.upsert_beneficio_opl(row[0], row[1], row[2] if len(row) > 2 else 0)
+        config = db_gestor.list_beneficio_opl_config()
+    opls = sorted({_as_str(r[1]) for r in config if len(r) > 1 and _as_str(r[1])} | {OPL_DEFAULT})
+    return {"success": True, "config": config, "opls": opls}
+
+
+def upsertBeneficioOpl(propietario, opl):
+    prop_key = _as_str(propietario).upper()
+    if not prop_key or not _as_str(opl):
+        return {"success": False, "message": "Propietario y OPL son obligatorios"}
+    db_gestor.upsert_beneficio_opl(prop_key, _as_str(opl), 0)
+    return {"success": True}
+
+
+def _beneficio_opl_map():
+    db_gestor.seed_beneficio_opl_from_despacho()
+    return db_gestor.beneficio_opl_map()
+
+
+def resolver_opl_beneficio(propietario: str) -> str:
+    prop = _as_str(propietario)
+    if not prop:
+        return OPL_DEFAULT
+    return _resolver_opl(prop, _beneficio_opl_map())
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # ASIGNADO CONGELADO — meta del día (estilo Vísceras)
 # ═══════════════════════════════════════════════════════════════════════════
 def _clave_asignado(fecha, turno=None):

@@ -128,6 +128,14 @@ CREATE TABLE IF NOT EXISTS opl_propietario (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS beneficio_opl_propietario (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    propietario TEXT NOT NULL UNIQUE,
+    opl TEXT NOT NULL,
+    extra INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS opl_particular (
     opl TEXT PRIMARY KEY,
     orden INTEGER NOT NULL,
@@ -195,6 +203,14 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS opl_propietario (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    propietario VARCHAR(191) NOT NULL UNIQUE,
+    opl VARCHAR(191) NOT NULL,
+    extra INT NOT NULL DEFAULT 0,
+    updated_at VARCHAR(32) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS beneficio_opl_propietario (
     id INT AUTO_INCREMENT PRIMARY KEY,
     propietario VARCHAR(191) NOT NULL UNIQUE,
     opl VARCHAR(191) NOT NULL,
@@ -872,6 +888,66 @@ def delete_opl_by_index(idx: int) -> None:
     _invalidate_opl_cache()
 
 
+# ─── OPL Beneficio (aparte de Despacho) ───────────────────────────
+
+_BENEFICIO_OPL_MAP_CACHE: Optional[Dict[str, str]] = None
+
+
+def list_beneficio_opl_config() -> List[List[Any]]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT propietario, opl, extra FROM beneficio_opl_propietario ORDER BY id"
+        ).fetchall()
+    return [[r["propietario"], r["opl"], r["extra"]] for r in rows]
+
+
+def _invalidate_beneficio_opl_cache() -> None:
+    global _BENEFICIO_OPL_MAP_CACHE
+    _BENEFICIO_OPL_MAP_CACHE = None
+
+
+def beneficio_opl_map() -> Dict[str, str]:
+    global _BENEFICIO_OPL_MAP_CACHE
+    if _BENEFICIO_OPL_MAP_CACHE is not None:
+        return _BENEFICIO_OPL_MAP_CACHE
+    out: Dict[str, str] = {}
+    for prop, opl, _extra in list_beneficio_opl_config():
+        key = str(prop or "").strip().upper()
+        if key:
+            out[key] = str(opl or "").strip()
+    _BENEFICIO_OPL_MAP_CACHE = out
+    return out
+
+
+def upsert_beneficio_opl(propietario: str, opl: str, extra: int = 0) -> None:
+    prop = (propietario or "").strip().upper()
+    if not prop:
+        return
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO beneficio_opl_propietario(propietario, opl, extra, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(propietario) DO UPDATE SET
+                opl=excluded.opl,
+                updated_at=excluded.updated_at
+            """,
+            (prop, (opl or "").strip(), 1 if extra else 0, _now()),
+        )
+    _invalidate_beneficio_opl_cache()
+
+
+def seed_beneficio_opl_from_despacho() -> int:
+    """Si Beneficio no tiene config, copia la de Despacho para arrancar igual."""
+    if list_beneficio_opl_config():
+        return 0
+    origen = list_opl_config()
+    for row in origen:
+        if row and row[0]:
+            upsert_beneficio_opl(row[0], row[1] if len(row) > 1 else "", row[2] if len(row) > 2 else 0)
+    return len(origen)
+
+
 # ─── OPL particulares ────────────────────────────────────────────
 
 def list_opls_particulares() -> List[str]:
@@ -1280,6 +1356,7 @@ def export_state_dict() -> Dict[str, Any]:
 
 TABLES = (
     "opl_propietario",
+    "beneficio_opl_propietario",
     "opl_particular",
     "asignado_congelado",
     "etiqueta_impresa",

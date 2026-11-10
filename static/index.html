@@ -573,6 +573,12 @@
         <div class="modulo-desc">Imprime las etiquetas de despacho por OPL o pistoleando, en la Zebra del equipo.</div>
         <span class="modulo-badge">Etiquetas</span>
       </div>
+      <div class="modulo-card" onclick="irModulo('beneficio')">
+        <div class="modulo-icono">🥩</div>
+        <div class="modulo-nombre">Beneficio</div>
+        <div class="modulo-desc">Plan de faena e insensibilizado en tiempo real, por animal y OPL. Solo lectura desde SIRT.</div>
+        <span class="modulo-badge">Ingreso</span>
+      </div>
     </div>
 
     <!-- CAVAS mini chart -->
@@ -850,6 +856,100 @@
         <thead><tr><th>Hora</th><th>Código</th><th>Ubicación</th><th>Puesto / turno</th><th class="num">Copias</th></tr></thead>
         <tbody id="etHistorial"><tr><td colspan="5" class="empty-state">Aún no se ha impreso nada.</td></tr></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- ══════ VISTA BENEFICIO ══════ -->
+  <div class="view-detail" id="viewBeneficio">
+    <button class="back-btn" onclick="irMain()">← Volver al inicio</button>
+    <h2 style="color:var(--vp);margin-bottom:0.35rem;">🥩 Beneficio · Plan de faena</h2>
+    <p style="font-size:0.88rem;color:var(--gris);margin-bottom:1rem;">
+      Lo que va entrando / insensibilizado del plan. No se edita: consulta directa a SIRT. La config OPL es aparte de Despacho.
+    </p>
+    <div style="display:flex;gap:0.8rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
+      <label style="font-size:0.85rem;font-weight:600;color:var(--vp);">Fecha del plan
+        <input type="date" id="benFechaPlan" onchange="cargarBeneficio()" style="margin-left:0.4rem;padding:0.35rem 0.5rem;border:2px solid var(--vc);border-radius:8px;">
+      </label>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="cargarBeneficio(true)">🔄 Actualizar</button>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="switchBenTab('benTabConfig');cargarConfigBeneficioOpl()">⚙️ Configuración OPL</button>
+      <select id="benFiltroOpl" onchange="renderBeneficio()" style="padding:0.35rem 0.55rem;border:2px solid var(--vc);border-radius:8px;font-size:0.85rem;">
+        <option value="">Todos los OPL</option>
+      </select>
+    </div>
+    <div class="stats-grid" id="benKpis" style="margin-bottom:1rem;"></div>
+    <div style="display:flex;gap:0.5rem;margin-bottom:0.8rem;border-bottom:2px solid var(--vc);padding-bottom:0.45rem;">
+      <button class="tab-btn active" id="benBtnResumen" type="button" onclick="switchBenTab('benTabResumen')">📊 Resumen</button>
+      <button class="tab-btn" id="benBtnDetalle" type="button" onclick="switchBenTab('benTabDetalle');cargarBeneficioDetalle()">📋 Detalle animales</button>
+      <button class="tab-btn" id="benBtnConfig" type="button" onclick="switchBenTab('benTabConfig');cargarConfigBeneficioOpl()">⚙️ Configuración</button>
+    </div>
+    <div id="benTabResumen">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>OPL</th>
+              <th>Cliente</th>
+              <th class="num">Canales plan</th>
+              <th class="num">Insensibilizados</th>
+              <th class="num">Pendientes</th>
+              <th class="num">%</th>
+            </tr>
+          </thead>
+          <tbody id="benResumenBody">
+            <tr><td colspan="6" class="empty-state">Elige fecha del plan y actualiza.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div id="benTabDetalle" style="display:none;">
+      <div class="table-wrap" style="max-height:520px;overflow:auto;">
+        <table style="font-size:0.84rem;">
+          <thead>
+            <tr>
+              <th>Código animal</th>
+              <th>Cliente</th>
+              <th>OPL</th>
+              <th>Estado</th>
+              <th>Insensibilización</th>
+              <th class="num">MC1</th>
+              <th class="num">MC2</th>
+            </tr>
+          </thead>
+          <tbody id="benDetalleBody">
+            <tr><td colspan="7" class="empty-state">Cargando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div id="benTabConfig" style="display:none;">
+      <div class="alert" id="benConfigAlert"></div>
+      <p style="font-size:0.8rem;color:var(--gris);margin-bottom:0.6rem;">
+        Asigna cada propietario a un OPL <strong>solo para Beneficio</strong> (no cambia Despacho). Sin asignación → TRANSCARNES.
+      </p>
+      <div class="table-wrap" style="max-height:300px;overflow-y:auto;">
+        <table style="font-size:0.85rem;">
+          <thead>
+            <tr>
+              <th>Propietario</th>
+              <th class="num">Canales</th>
+              <th>OPL actual</th>
+              <th>Cambiar a</th>
+            </tr>
+          </thead>
+          <tbody id="benConfigBody">
+            <tr><td colspan="4" class="empty-state">Abre esta pestaña para cargar…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--vc);">
+        <p style="font-size:0.82rem;font-weight:600;color:var(--vp);margin-bottom:0.6rem;">➕ Agregar / actualizar asignación</p>
+        <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+          <input type="text" id="benNewProp" placeholder="Propietario" style="flex:2;min-width:160px;padding:0.45rem 0.7rem;border:2px solid var(--vc);border-radius:8px;">
+          <input type="text" id="benNewOpl" list="benOplList" placeholder="OPL (ej: CAVA AJR)" style="flex:1;min-width:120px;padding:0.45rem 0.7rem;border:2px solid var(--vc);border-radius:8px;">
+          <datalist id="benOplList"></datalist>
+          <button class="btn btn-primary btn-sm" type="button" onclick="guardarBeneficioOplManual()">💾 Guardar</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1146,7 +1246,7 @@ async function recalcularAsignado() {
 // NAVEGACIÓN
 // ═══════════════════════════════════════════════════
 function showView(id) {
-  ['viewMain','viewDespachos','viewOpl','viewCavas','viewPlanilla','viewEtiquetas'].forEach(v => {
+  ['viewMain','viewDespachos','viewOpl','viewCavas','viewPlanilla','viewEtiquetas','viewBeneficio'].forEach(v => {
     const el = $(v);
     if (el) el.classList.remove('active');
   });
@@ -1197,6 +1297,12 @@ function irModulo(m) {
     cargarRolloEtiquetas();
     cargarEtiquetasOpl(false);
     setTimeout(() => $('etCodigo').focus(), 50);
+  }
+  else if (m === 'beneficio') {
+    showView('viewBeneficio');
+    if ($('benFechaPlan') && !$('benFechaPlan').value) $('benFechaPlan').value = getFecha();
+    switchBenTab('benTabResumen');
+    cargarBeneficio(false);
   }
 }
 
@@ -1756,6 +1862,201 @@ document.addEventListener('click', (e) => {
   const m = $('modalOPL');
   if (m && e.target === m) cerrarModalOPL();
 });
+
+// ═══════════════════════════════════════════════════
+// BENEFICIO (plan de faena / insensibilizado)
+// ═══════════════════════════════════════════════════
+const BEN = { data: null, detalle: null };
+
+function switchBenTab(id) {
+  ['benTabResumen', 'benTabDetalle', 'benTabConfig'].forEach(t => {
+    const el = $(t);
+    if (el) el.style.display = t === id ? '' : 'none';
+  });
+  const map = { benTabResumen: 'benBtnResumen', benTabDetalle: 'benBtnDetalle', benTabConfig: 'benBtnConfig' };
+  Object.keys(map).forEach(k => {
+    const b = $(map[k]);
+    if (b) b.classList.toggle('active', k === id);
+  });
+}
+
+function benFecha() {
+  return ($('benFechaPlan') && $('benFechaPlan').value) || getFecha();
+}
+
+function showBenAlert(tipo, msg) {
+  const a = $('benConfigAlert');
+  if (!a) return;
+  a.className = 'alert alert-' + (tipo === 'success' ? 'success' : (tipo === 'warn' ? 'warn' : 'error')) + ' show';
+  a.textContent = msg;
+  setTimeout(() => a.classList.remove('show'), 4000);
+}
+
+async function cargarBeneficio(force) {
+  const fecha = benFecha();
+  if ($('benFechaPlan') && !$('benFechaPlan').value) $('benFechaPlan').value = fecha;
+  showSpinner();
+  try {
+    const j = await apiFetch(API(`/beneficio?fecha_plan=${encodeURIComponent(fecha)}`));
+    BEN.data = j;
+    BEN.detalle = null;
+    const sel = $('benFiltroOpl');
+    if (sel) {
+      const cur = sel.value;
+      const opls = j.opls || [];
+      sel.innerHTML = '<option value="">Todos los OPL</option>' +
+        opls.map(o => `<option value="${escHtml(o)}">${escHtml(o)}</option>`).join('');
+      if (cur && opls.includes(cur)) sel.value = cur;
+    }
+    renderBeneficio();
+  } catch (e) {
+    alertErr('Beneficio: ' + e.message);
+    const tb = $('benResumenBody');
+    if (tb) tb.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:#991b1b;">${escHtml(e.message)}</td></tr>`;
+  } finally {
+    hideSpinner();
+  }
+}
+
+function renderBeneficio() {
+  const j = BEN.data;
+  const kpis = $('benKpis');
+  const tb = $('benResumenBody');
+  if (!j) return;
+  const t = j.totales || {};
+  if (kpis) {
+    kpis.innerHTML = `
+      <div class="stat-card"><div class="stat-label">Planificados</div><div class="stat-valor">${t.canales_plan || 0}</div><div class="stat-sub">canales del plan</div></div>
+      <div class="stat-card"><div class="stat-label">Insensibilizados</div><div class="stat-valor" style="color:#065f46;">${t.canales_insensibilizados || 0}</div><div class="stat-sub">${t.progreso_pct || 0}%</div></div>
+      <div class="stat-card"><div class="stat-label">Pendientes</div><div class="stat-valor" style="color:#b45309;">${t.canales_pendientes || 0}</div><div class="stat-sub">aún sin insensibilizar</div></div>
+      <div class="stat-card"><div class="stat-label">Ventana</div><div class="stat-valor" style="font-size:1rem;">${t.primera_ins ? escHtml(String(t.primera_ins).slice(11, 16)) : '—'} → ${t.ultima_ins ? escHtml(String(t.ultima_ins).slice(11, 16)) : '—'}</div><div class="stat-sub">primera / última</div></div>`;
+  }
+  const filtro = ($('benFiltroOpl') && $('benFiltroOpl').value) || '';
+  const rows = (j.clientes || []).filter(c => !filtro || c.opl === filtro);
+  if (!tb) return;
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="empty-state">Sin animales en el plan de esa fecha.</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map((c, i) => {
+    const pct = c.animales_plan ? Math.round(100 * c.animales_insensibilizados / c.animales_plan) : 0;
+    return `<tr style="cursor:pointer;" title="Ver detalle" data-ben-cli="${i}" onclick="verDetalleBeneficioIdx(this)">
+      <td><span class="badge-opl${c.opl === 'TRANSCARNES' ? ' default' : ''}">${escHtml(c.opl)}</span></td>
+      <td style="font-weight:600;">${escHtml(c.cliente)}</td>
+      <td class="num">${c.canales_plan}</td>
+      <td class="num">${c.canales_insensibilizados}</td>
+      <td class="num">${c.canales_pendientes}</td>
+      <td class="num">${pct}%</td>
+    </tr>`;
+  }).join('');
+}
+
+function verDetalleBeneficioIdx(tr) {
+  const i = Number(tr.getAttribute('data-ben-cli'));
+  const c = (BEN.data && BEN.data.clientes || []).filter(x => {
+    const f = ($('benFiltroOpl') && $('benFiltroOpl').value) || '';
+    return !f || x.opl === f;
+  })[i];
+  if (c) verDetalleBeneficioCliente(c.cliente);
+}
+
+function verDetalleBeneficioCliente(cliente) {
+  switchBenTab('benTabDetalle');
+  cargarBeneficioDetalle(cliente);
+}
+
+async function cargarBeneficioDetalle(cliente) {
+  const fecha = benFecha();
+  const opl = ($('benFiltroOpl') && $('benFiltroOpl').value) || '';
+  const tb = $('benDetalleBody');
+  if (tb) tb.innerHTML = '<tr><td colspan="7" class="empty-state">Cargando…</td></tr>';
+  try {
+    let url = `/beneficio/detalle?fecha_plan=${encodeURIComponent(fecha)}`;
+    if (cliente) url += `&cliente=${encodeURIComponent(cliente)}`;
+    else if (opl) url += `&opl=${encodeURIComponent(opl)}`;
+    const j = await apiFetch(API(url));
+    BEN.detalle = j;
+    const rows = j.animales || [];
+    if (!rows.length) {
+      if (tb) tb.innerHTML = '<tr><td colspan="7" class="empty-state">Sin animales.</td></tr>';
+      return;
+    }
+    if (tb) {
+      tb.innerHTML = rows.map(a => `<tr>
+        <td style="font-family:monospace;font-weight:700;">${escHtml(a.codigo_animal)}</td>
+        <td>${escHtml(a.cliente)}</td>
+        <td><span class="badge-opl${a.opl === 'TRANSCARNES' ? ' default' : ''}">${escHtml(a.opl)}</span></td>
+        <td>${a.estado === 'Insensibilizado' ? '🟢' : '🟡'} ${escHtml(a.estado)}</td>
+        <td>${a.fecha_insensibilizacion ? escHtml(String(a.fecha_insensibilizacion).replace('T', ' ').slice(0, 19)) : '—'}</td>
+        <td class="num">${a.mc1 || 0}</td>
+        <td class="num">${a.mc2 || 0}</td>
+      </tr>`).join('');
+    }
+  } catch (e) {
+    if (tb) tb.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:#991b1b;">${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+async function cargarConfigBeneficioOpl() {
+  const fecha = benFecha();
+  const tbody = $('benConfigBody');
+  try {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Cargando…</td></tr>';
+    const res = await apiFetch(API(`/beneficio/opl/propietarios?fecha_plan=${encodeURIComponent(fecha)}`));
+    const opls = res.opls || ['TRANSCARNES'];
+    const dl = $('benOplList');
+    if (dl) dl.innerHTML = opls.map(o => `<option value="${escHtml(o)}">`).join('');
+    window._benPropList = res.resultado || [];
+    if (!window._benPropList.length) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Sin propietarios en ese plan.</td></tr>';
+      return;
+    }
+    if (tbody) {
+      tbody.innerHTML = window._benPropList.map((r, i) => {
+        const opts = opls.map(o =>
+          `<option value="${escHtml(o)}"${o === r.opl ? ' selected' : ''}>${escHtml(o)}</option>`
+        ).join('');
+        return `<tr>
+          <td style="font-size:0.82rem;font-weight:600;">${escHtml(r.propietario)}</td>
+          <td class="num">${r.canales || 0}</td>
+          <td><span class="badge-opl${r.opl === 'TRANSCARNES' ? ' default' : ''}">${escHtml(r.opl)}</span></td>
+          <td><select class="opl-select" data-ben-idx="${i}" onchange="cambiarBeneficioOplSelect(this)">${opts}</select></td>
+        </tr>`;
+      }).join('');
+    }
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="empty-state" style="color:#991b1b;">${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+async function cambiarBeneficioOplSelect(sel) {
+  const idx = Number(sel.getAttribute('data-ben-idx'));
+  const row = window._benPropList && window._benPropList[idx];
+  if (!row) return;
+  await guardarBeneficioOpl(row.propietario, sel.value);
+}
+
+async function guardarBeneficioOpl(prop, opl) {
+  try {
+    const r = await fetch(API(`/beneficio/opl/asignar?propietario=${encodeURIComponent(prop)}&opl=${encodeURIComponent(opl)}`), { method: 'POST' });
+    const res = await r.json();
+    if (!res.success) { showBenAlert('error', res.message || 'Error al guardar'); return; }
+    showBenAlert('success', `✓ ${prop} → ${opl}`);
+    await cargarBeneficio(true);
+    await cargarConfigBeneficioOpl();
+  } catch (e) {
+    showBenAlert('error', e.message);
+  }
+}
+
+async function guardarBeneficioOplManual() {
+  const prop = ($('benNewProp') && $('benNewProp').value || '').trim();
+  const opl = ($('benNewOpl') && $('benNewOpl').value || '').trim();
+  if (!prop || !opl) { showBenAlert('warn', 'Completa los dos campos.'); return; }
+  await guardarBeneficioOpl(prop, opl);
+  if ($('benNewProp')) $('benNewProp').value = '';
+  if ($('benNewOpl')) $('benNewOpl').value = '';
+}
 
 // ═══════════════════════════════════════════════════
 // MÓDULO DESPACHOS

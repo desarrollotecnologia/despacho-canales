@@ -3120,6 +3120,215 @@ def post_opl_asignar(propietario: str, opl: str):
     return res
 
 
+# ─── Beneficio (plan de faena / insensibilizado) — aparte de Despacho ───
+
+def _beneficio_fecha_plan(fecha_plan: Optional[str] = None) -> str:
+    return (fecha_plan or date.today().isoformat())[:10]
+
+
+@app.get("/api/beneficio")
+def get_beneficio(fecha_plan: Optional[str] = None):
+    """Resumen del plan de faena: planificados vs ya insensibilizados (solo SIRT)."""
+    fecha = _beneficio_fecha_plan(fecha_plan)
+    rows = safe_query(
+        """
+        WITH animales AS (
+            SELECT DISTINCT pfp.id_producto
+            FROM trazabilidad_proceso.plan_faena pf
+            JOIN trazabilidad_proceso.plan_faena_producto pfp
+              ON pfp.id_plan_faena = pf.id
+            WHERE pf.fecha_plan = %s
+        ),
+        base AS (
+            SELECT
+                a.id_producto,
+                COALESCE(NULLIF(TRIM(e.nombre), ''), '(sin propietario)') AS cliente,
+                p.fecha_insensibilizacion
+            FROM animales a
+            LEFT JOIN trazabilidad_proceso.producto p ON p.id = a.id_producto
+            LEFT JOIN trazabilidad_proceso.producto_empresa pe
+              ON pe.id_producto = a.id_producto AND pe.activo = true
+            LEFT JOIN organizaciones.empresa e ON e.id = pe.id_empresa
+        )
+        SELECT
+            cliente,
+            COUNT(*)::int AS animales_plan,
+            COUNT(fecha_insensibilizacion)::int AS animales_insensibilizados,
+            (COUNT(*) - COUNT(fecha_insensibilizacion))::int AS animales_pendientes,
+            MIN(fecha_insensibilizacion) AS primera_ins,
+            MAX(fecha_insensibilizacion) AS ultima_ins
+        FROM base
+        GROUP BY cliente
+        ORDER BY animales_plan DESC, cliente
+        """,
+        (fecha,),
+        "beneficio.resumen",
+    )
+    cfg = apps_script_local.getBeneficioOplConfig()
+    clientes = []
+    por_opl: dict = {}
+    tot_plan = tot_ins = tot_pend = 0
+    primera = None
+    ultima = None
+    for r in rows or []:
+        cliente = (r.get("cliente") or "(sin propietario)").strip()
+        plan_n = int(r.get("animales_plan") or 0)
+        ins_n = int(r.get("animales_insensibilizados") or 0)
+        pend_n = int(r.get("animales_pendientes") or 0)
+        opl = apps_script_local.resolver_opl_beneficio(cliente)
+        item = {
+            "cliente": cliente,
+            "opl": opl,
+            "animales_plan": plan_n,
+            "animales_insensibilizados": ins_n,
+            "animales_pendientes": pend_n,
+            "canales_plan": plan_n,
+            "canales_insensibilizados": ins_n,
+            "canales_pendientes": pend_n,
+            "primera_ins": str(r["primera_ins"]) if r.get("primera_ins") else None,
+            "ultima_ins": str(r["ultima_ins"]) if r.get("ultima_ins") else None,
+        }
+        clientes.append(item)
+        tot_plan += plan_n
+        tot_ins += ins_n
+        tot_pend += pend_n
+        if r.get("primera_ins") and (primera is None or r["primera_ins"] < primera):
+            primera = r["primera_ins"]
+        if r.get("ultima_ins") and (ultima is None or r["ultima_ins"] > ultima):
+            ultima = r["ultima_ins"]
+        g = por_opl.setdefault(opl, {
+            "opl": opl,
+            "clientes": 0,
+            "animales_plan": 0,
+            "animales_insensibilizados": 0,
+            "animales_pendientes": 0,
+        })
+        g["clientes"] += 1
+        g["animales_plan"] += plan_n
+        g["animales_insensibilizados"] += ins_n
+        g["animales_pendientes"] += pend_n
+    for g in por_opl.values():
+        g["canales_plan"] = g["animales_plan"]
+        g["canales_insensibilizados"] = g["animales_insensibilizados"]
+        g["canales_pendientes"] = g["animales_pendientes"]
+        g["progreso_pct"] = round(100.0 * g["animales_insensibilizados"] / g["animales_plan"], 1) if g["animales_plan"] else 0.0
+    pct = round(100.0 * tot_ins / tot_plan, 1) if tot_plan else 0.0
+    return {
+        "success": True,
+        "fecha_plan": fecha,
+        "totales": {
+            "animales_plan": tot_plan,
+            "animales_insensibilizados": tot_ins,
+            "animales_pendientes": tot_pend,
+            "canales_plan": tot_plan,
+            "canales_insensibilizados": tot_ins,
+            "canales_pendientes": tot_pend,
+            "progreso_pct": pct,
+            "primera_ins": str(primera) if primera else None,
+            "ultima_ins": str(ultima) if ultima else None,
+        },
+        "por_opl": sorted(por_opl.values(), key=lambda x: (-x["animales_plan"], x["opl"])),
+        "clientes": clientes,
+        "opls": cfg.get("opls") or [apps_script_local.OPL_DEFAULT],
+    }
+
+
+@app.get("/api/beneficio/detalle")
+def get_beneficio_detalle(fecha_plan: Optional[str] = None, cliente: Optional[str] = None, opl: Optional[str] = None):
+    """Detalle por animal del plan de faena (solo lectura SIRT)."""
+    fecha = _beneficio_fecha_plan(fecha_plan)
+    rows = safe_query(
+        """
+        WITH animales AS (
+            SELECT DISTINCT pfp.id_producto, MIN(pfp.secuencia) AS secuencia
+            FROM trazabilidad_proceso.plan_faena pf
+            JOIN trazabilidad_proceso.plan_faena_producto pfp
+              ON pfp.id_plan_faena = pf.id
+            WHERE pf.fecha_plan = %s
+            GROUP BY pfp.id_producto
+        )
+        SELECT
+            a.id_producto AS codigo_animal,
+            a.secuencia,
+            COALESCE(NULLIF(TRIM(e.nombre), ''), '(sin propietario)') AS cliente,
+            p.fecha_insensibilizacion,
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = 4)::int AS mc1,
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = 5)::int AS mc2
+        FROM animales a
+        LEFT JOIN trazabilidad_proceso.producto p ON p.id = a.id_producto
+        LEFT JOIN trazabilidad_proceso.producto_empresa pe
+          ON pe.id_producto = a.id_producto AND pe.activo = true
+        LEFT JOIN organizaciones.empresa e ON e.id = pe.id_empresa
+        LEFT JOIN trazabilidad_proceso.parte_producto pp
+          ON pp.id_producto = a.id_producto AND pp.id_tipo_parte_producto IN (4, 5)
+        GROUP BY a.id_producto, a.secuencia, e.nombre, p.fecha_insensibilizacion
+        ORDER BY (p.fecha_insensibilizacion IS NULL), p.fecha_insensibilizacion NULLS LAST,
+                 a.secuencia NULLS LAST, a.id_producto
+        """,
+        (fecha,),
+        "beneficio.detalle",
+    )
+    cliente_f = (cliente or "").strip().upper()
+    opl_f = (opl or "").strip().upper()
+    out = []
+    for r in rows or []:
+        cli = (r.get("cliente") or "(sin propietario)").strip()
+        opl_cli = apps_script_local.resolver_opl_beneficio(cli)
+        if cliente_f and cli.upper() != cliente_f:
+            continue
+        if opl_f and opl_cli.upper() != opl_f:
+            continue
+        ts = r.get("fecha_insensibilizacion")
+        out.append({
+            "codigo_animal": r.get("codigo_animal"),
+            "secuencia": r.get("secuencia"),
+            "cliente": cli,
+            "opl": opl_cli,
+            "fecha_insensibilizacion": str(ts) if ts else None,
+            "estado": "Insensibilizado" if ts else "Pendiente",
+            "mc1": int(r.get("mc1") or 0),
+            "mc2": int(r.get("mc2") or 0),
+        })
+    return {
+        "success": True,
+        "fecha_plan": fecha,
+        "cliente": cliente,
+        "opl": opl,
+        "total": len(out),
+        "animales": out,
+    }
+
+
+@app.get("/api/beneficio/opl/propietarios")
+def get_beneficio_opl_propietarios(fecha_plan: Optional[str] = None):
+    """Propietarios del plan con su OPL de Beneficio (para Configuración)."""
+    data = get_beneficio(fecha_plan=fecha_plan)
+    cfg = apps_script_local.getBeneficioOplConfig()
+    resultado = [
+        {
+            "propietario": c["cliente"],
+            "canales": c["canales_plan"],
+            "animales": c["animales_plan"],
+            "insensibilizados": c["animales_insensibilizados"],
+            "pendientes": c["animales_pendientes"],
+            "opl": c["opl"],
+        }
+        for c in data.get("clientes") or []
+    ]
+    return {
+        "success": True,
+        "fecha_plan": data.get("fecha_plan"),
+        "opls": cfg.get("opls") or [apps_script_local.OPL_DEFAULT],
+        "resultado": resultado,
+    }
+
+
+@app.post("/api/beneficio/opl/asignar")
+def post_beneficio_opl_asignar(propietario: str, opl: str):
+    """Asigna propietario → OPL solo para el módulo Beneficio."""
+    return apps_script_local.upsertBeneficioOpl(propietario, opl)
+
+
 @app.post("/api/asignado/recalcular")
 def post_asignado_recalcular(fecha: Optional[str] = None):
     """Reinicia la meta congelada del día (p. ej. tras cancelaciones reales)."""

@@ -20,6 +20,14 @@ CREATE TABLE IF NOT EXISTS opl_propietario (
     updated_at VARCHAR(32) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS beneficio_opl_propietario (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    propietario VARCHAR(191) NOT NULL UNIQUE,
+    opl VARCHAR(191) NOT NULL,
+    extra INT NOT NULL DEFAULT 0,
+    updated_at VARCHAR(32) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS opl_particular (
     opl VARCHAR(191) PRIMARY KEY,
     orden INT NOT NULL,
