@@ -885,13 +885,13 @@
       <button class="tab-btn" id="benBtnConfig" type="button" onclick="switchBenTab('benTabConfig');cargarConfigBeneficioOpl()">⚙️ Configuración</button>
     </div>
     <div id="benTabResumen">
-      <p style="font-size:0.8rem;color:var(--gris);margin-bottom:0.55rem;">Resumen de planillados del plan (como el total del día). Clic en un cliente para ver animales.</p>
+      <p style="font-size:0.8rem;color:var(--gris);margin-bottom:0.55rem;">Agrupado por OPL. Clic en el OPL para ver sus clientes; clic en un cliente para ver animales.</p>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>OPL</th>
-              <th>Cliente</th>
+              <th>OPL / Cliente</th>
+              <th class="num">Clientes</th>
               <th class="num">Canales</th>
             </tr>
           </thead>
@@ -1867,7 +1867,7 @@ document.addEventListener('click', (e) => {
 // ═══════════════════════════════════════════════════
 // BENEFICIO (plan de faena / insensibilizado)
 // ═══════════════════════════════════════════════════
-const BEN = { data: null, detalle: null };
+const BEN = { data: null, detalle: null, abiertos: new Set() };
 
 function switchBenTab(id) {
   ['benTabResumen', 'benTabDetalle', 'benTabConfig'].forEach(t => {
@@ -1943,28 +1943,73 @@ function renderBeneficio() {
     tb.innerHTML = '<tr><td colspan="3" class="empty-state">Sin planillados en el plan de esa fecha.</td></tr>';
     return;
   }
-  const totFiltrado = rows.reduce((s, c) => s + (c.canales_plan || 0), 0);
-  tb.innerHTML = rows.map((c, i) => {
-    return `<tr style="cursor:pointer;" title="Ver detalle de animales" data-ben-cli="${i}" onclick="verDetalleBeneficioIdx(this)">
-      <td><span class="badge-opl${c.opl === 'TRANSCARNES' ? ' default' : ''}">${escHtml(c.opl)}</span></td>
-      <td style="font-weight:600;">${escHtml(c.cliente)}</td>
-      <td class="num" style="font-weight:800;">${c.canales_plan}</td>
+
+  // Agrupar por OPL: un renglón por OPL; al expandir salen sus clientes.
+  const grupos = [];
+  const idx = {};
+  rows.forEach(c => {
+    const opl = c.opl || 'TRANSCARNES';
+    if (idx[opl] == null) {
+      idx[opl] = grupos.length;
+      grupos.push({ opl, clientes: [], canales: 0 });
+    }
+    const g = grupos[idx[opl]];
+    g.clientes.push(c);
+    g.canales += Number(c.canales_plan || 0);
+  });
+  grupos.sort((a, b) => b.canales - a.canales || a.opl.localeCompare(b.opl));
+  // Si hay filtro de un solo OPL, déjalo abierto.
+  if (filtro) BEN.abiertos.add(filtro);
+
+  const totFiltrado = grupos.reduce((s, g) => s + g.canales, 0);
+  tb.innerHTML = grupos.map((g, gi) => {
+    const open = BEN.abiertos.has(g.opl);
+    const flecha = open ? '▼' : '▶';
+    let html = `<tr style="cursor:pointer;background:${open ? '#eff6ff' : '#f8fafc'};" title="Ver clientes del OPL" onclick="toggleBeneficioOpl(${gi})">
+      <td style="font-weight:800;">
+        <span style="display:inline-block;width:1.1rem;color:var(--vp);">${flecha}</span>
+        <span class="badge-opl${g.opl === 'TRANSCARNES' ? ' default' : ''}">${escHtml(g.opl)}</span>
+      </td>
+      <td class="num">${g.clientes.length}</td>
+      <td class="num" style="font-weight:800;">${g.canales}</td>
     </tr>`;
+    if (open) {
+      html += g.clientes
+        .slice()
+        .sort((a, b) => (b.canales_plan || 0) - (a.canales_plan || 0) || String(a.cliente).localeCompare(String(b.cliente)))
+        .map((c, ci) => `<tr style="cursor:pointer;" title="Ver animales del cliente" data-ben-opl="${gi}" data-ben-cli="${ci}" onclick="verDetalleBeneficioClienteIdx(this)">
+          <td style="padding-left:2.2rem;font-weight:600;color:#334155;">${escHtml(c.cliente)}</td>
+          <td class="num" style="color:var(--gris);">—</td>
+          <td class="num">${c.canales_plan}</td>
+        </tr>`).join('');
+    }
+    return html;
   }).join('');
+  BEN._grupos = grupos;
   if (tf) {
     tf.innerHTML = `<tr style="background:#ecfdf5;font-weight:800;">
-      <td colspan="2">Total canales planillados${filtro ? ' · ' + escHtml(filtro) : ''}</td>
+      <td>Total canales planillados${filtro ? ' · ' + escHtml(filtro) : ''} · ${grupos.length} OPL</td>
+      <td class="num">${rows.length}</td>
       <td class="num">${totFiltrado}</td>
     </tr>`;
   }
 }
 
-function verDetalleBeneficioIdx(tr) {
-  const i = Number(tr.getAttribute('data-ben-cli'));
-  const c = (BEN.data && BEN.data.clientes || []).filter(x => {
-    const f = ($('benFiltroOpl') && $('benFiltroOpl').value) || '';
-    return !f || x.opl === f;
-  })[i];
+function toggleBeneficioOpl(gi) {
+  const g = BEN._grupos && BEN._grupos[gi];
+  if (!g) return;
+  if (BEN.abiertos.has(g.opl)) BEN.abiertos.delete(g.opl);
+  else BEN.abiertos.add(g.opl);
+  renderBeneficio();
+}
+
+function verDetalleBeneficioClienteIdx(tr) {
+  const gi = Number(tr.getAttribute('data-ben-opl'));
+  const ci = Number(tr.getAttribute('data-ben-cli'));
+  const g = BEN._grupos && BEN._grupos[gi];
+  if (!g) return;
+  const sorted = g.clientes.slice().sort((a, b) => (b.canales_plan || 0) - (a.canales_plan || 0) || String(a.cliente).localeCompare(String(b.cliente)));
+  const c = sorted[ci];
   if (c) verDetalleBeneficioCliente(c.cliente);
 }
 
