@@ -888,17 +888,16 @@
     </div>
     <div id="benTabResumen">
       <p style="font-size:0.8rem;color:var(--gris);margin-bottom:0.55rem;">Agrupado por OPL. Clic en el OPL para ver sus clientes; clic en un cliente para ver animales.</p>
-      <div class="table-wrap">
+      <div class="table-wrap" style="max-width:520px;">
         <table>
           <thead>
             <tr>
               <th>OPL / Cliente</th>
-              <th class="num">Clientes</th>
-              <th class="num">Canales</th>
+              <th class="num" style="width:7rem;">Canales</th>
             </tr>
           </thead>
           <tbody id="benResumenBody">
-            <tr><td colspan="3" class="empty-state">Elige fecha del plan y actualiza.</td></tr>
+            <tr><td colspan="2" class="empty-state">Elige fecha del plan y actualiza.</td></tr>
           </tbody>
           <tfoot id="benResumenFoot"></tfoot>
         </table>
@@ -1915,7 +1914,7 @@ async function cargarBeneficio(force) {
   } catch (e) {
     alertErr('Beneficio: ' + e.message);
     const tb = $('benResumenBody');
-    if (tb) tb.innerHTML = `<tr><td colspan="3" class="empty-state" style="color:#991b1b;">${escHtml(e.message)}</td></tr>`;
+    if (tb) tb.innerHTML = `<tr><td colspan="2" class="empty-state" style="color:#991b1b;">${escHtml(e.message)}</td></tr>`;
   } finally {
     hideSpinner();
   }
@@ -1942,7 +1941,7 @@ function renderBeneficio() {
   if (!tb) return;
   if (tf) tf.innerHTML = '';
   if (!rows.length) {
-    tb.innerHTML = '<tr><td colspan="3" class="empty-state">Sin planillados en el plan de esa fecha.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="2" class="empty-state">Sin planillados en el plan de esa fecha.</td></tr>';
     return;
   }
 
@@ -1972,7 +1971,6 @@ function renderBeneficio() {
         <span style="display:inline-block;width:1.1rem;color:var(--vp);">${flecha}</span>
         <span class="badge-opl${g.opl === 'TRANSCARNES' ? ' default' : ''}">${escHtml(g.opl)}</span>
       </td>
-      <td class="num">${g.clientes.length}</td>
       <td class="num" style="font-weight:800;">${g.canales}</td>
     </tr>`;
     if (open) {
@@ -1981,7 +1979,6 @@ function renderBeneficio() {
         .sort((a, b) => (b.canales_plan || 0) - (a.canales_plan || 0) || String(a.cliente).localeCompare(String(b.cliente)))
         .map((c, ci) => `<tr style="cursor:pointer;" title="Ver animales del cliente" data-ben-opl="${gi}" data-ben-cli="${ci}" onclick="verDetalleBeneficioClienteIdx(this)">
           <td style="padding-left:2.2rem;font-weight:600;color:#334155;">${escHtml(c.cliente)}</td>
-          <td class="num" style="color:var(--gris);">—</td>
           <td class="num">${c.canales_plan}</td>
         </tr>`).join('');
     }
@@ -1991,7 +1988,6 @@ function renderBeneficio() {
   if (tf) {
     tf.innerHTML = `<tr style="background:#ecfdf5;font-weight:800;">
       <td>Total planillados${filtro ? ' · ' + escHtml(filtro) : ''} · ${grupos.length} OPL</td>
-      <td class="num">${rows.length}</td>
       <td class="num">${totFiltrado}</td>
     </tr>`;
   }
