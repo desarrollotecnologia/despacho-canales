@@ -1143,11 +1143,15 @@ def consultar_canales_planilla(
             pp.observaciones                        AS observaciones,
             s.nombre                                AS sucursal_origen,
             s.direccion                             AS direccion_entrega,
-            de.nombre                               AS destino_real
+            de.nombre                               AS destino_real,
+            prod.peso_media_canal_1                 AS peso_media_canal_1,
+            prod.peso_media_canal_2                 AS peso_media_canal_2
         FROM actuales pp
         JOIN trazabilidad_proceso.tipo_parte_producto tpp ON tpp.id = pp.id_tipo_parte_producto
         LEFT JOIN trazabilidad_proceso.cava c ON c.id = pp.movimiento_id_cava
         LEFT JOIN trazabilidad_proceso.riel r ON r.id = pp.movimiento_id_riel
+        LEFT JOIN trazabilidad_proceso.producto prod
+            ON prod.id::text = pp.id_producto::text
         {SQL_JOINS_PROGRAMADO}
         ORDER BY pp.id_producto, pp.id, e3.nombre NULLS LAST, c.orden NULLS LAST, r.nombre
     """
@@ -1168,6 +1172,13 @@ def consultar_canales_planilla(
         r["destino"] = r.get("zona") or ""
         r["fecha_programacion"] = fecha_filtro
         _marcar_estado_pieza(r, fecha_filtro)
+        id_tipo = int(r.get("id_tipo") or 0)
+        if id_tipo == ID_MC1:
+            r["peso"] = r.get("peso_media_canal_1")
+        elif id_tipo == ID_MC2:
+            r["peso"] = r.get("peso_media_canal_2")
+        else:
+            r["peso"] = None
     data.sort(key=lambda x: (
         0 if x.get("en_cava") else 1,
         str(x.get("zona") or "").upper(),
@@ -1188,7 +1199,7 @@ def obtener_piezas_programadas(
     incluir_despachadas=False → solo en cava (despachos / reetiquetado).
     incluir_despachadas=True → foto del día (planilla / Excel con Estado).
     """
-    ck = ("programados", fecha_filtro, turno, "v7_igual_progreso", bool(incluir_despachadas))
+    ck = ("programados", fecha_filtro, turno, "v8_con_peso", bool(incluir_despachadas))
     hit = cache_get(ck)
     if hit is not None:
         return hit
@@ -1660,11 +1671,13 @@ def _escribir_hoja_excel_opl(
         ("Destino SIRT", 60, lambda r, a: destino_sirt_completo(r, turno)),
         ("Temprana", 11, lambda r, a: marcador_destino_temp(r.get("destino_real"), r.get("opl") or opl)),
         ("Estado", 12, lambda r, a: r.get("estado") or _estado_pieza(r)),
+        ("Peso", 10, lambda r, a: r.get("peso") if r.get("peso") not in (None, "") else ""),
         ("Tipo", 12, lambda r, a: "Adicional" if a.get("adicional") else "Normal"),
         ("Hora asignación", 16, lambda r, a: a.get("hora") or ""),
     ]
     col_temprana = next(i for i, c in enumerate(columnas, 1) if c[0] == "Temprana")
     col_estado = next(i for i, c in enumerate(columnas, 1) if c[0] == "Estado")
+    col_peso = next(i for i, c in enumerate(columnas, 1) if c[0] == "Peso")
     col_destino = next(i for i, c in enumerate(columnas, 1) if c[0] == "Destino SIRT")
     ncol = len(columnas)
     ultima = get_column_letter(ncol)
@@ -1736,6 +1749,7 @@ def _escribir_hoja_excel_opl(
                 cell.fill = fill
         ws.cell(idx, col_destino).alignment = Alignment(wrap_text=True, vertical="center")
         ws.cell(idx, col_estado).alignment = Alignment(horizontal="center")
+        ws.cell(idx, col_peso).alignment = Alignment(horizontal="center")
         if temp and est != "Despachado":
             c = ws.cell(idx, col_temprana)
             c.fill = rojo
