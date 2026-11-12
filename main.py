@@ -1891,6 +1891,152 @@ def get_tipos_canal():
 
 
 # ═══════════════════════════════════════════════════════
+# INVENTARIO × CAVAS — ocupación (solo lectura)
+# Capacidad fija (SIRT no la trae). Stock = movimiento abierto.
+# ═══════════════════════════════════════════════════════
+# Orden y capacidad como la planilla operativa (sin Cuartos de Canal).
+CAVA_CAPACIDADES = [
+    ("Cava de Pre-refrigeración", 75),
+    ("Cava 1", 90),
+    ("Cava 2", 75),
+    ("Cava 3", 90),
+    ("Cava 4", 90),
+    ("Cava 5", 160),
+    ("Cava 6A", 100),
+    ("Cava 6B", 100),
+    ("Cava 7", 100),
+    ("Cava 8", 100),
+    ("Cava 9", 107),
+    ("Cava 10", 100),
+]
+
+
+def _norm_cava_nombre(nombre: str) -> str:
+    txt = (nombre or "").strip().upper()
+    # Unifica acentos / variantes de escritura de Pre-refrigeración.
+    repl = (
+        ("Á", "A"), ("É", "E"), ("Í", "I"), ("Ó", "O"), ("Ú", "U"), ("Ü", "U"), ("Ñ", "N"),
+    )
+    for a, b in repl:
+        txt = txt.replace(a, b)
+    txt = re.sub(r"\s+", " ", txt)
+    return txt
+
+
+def _clave_cava_inventario(nombre: str) -> Optional[str]:
+    """Clave estable para emparejar SIRT ↔ capacidades (evita Cava 1 ⊂ Cava 10)."""
+    key = _norm_cava_nombre(nombre)
+    if not key:
+        return None
+    if "PRE-REFRIGERACION" in key or "PREREFRIGERACION" in key or "PRE REFRIGERACION" in key:
+        return "PRE_REFRI"
+    m = re.search(r"\bCAVA\s*(\d+)\s*([A-Z])?\b", key)
+    if m:
+        return f"CAVA_{m.group(1)}{(m.group(2) or '').upper()}"
+    return None
+
+
+@app.get("/api/inventario_cavas")
+def get_inventario_cavas(refresh: Optional[str] = None):
+    """
+    Ocupación actual por cava (solo lectura).
+    Cuenta medias MC1/MC2 con movimiento abierto (aún en cava).
+    Lo ya despachado no entra. Capacidad fija en código (no editable).
+    """
+    ck = ("inventario_cavas", "v2_ocupacion")
+    if not es_refresh(refresh):
+        hit = cache_get(ck)
+        if hit is not None:
+            return hit
+
+    rows = safe_query(
+        """
+        SELECT
+            c.id AS id_cava,
+            c.nombre AS cava,
+            c.orden AS cava_orden,
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = 4)::int AS mc1,
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = 5)::int AS mc2,
+            COUNT(*)::int AS medias
+        FROM trazabilidad_proceso.parte_producto_cava_riel ppcr
+        JOIN trazabilidad_proceso.parte_producto pp
+          ON pp.id = ppcr.id_parte_producto
+         AND pp.id_producto::text = ppcr.id_producto::text
+        JOIN trazabilidad_proceso.cava c
+          ON c.id = ppcr.id_cava
+        WHERE ppcr.fecha_salida IS NULL
+          AND pp.id_tipo_parte_producto IN %s
+        GROUP BY c.id, c.nombre, c.orden
+        ORDER BY c.orden NULLS LAST, c.nombre
+        """,
+        (IDS_CANAL,),
+        "inventario_cavas",
+    )
+
+    stock_por_clave = {}
+    for r in rows or []:
+        nom = (r.get("cava") or "").strip()
+        clave = _clave_cava_inventario(nom)
+        if not clave:
+            continue
+        prev = stock_por_clave.get(clave)
+        entry = {
+            "cava": nom,
+            "mc1": int(r.get("mc1") or 0),
+            "mc2": int(r.get("mc2") or 0),
+            "medias": int(r.get("medias") or 0),
+            "orden": r.get("cava_orden"),
+        }
+        if prev:
+            entry["mc1"] += prev["mc1"]
+            entry["mc2"] += prev["mc2"]
+            entry["medias"] += prev["medias"]
+        stock_por_clave[clave] = entry
+
+    filas = []
+    for nom_cfg, capacidad in CAVA_CAPACIDADES:
+        clave = _clave_cava_inventario(nom_cfg)
+        st = stock_por_clave.get(clave or "") or {}
+        medias = int(st.get("medias") or 0)
+        canales = round(medias / 2.0, 1)
+        cap = int(capacidad)
+        pct = round((canales / cap) * 100) if cap else 0
+        filas.append({
+            "cava": st.get("cava") or nom_cfg,
+            "capacidad": cap,
+            "medias": medias,
+            "mc1": int(st.get("mc1") or 0),
+            "mc2": int(st.get("mc2") or 0),
+            "canales": canales,
+            "participacion_pct": pct,
+        })
+
+    tot_cap = sum(f["capacidad"] for f in filas)
+    tot_medias = sum(f["medias"] for f in filas)
+    tot_canales = round(tot_medias / 2.0, 1)
+    tot_pct = round((tot_canales / tot_cap) * 100) if tot_cap else 0
+    disponibilidad = round(tot_cap - tot_canales, 1)
+    libre_pct = max(0, round(100 - tot_pct))
+
+    payload = {
+        "success": True,
+        "solo_lectura": True,
+        "generado_en": datetime.now().isoformat(timespec="seconds"),
+        "filas": filas,
+        "totales": {
+            "capacidad": tot_cap,
+            "medias": tot_medias,
+            "canales": tot_canales,
+            "participacion_pct": tot_pct,
+            "disponibilidad_canales": disponibilidad,
+            "disponibilidad_pct": libre_pct,
+        },
+    }
+    cache_set(ck, payload)
+    return payload
+
+
+# ═══════════════════════════════════════════════════════
 # CAVAS — canales en cava a una fecha dada
 # ═══════════════════════════════════════════════════════
 @app.get("/api/cavas")
