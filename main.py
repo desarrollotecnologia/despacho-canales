@@ -1145,7 +1145,9 @@ def consultar_canales_planilla(
             s.direccion                             AS direccion_entrega,
             de.nombre                               AS destino_real,
             prod.peso_media_canal_1                 AS peso_media_canal_1,
-            prod.peso_media_canal_2                 AS peso_media_canal_2
+            prod.peso_media_canal_2                 AS peso_media_canal_2,
+            prod.peso_animal_pie                    AS peso_pie,
+            prod.sexo                               AS sexo
         FROM actuales pp
         JOIN trazabilidad_proceso.tipo_parte_producto tpp ON tpp.id = pp.id_tipo_parte_producto
         LEFT JOIN trazabilidad_proceso.cava c ON c.id = pp.movimiento_id_cava
@@ -1173,6 +1175,7 @@ def consultar_canales_planilla(
         r["fecha_programacion"] = fecha_filtro
         _marcar_estado_pieza(r, fecha_filtro)
         id_tipo = int(r.get("id_tipo") or 0)
+        r["descripcion"] = tipo_canal_label(id_tipo)
         if id_tipo == ID_MC1:
             r["peso"] = r.get("peso_media_canal_1")
         elif id_tipo == ID_MC2:
@@ -1199,7 +1202,7 @@ def obtener_piezas_programadas(
     incluir_despachadas=False → solo en cava (despachos / reetiquetado).
     incluir_despachadas=True → foto del día (planilla / Excel con Estado).
     """
-    ck = ("programados", fecha_filtro, turno, "v8_con_peso", bool(incluir_despachadas))
+    ck = ("programados", fecha_filtro, turno, "v9_sexo_pie_desc", bool(incluir_despachadas))
     hit = cache_get(ck)
     if hit is not None:
         return hit
@@ -1288,6 +1291,7 @@ def _fila_excel_a_pieza(fila: list, fecha: str) -> Optional[dict]:
     pieza = {
         "codigo": codigo_raw,
         "id_tipo": id_tipo,
+        "descripcion": tipo_canal_label(id_tipo),
         "propietario": prop,
         "cava": cava,
         "riel": riel,
@@ -1302,6 +1306,9 @@ def _fila_excel_a_pieza(fila: list, fecha: str) -> Optional[dict]:
         "observaciones": str((fila[14] if len(fila) > 14 else "") or "").strip(),
         "origen": "adicional",
         "fecha_adicional": fecha,
+        "peso": None,
+        "peso_pie": None,
+        "sexo": None,
     }
     enriquecer_codigo(pieza)
     pieza["opl"] = resolver_opl_de_propietario(prop)
@@ -1671,7 +1678,10 @@ def _escribir_hoja_excel_opl(
         ("Destino SIRT", 60, lambda r, a: destino_sirt_completo(r, turno)),
         ("Temprana", 11, lambda r, a: marcador_destino_temp(r.get("destino_real"), r.get("opl") or opl)),
         ("Estado", 12, lambda r, a: r.get("estado") or _estado_pieza(r)),
+        ("Descripción", 16, lambda r, a: r.get("descripcion") or r.get("sufijo") or tipo_canal_label(int(r.get("id_tipo") or 0))),
         ("Peso", 10, lambda r, a: r.get("peso") if r.get("peso") not in (None, "") else ""),
+        ("Peso en pie", 12, lambda r, a: r.get("peso_pie") if r.get("peso_pie") not in (None, "") else ""),
+        ("Sexo", 10, lambda r, a: r.get("sexo") or ""),
         ("Tipo", 12, lambda r, a: "Adicional" if a.get("adicional") else "Normal"),
         ("Hora asignación", 16, lambda r, a: a.get("hora") or ""),
     ]
