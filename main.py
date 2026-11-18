@@ -1904,27 +1904,30 @@ def get_tipos_canal():
 # INVENTARIO × CAVAS — ocupación (solo lectura)
 # Capacidad fija (SIRT no la trae). Stock = movimiento abierto.
 # ═══════════════════════════════════════════════════════
-# Capacidades = planilla «Participación de canales por cava» (hoja Resumen).
+# Capacidades operativas Inventario × Cavas.
 # Fórmulas (sin usar Cuartos de Canal):
 #   Canales en inventario = Medias / 2
 #   Participación         = Canales / Capacidad
 #   Total participación   = Total canales / Total capacidad
 #   Disponibilidad        = Total capacidad − Total canales
 #   % libre               = Disponibilidad / Total capacidad
+# Pre-refrigeración y Cava 7 se muestran en la tabla, pero no entran al total de capacidad
+# ni al inventario usado en totales / disponibilidad.
 CAVA_CAPACIDADES = [
     ("Cava de Pre-refrigeración", 200),
     ("Cava 1", 160),
     ("Cava 2", 160),
     ("Cava 3", 160),
     ("Cava 4", 144),
-    ("Cava 5", 168),
-    ("Cava 6A", 84),
-    ("Cava 6B", 84),
+    ("Cava 5", 160),
+    ("Cava 6A", 80),
+    ("Cava 6B", 80),
     ("Cava 7", 144),
     ("Cava 8", 80),
     ("Cava 9", 90),
     ("Cava 10", 75),
 ]
+CAVAS_EXCLUIDAS_TOTAL_CAP = frozenset({"PRE_REFRI", "CAVA_7"})
 
 
 def _norm_cava_nombre(nombre: str) -> str:
@@ -1959,7 +1962,7 @@ def get_inventario_cavas(refresh: Optional[str] = None):
     Cuenta medias MC1/MC2 con movimiento abierto (aún en cava).
     Lo ya despachado no entra. Capacidad fija en código (no editable).
     """
-    ck = ("inventario_cavas", "v3_caps_planilla")
+    ck = ("inventario_cavas", "v4_caps_excl_preref_c7")
     if not es_refresh(refresh):
         hit = cache_get(ck)
         if hit is not None:
@@ -2015,6 +2018,8 @@ def get_inventario_cavas(refresh: Optional[str] = None):
         return round((float(numer) / float(denom)) * 100, 1)
 
     filas = []
+    tot_cap = 0
+    tot_medias = 0
     for nom_cfg, capacidad in CAVA_CAPACIDADES:
         clave = _clave_cava_inventario(nom_cfg)
         st = stock_por_clave.get(clave or "") or {}
@@ -2023,6 +2028,10 @@ def get_inventario_cavas(refresh: Optional[str] = None):
         canales = medias / 2.0
         cap = int(capacidad)
         pct = _pct(canales, cap)
+        cuenta_en_total = clave not in CAVAS_EXCLUIDAS_TOTAL_CAP
+        if cuenta_en_total:
+            tot_cap += cap
+            tot_medias += medias
         filas.append({
             "cava": st.get("cava") or nom_cfg,
             "capacidad": cap,
@@ -2031,13 +2040,12 @@ def get_inventario_cavas(refresh: Optional[str] = None):
             "mc2": int(st.get("mc2") or 0),
             "canales": canales if canales != int(canales) else int(canales),
             "participacion_pct": pct,
+            "cuenta_en_total": cuenta_en_total,
         })
 
-    tot_cap = sum(f["capacidad"] for f in filas)
-    tot_medias = sum(f["medias"] for f in filas)
     tot_canales = tot_medias / 2.0
     tot_pct = _pct(tot_canales, tot_cap)
-    # Planilla: Disponibilidad = Capacidad − Inventario
+    # Disponibilidad = Capacidad (sin Pre-refri ni Cava 7) − Inventario de esas mismas cavas
     disponibilidad = tot_cap - tot_canales
     libre_pct = _pct(disponibilidad, tot_cap)
 
