@@ -194,6 +194,16 @@ CREATE TABLE IF NOT EXISTS override_pieza (
 );
 CREATE INDEX IF NOT EXISTS idx_override_pieza_fecha_codigo
     ON override_pieza(fecha, codigo);
+
+CREATE TABLE IF NOT EXISTS inventario_cavas_snapshot (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    momento TEXT NOT NULL,
+    guardado_en TEXT NOT NULL,
+    origen TEXT NOT NULL DEFAULT 'ahora',
+    payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_inv_cavas_snap_momento
+    ON inventario_cavas_snapshot(momento);
 """
 
 MYSQL_SCHEMA_SQL = """
@@ -274,6 +284,15 @@ CREATE TABLE IF NOT EXISTS override_pieza (
     motivo TEXT,
     created_at VARCHAR(32) NOT NULL,
     INDEX idx_override_pieza_fecha_codigo (fecha, codigo)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventario_cavas_snapshot (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    momento VARCHAR(32) NOT NULL,
+    guardado_en VARCHAR(32) NOT NULL,
+    origen VARCHAR(32) NOT NULL DEFAULT 'ahora',
+    payload LONGTEXT NOT NULL,
+    INDEX idx_inv_cavas_snap_momento (momento)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 """
 
@@ -1261,6 +1280,121 @@ def append_historico(item: Any, fecha: Optional[str] = None) -> None:
         )
 
 
+# ─── Inventario × Cavas (historial propio) ───────────────────────
+
+_INV_CAVAS_KEEP = 400
+
+
+def save_inventario_cavas_snapshot(
+    momento: str,
+    payload: Dict[str, Any],
+    origen: str = "ahora",
+    min_minutes: int = 0,
+) -> Optional[Dict[str, Any]]:
+    """
+    Guarda foto de inventario en gestor_canales.
+    Si min_minutes > 0 y ya hay un snapshot del mismo momento (mismo minuto)
+    o uno reciente del mismo origen 'ahora', omite el insert.
+    """
+    momento = (momento or "").strip()
+    if not momento or not isinstance(payload, dict):
+        return None
+    origen = (origen or "ahora").strip() or "ahora"
+    with get_conn() as conn:
+        if min_minutes > 0:
+            row = conn.execute(
+                """
+                SELECT id, momento, guardado_en, origen
+                FROM inventario_cavas_snapshot
+                ORDER BY id DESC LIMIT 1
+                """
+            ).fetchone()
+            if row:
+                try:
+                    last = datetime.strptime(str(row["guardado_en"])[:19], "%Y-%m-%d %H:%M:%S")
+                    if (datetime.now() - last).total_seconds() < min_minutes * 60:
+                        return {
+                            "id": int(row["id"]),
+                            "momento": row["momento"],
+                            "guardado_en": row["guardado_en"],
+                            "origen": row["origen"],
+                            "omitido": True,
+                        }
+                except Exception:
+                    pass
+        guardado = _now()
+        cur = conn.execute(
+            """
+            INSERT INTO inventario_cavas_snapshot(momento, guardado_en, origen, payload)
+            VALUES (?, ?, ?, ?)
+            """,
+            (momento[:32], guardado[:32], origen[:32], _json_dumps(payload)),
+        )
+        new_id = int(getattr(cur, "lastrowid", 0) or 0)
+        # Retener últimos N
+        ids = conn.execute(
+            "SELECT id FROM inventario_cavas_snapshot ORDER BY id DESC"
+        ).fetchall()
+        if len(ids) > _INV_CAVAS_KEEP:
+            cut = [r["id"] for r in ids[_INV_CAVAS_KEEP:]]
+            for i in cut:
+                conn.execute("DELETE FROM inventario_cavas_snapshot WHERE id=?", (i,))
+    return {
+        "id": new_id,
+        "momento": momento[:32],
+        "guardado_en": guardado[:32],
+        "origen": origen[:32],
+        "omitido": False,
+    }
+
+
+def list_inventario_cavas_snapshots(limit: int = 50) -> List[Dict[str, Any]]:
+    lim = max(1, min(int(limit or 50), 200))
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, momento, guardado_en, origen
+            FROM inventario_cavas_snapshot
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (lim,),
+        ).fetchall()
+    return [
+        {
+            "id": int(r["id"]),
+            "momento": r["momento"],
+            "guardado_en": r["guardado_en"],
+            "origen": r["origen"],
+        }
+        for r in rows
+    ]
+
+
+def get_inventario_cavas_snapshot(snap_id: int) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT id, momento, guardado_en, origen, payload
+            FROM inventario_cavas_snapshot
+            WHERE id=?
+            """,
+            (int(snap_id),),
+        ).fetchone()
+    if not row:
+        return None
+    data = _json_loads(row["payload"], {})
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        "id": int(row["id"]),
+        "momento": row["momento"],
+        "guardado_en": row["guardado_en"],
+        "origen": row["origen"],
+        "payload": data,
+    }
+
+
 def list_historico() -> List[Any]:
     with get_conn() as conn:
         rows = conn.execute(
@@ -1365,6 +1499,7 @@ TABLES = (
     "opl_progreso_snapshot",
     "historico_operacion",
     "override_pieza",
+    "inventario_cavas_snapshot",
 )
 
 

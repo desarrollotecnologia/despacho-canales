@@ -85,3 +85,12 @@ CREATE TABLE IF NOT EXISTS override_pieza (
     created_at VARCHAR(32) NOT NULL,
     INDEX idx_override_pieza_fecha_codigo (fecha, codigo)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventario_cavas_snapshot (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    momento VARCHAR(32) NOT NULL,
+    guardado_en VARCHAR(32) NOT NULL,
+    origen VARCHAR(32) NOT NULL DEFAULT 'ahora',
+    payload LONGTEXT NOT NULL,
+    INDEX idx_inv_cavas_snap_momento (momento)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

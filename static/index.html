@@ -738,11 +738,26 @@
     <button class="back-btn" onclick="irMain()">← Volver al inicio</button>
     <h2 style="color:var(--vp);margin-bottom:0.35rem;">📦 Inventario de Canales × Cavas</h2>
     <p style="font-size:0.88rem;color:var(--gris);margin-bottom:1rem;">
-      Foto de lo que <strong>sigue en cava</strong> (movimiento abierto). Lo ya despachado no cuenta.
-      Solo lectura · sin columna Cuartos de Canal.
+      Foto de lo que <strong>sigue en cava</strong>. Puedes ver <strong>ahora</strong>, hace 1–4 h o cualquier fecha/hora.
+      Al actualizar «Ahora» se guarda historial en <code>gestor_canales</code>. Solo lectura · sin Cuartos de Canal.
     </p>
-    <div style="display:flex;gap:0.8rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
+    <div style="display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap;margin-bottom:0.75rem;">
+      <button class="btn btn-secondary btn-sm" type="button" onclick="invCavasPreset('ahora')">Ahora</button>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="invCavasPreset(1)">Hace 1 h</button>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="invCavasPreset(2)">Hace 2 h</button>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="invCavasPreset(4)">Hace 4 h</button>
+      <label style="font-size:0.82rem;color:var(--gris);display:flex;align-items:center;gap:0.4rem;">
+        Fecha/hora
+        <input type="datetime-local" id="invCavasMomento" style="padding:0.35rem 0.5rem;border:1px solid #cbd5e1;border-radius:6px;">
+      </label>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="invCavasVerMomento()">Ver</button>
       <button class="btn btn-secondary btn-sm" type="button" onclick="cargarInventarioCavas(true)">🔄 Actualizar</button>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="invCavasGuardarFoto()">💾 Guardar foto</button>
+      <select id="invCavasHistSelect" style="padding:0.35rem 0.5rem;border:1px solid #cbd5e1;border-radius:6px;max-width:260px;" onchange="invCavasCargarSnap(this.value)">
+        <option value="">Historial guardado…</option>
+      </select>
+    </div>
+    <div style="margin-bottom:1rem;">
       <span id="invCavasMeta" style="font-size:0.82rem;color:var(--gris);"></span>
     </div>
     <div class="stats-grid" id="invCavasKpis" style="margin-bottom:1rem;"></div>
@@ -2595,73 +2610,165 @@ function renderModalOpl(propietario, data) {
 // ═══════════════════════════════════════════════════
 // MÓDULO CAVAS
 // ═══════════════════════════════════════════════════
-async function cargarInventarioCavas(forceRefresh) {
+window._invCavasMode = { tipo: 'ahora' }; // ahora | horas | momento | snap
+
+function invCavasPreset(v) {
+  if (v === 'ahora') {
+    window._invCavasMode = { tipo: 'ahora' };
+    cargarInventarioCavas(true);
+    return;
+  }
+  window._invCavasMode = { tipo: 'horas', horas: Number(v) };
+  cargarInventarioCavas(true);
+}
+
+function invCavasVerMomento() {
+  const el = $('invCavasMomento');
+  const raw = (el && el.value) ? el.value.trim() : '';
+  if (!raw) {
+    alertErr('Elige una fecha/hora');
+    return;
+  }
+  window._invCavasMode = { tipo: 'momento', momento: raw.length === 16 ? raw + ':00' : raw };
+  cargarInventarioCavas(true);
+}
+
+async function invCavasGuardarFoto() {
+  window._invCavasMode = { tipo: 'ahora' };
+  try {
+    showSpinner();
+    const r = await fetch(API('/inventario_cavas/guardar'), { method: 'POST' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    pintarInventarioCavas(j);
+    await invCavasCargarListaHistorial();
+  } catch (e) {
+    alertErr('Guardar foto: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
+}
+
+async function invCavasCargarListaHistorial() {
+  const sel = $('invCavasHistSelect');
+  if (!sel) return;
+  try {
+    const j = await apiFetch(API('/inventario_cavas/historial?limit=40'));
+    const items = j.items || [];
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Historial guardado…</option>' + items.map(it => {
+      const label = `${String(it.momento || '').replace('T', ' ')} · ${it.origen || ''}`;
+      return `<option value="${it.id}">${escHtml(label)}</option>`;
+    }).join('');
+    if (cur) sel.value = cur;
+  } catch (_) { /* silencioso */ }
+}
+
+async function invCavasCargarSnap(id) {
+  if (!id) return;
+  window._invCavasMode = { tipo: 'snap', id: Number(id) };
+  try {
+    showSpinner();
+    const j = await apiFetch(API('/inventario_cavas/historial/' + encodeURIComponent(id)));
+    pintarInventarioCavas(j);
+  } catch (e) {
+    alertErr('Historial: ' + e.message);
+  } finally {
+    hideSpinner();
+  }
+}
+
+function pintarInventarioCavas(j) {
   const tb = $('invCavasBody');
   const tf = $('invCavasFoot');
   const kpis = $('invCavasKpis');
   const meta = $('invCavasMeta');
   const disp = $('invCavasDisp');
+  const filas = j.filas || [];
+  const t = j.totales || {};
+  const momentoTxt = String(j.momento || j.generado_en || '').replace('T', ' ');
+  const origen = j.origen || (j.es_ahora ? 'ahora' : 'reconstruido');
+  let histTxt = '';
+  if (j.historial && j.historial.id && !j.historial.omitido) {
+    histTxt = ' · foto guardada';
+  } else if (j.historial && j.historial.omitido) {
+    histTxt = ' · ya había foto reciente';
+  }
+  if (meta) {
+    meta.textContent = `Momento: ${momentoTxt} · origen: ${origen}${histTxt} · solo lectura`;
+  }
+  if (kpis) {
+    kpis.innerHTML = `
+      <div class="stat-card"><div class="stat-label">Capacidad</div><div class="stat-valor">${t.capacidad || 0}</div><div class="stat-sub">canales</div></div>
+      <div class="stat-card"><div class="stat-label">Inventario</div><div class="stat-valor">${t.canales || 0}</div><div class="stat-sub">${t.medias || 0} medias</div></div>
+      <div class="stat-card"><div class="stat-label">Participación</div><div class="stat-valor">${t.participacion_pct || 0}%</div><div class="stat-sub">ocupación</div></div>
+      <div class="stat-card"><div class="stat-label">Disponibilidad</div><div class="stat-valor" style="color:#065f46;">${t.disponibilidad_canales || 0}</div><div class="stat-sub">${t.disponibilidad_pct || 0}% libre</div></div>`;
+  }
+  if (!filas.length) {
+    if (tb) tb.innerHTML = '<tr><td colspan="5" class="empty-state">Sin datos de cavas.</td></tr>';
+    if (tf) tf.innerHTML = '';
+    if (disp) disp.innerHTML = '';
+    return;
+  }
+  if (tb) {
+    tb.innerHTML = filas.map(f => {
+      const pct = Number(f.participacion_pct || 0);
+      const color = pct > 100 ? '#b91c1c' : (pct >= 90 ? '#b45309' : '#065f46');
+      return `<tr>
+        <td style="font-weight:700;">${escHtml(f.cava)}</td>
+        <td class="num">${f.capacidad}</td>
+        <td class="num">${f.medias}</td>
+        <td class="num" style="font-weight:800;">${f.canales}</td>
+        <td class="num" style="font-weight:800;color:${color};">${pct}%</td>
+      </tr>`;
+    }).join('');
+  }
+  if (tf) {
+    tf.innerHTML = `<tr style="background:#dcfce7;font-weight:800;">
+      <td>Total</td>
+      <td class="num">${t.capacidad || 0}</td>
+      <td class="num">${t.medias || 0}</td>
+      <td class="num">${t.canales || 0}</td>
+      <td class="num">${t.participacion_pct || 0}%</td>
+    </tr>`;
+  }
+  if (disp) {
+    disp.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;max-width:420px;margin-left:auto;">
+        <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:10px;padding:0.85rem 1rem;">
+          <div style="font-size:0.72rem;text-transform:uppercase;color:var(--gris);">Inventario</div>
+          <div style="font-size:1.6rem;font-weight:800;color:var(--vp);">${t.canales || 0}</div>
+          <div style="font-size:0.8rem;color:var(--gris);">${t.participacion_pct || 0}% participación</div>
+        </div>
+        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:0.85rem 1rem;">
+          <div style="font-size:0.72rem;text-transform:uppercase;color:var(--gris);">Disponibilidad</div>
+          <div style="font-size:1.6rem;font-weight:800;color:#065f46;">${t.disponibilidad_canales || 0}</div>
+          <div style="font-size:0.8rem;color:var(--gris);">${t.disponibilidad_pct || 0}% libre</div>
+        </div>
+      </div>`;
+  }
+}
+
+async function cargarInventarioCavas(forceRefresh) {
+  const tb = $('invCavasBody');
   try {
     showSpinner();
-    const q = forceRefresh ? '?refresh=1' : '';
-    const j = await apiFetch(API('/inventario_cavas' + q));
-    const filas = j.filas || [];
-    const t = j.totales || {};
-    if (meta) {
-      meta.textContent = j.generado_en
-        ? `Actualizado: ${String(j.generado_en).replace('T', ' ')} · solo lectura`
-        : 'Solo lectura';
-    }
-    if (kpis) {
-      kpis.innerHTML = `
-        <div class="stat-card"><div class="stat-label">Capacidad</div><div class="stat-valor">${t.capacidad || 0}</div><div class="stat-sub">canales</div></div>
-        <div class="stat-card"><div class="stat-label">Inventario</div><div class="stat-valor">${t.canales || 0}</div><div class="stat-sub">${t.medias || 0} medias</div></div>
-        <div class="stat-card"><div class="stat-label">Participación</div><div class="stat-valor">${t.participacion_pct || 0}%</div><div class="stat-sub">ocupación</div></div>
-        <div class="stat-card"><div class="stat-label">Disponibilidad</div><div class="stat-valor" style="color:#065f46;">${t.disponibilidad_canales || 0}</div><div class="stat-sub">${t.disponibilidad_pct || 0}% libre</div></div>`;
-    }
-    if (!filas.length) {
-      if (tb) tb.innerHTML = '<tr><td colspan="5" class="empty-state">Sin datos de cavas.</td></tr>';
-      if (tf) tf.innerHTML = '';
-      if (disp) disp.innerHTML = '';
+    const mode = window._invCavasMode || { tipo: 'ahora' };
+    let url = '/inventario_cavas';
+    const qs = [];
+    if (mode.tipo === 'horas') qs.push('hace_horas=' + encodeURIComponent(mode.horas));
+    else if (mode.tipo === 'momento') qs.push('momento=' + encodeURIComponent(mode.momento));
+    else if (mode.tipo === 'snap' && mode.id) {
+      const j = await apiFetch(API('/inventario_cavas/historial/' + encodeURIComponent(mode.id)));
+      pintarInventarioCavas(j);
+      await invCavasCargarListaHistorial();
       return;
     }
-    if (tb) {
-      tb.innerHTML = filas.map(f => {
-        const pct = Number(f.participacion_pct || 0);
-        const color = pct > 100 ? '#b91c1c' : (pct >= 90 ? '#b45309' : '#065f46');
-        return `<tr>
-          <td style="font-weight:700;">${escHtml(f.cava)}</td>
-          <td class="num">${f.capacidad}</td>
-          <td class="num">${f.medias}</td>
-          <td class="num" style="font-weight:800;">${f.canales}</td>
-          <td class="num" style="font-weight:800;color:${color};">${pct}%</td>
-        </tr>`;
-      }).join('');
-    }
-    if (tf) {
-      tf.innerHTML = `<tr style="background:#dcfce7;font-weight:800;">
-        <td>Total</td>
-        <td class="num">${t.capacidad || 0}</td>
-        <td class="num">${t.medias || 0}</td>
-        <td class="num">${t.canales || 0}</td>
-        <td class="num">${t.participacion_pct || 0}%</td>
-      </tr>`;
-    }
-    if (disp) {
-      disp.innerHTML = `
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;max-width:420px;margin-left:auto;">
-          <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:10px;padding:0.85rem 1rem;">
-            <div style="font-size:0.72rem;text-transform:uppercase;color:var(--gris);">Inventario</div>
-            <div style="font-size:1.6rem;font-weight:800;color:var(--vp);">${t.canales || 0}</div>
-            <div style="font-size:0.8rem;color:var(--gris);">${t.participacion_pct || 0}% participación</div>
-          </div>
-          <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:0.85rem 1rem;">
-            <div style="font-size:0.72rem;text-transform:uppercase;color:var(--gris);">Disponibilidad</div>
-            <div style="font-size:1.6rem;font-weight:800;color:#065f46;">${t.disponibilidad_canales || 0}</div>
-            <div style="font-size:0.8rem;color:var(--gris);">${t.disponibilidad_pct || 0}% libre</div>
-          </div>
-        </div>`;
-    }
+    if (forceRefresh) qs.push('refresh=1');
+    if (qs.length) url += '?' + qs.join('&');
+    const j = await apiFetch(API(url));
+    pintarInventarioCavas(j);
+    await invCavasCargarListaHistorial();
   } catch (e) {
     if (tb) tb.innerHTML = `<tr><td colspan="5" class="empty-state" style="color:#991b1b;">${escHtml(e.message)}</td></tr>`;
     alertErr('Inventario cavas: ' + e.message);

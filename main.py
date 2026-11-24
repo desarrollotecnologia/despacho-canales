@@ -1955,19 +1955,43 @@ def _clave_cava_inventario(nombre: str) -> Optional[str]:
     return None
 
 
-@app.get("/api/inventario_cavas")
-def get_inventario_cavas(refresh: Optional[str] = None):
-    """
-    Ocupación actual por cava (solo lectura).
-    Cuenta medias MC1/MC2 con movimiento abierto (aún en cava).
-    Lo ya despachado no entra. Capacidad fija en código (no editable).
-    """
-    ck = ("inventario_cavas", "v4_caps_excl_preref_c7")
-    if not es_refresh(refresh):
-        hit = cache_get(ck)
-        if hit is not None:
-            return hit
+def _pct_inventario_cava(numer, denom):
+    if not denom:
+        return 0.0
+    return round((float(numer) / float(denom)) * 100, 1)
 
+
+def _parse_momento_inventario(momento: Optional[str] = None, hace_horas: Optional[str] = None):
+    """
+    Devuelve (dt_momento, es_ahora).
+    Acepta ISO (YYYY-MM-DDTHH:MM[:SS]) o hace_horas (1, 2, 4…).
+    """
+    ahora = datetime.now().replace(microsecond=0)
+    if hace_horas not in (None, ""):
+        try:
+            h = float(str(hace_horas).replace(",", "."))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="hace_horas inválido")
+        if h < 0:
+            raise HTTPException(status_code=400, detail="hace_horas no puede ser negativo")
+        if h == 0:
+            return ahora, True
+        return ahora - timedelta(hours=h), False
+    raw = (momento or "").strip()
+    if not raw:
+        return ahora, True
+    raw = raw.replace("Z", "").replace("z", "").strip()
+    if "T" not in raw and " " in raw:
+        raw = raw.replace(" ", "T", 1)
+    try:
+        dt = datetime.fromisoformat(raw)
+        # Si el usuario eligió momento explícito, siempre reconstruir (no forzar "ahora").
+        return dt.replace(microsecond=0), False
+    except ValueError:
+        raise HTTPException(status_code=400, detail="momento inválido (use YYYY-MM-DDTHH:MM)")
+
+
+def _stock_inventario_cavas_ahora() -> dict:
     rows = safe_query(
         """
         SELECT
@@ -1991,7 +2015,41 @@ def get_inventario_cavas(refresh: Optional[str] = None):
         (IDS_CANAL,),
         "inventario_cavas",
     )
+    return _agregar_stock_por_clave(rows)
 
+
+def _stock_inventario_cavas_en(momento: datetime) -> dict:
+    """Reconstruye ocupación a un instante: ingreso ≤ T y (sin salida o salida > T)."""
+    ts = momento.strftime("%Y-%m-%d %H:%M:%S")
+    rows = safe_query(
+        """
+        SELECT
+            c.id AS id_cava,
+            c.nombre AS cava,
+            c.orden AS cava_orden,
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = 4)::int AS mc1,
+            COUNT(*) FILTER (WHERE pp.id_tipo_parte_producto = 5)::int AS mc2,
+            COUNT(*)::int AS medias
+        FROM trazabilidad_proceso.parte_producto_cava_riel ppcr
+        JOIN trazabilidad_proceso.parte_producto pp
+          ON pp.id = ppcr.id_parte_producto
+         AND pp.id_producto::text = ppcr.id_producto::text
+        JOIN trazabilidad_proceso.cava c
+          ON c.id = ppcr.id_cava
+        WHERE pp.id_tipo_parte_producto IN %s
+          AND ppcr.fecha_ingreso IS NOT NULL
+          AND ppcr.fecha_ingreso <= %s::timestamp
+          AND (ppcr.fecha_salida IS NULL OR ppcr.fecha_salida > %s::timestamp)
+        GROUP BY c.id, c.nombre, c.orden
+        ORDER BY c.orden NULLS LAST, c.nombre
+        """,
+        (IDS_CANAL, ts, ts),
+        "inventario_cavas_hist",
+    )
+    return _agregar_stock_por_clave(rows)
+
+
+def _agregar_stock_por_clave(rows) -> dict:
     stock_por_clave = {}
     for r in rows or []:
         nom = (r.get("cava") or "").strip()
@@ -2011,12 +2069,14 @@ def get_inventario_cavas(refresh: Optional[str] = None):
             entry["mc2"] += prev["mc2"]
             entry["medias"] += prev["medias"]
         stock_por_clave[clave] = entry
+    return stock_por_clave
 
-    def _pct(numer, denom):
-        if not denom:
-            return 0.0
-        return round((float(numer) / float(denom)) * 100, 1)
 
+def _armar_payload_inventario_cavas(
+    stock_por_clave: dict,
+    momento: datetime,
+    es_ahora: bool,
+) -> dict:
     filas = []
     tot_cap = 0
     tot_medias = 0
@@ -2024,10 +2084,9 @@ def get_inventario_cavas(refresh: Optional[str] = None):
         clave = _clave_cava_inventario(nom_cfg)
         st = stock_por_clave.get(clave or "") or {}
         medias = int(st.get("medias") or 0)
-        # Planilla: Canales = Medias/2 (+ Cuartos/4; Cuartos no se usa → 0)
         canales = medias / 2.0
         cap = int(capacidad)
-        pct = _pct(canales, cap)
+        pct = _pct_inventario_cava(canales, cap)
         cuenta_en_total = clave not in CAVAS_EXCLUIDAS_TOTAL_CAP
         if cuenta_en_total:
             tot_cap += cap
@@ -2044,14 +2103,16 @@ def get_inventario_cavas(refresh: Optional[str] = None):
         })
 
     tot_canales = tot_medias / 2.0
-    tot_pct = _pct(tot_canales, tot_cap)
-    # Disponibilidad = Capacidad (sin Pre-refri ni Cava 7) − Inventario de esas mismas cavas
+    tot_pct = _pct_inventario_cava(tot_canales, tot_cap)
     disponibilidad = tot_cap - tot_canales
-    libre_pct = _pct(disponibilidad, tot_cap)
-
-    payload = {
+    libre_pct = _pct_inventario_cava(disponibilidad, tot_cap)
+    momento_iso = momento.isoformat(timespec="seconds")
+    return {
         "success": True,
         "solo_lectura": True,
+        "es_ahora": es_ahora,
+        "momento": momento_iso,
+        "origen": "ahora" if es_ahora else "reconstruido",
         "generado_en": datetime.now().isoformat(timespec="seconds"),
         "filas": filas,
         "totales": {
@@ -2065,8 +2126,86 @@ def get_inventario_cavas(refresh: Optional[str] = None):
             "disponibilidad_pct": libre_pct,
         },
     }
+
+
+@app.get("/api/inventario_cavas")
+def get_inventario_cavas(
+    refresh: Optional[str] = None,
+    momento: Optional[str] = None,
+    hace_horas: Optional[str] = None,
+    guardar: Optional[str] = None,
+):
+    """
+    Ocupación por cava (solo lectura).
+    - Sin momento: foto actual (movimiento abierto).
+    - Con momento / hace_horas: reconstrucción SIRT a ese instante.
+    - guardar=1 en foto actual: persiste snapshot en gestor_canales.
+    """
+    dt_momento, es_ahora = _parse_momento_inventario(momento, hace_horas)
+    momento_iso = dt_momento.isoformat(timespec="seconds")
+    ck = ("inventario_cavas", "v5_hist", momento_iso if not es_ahora else "ahora")
+    if not es_refresh(refresh) and not es_refresh(guardar):
+        hit = cache_get(ck)
+        if hit is not None:
+            return hit
+
+    if es_ahora:
+        stock = _stock_inventario_cavas_ahora()
+    else:
+        stock = _stock_inventario_cavas_en(dt_momento)
+    payload = _armar_payload_inventario_cavas(stock, dt_momento, es_ahora)
+
+    # Guardar historial propio (gestor_canales): al actualizar "ahora" o si piden guardar
+    snap_info = None
+    debe_guardar = es_ahora and (es_refresh(refresh) or es_refresh(guardar))
+    if debe_guardar:
+        try:
+            snap_info = apps_script_local.saveInventarioCavasSnapshot(
+                momento_iso,
+                {"filas": payload["filas"], "totales": payload["totales"]},
+                origen="ahora",
+                min_minutes=0 if es_refresh(guardar) else 10,
+            )
+        except Exception as e:
+            print(f"[WARN] inventario_cavas snapshot: {e}")
+            snap_info = {"error": str(e)}
+    payload["historial"] = snap_info
+
     cache_set(ck, payload)
     return payload
+
+
+@app.get("/api/inventario_cavas/historial")
+def get_inventario_cavas_historial(limit: int = 50):
+    """Lista snapshots guardados en gestor_canales."""
+    return apps_script_local.listInventarioCavasSnapshots(limit=limit)
+
+
+@app.get("/api/inventario_cavas/historial/{snap_id}")
+def get_inventario_cavas_historial_item(snap_id: int):
+    """Recupera un snapshot guardado (no recalcula SIRT)."""
+    row = apps_script_local.getInventarioCavasSnapshot(snap_id)
+    if not row.get("success"):
+        raise HTTPException(status_code=404, detail=row.get("message") or "No encontrado")
+    data = row.get("payload") or {}
+    return {
+        "success": True,
+        "solo_lectura": True,
+        "es_ahora": False,
+        "origen": "historial",
+        "momento": row.get("momento"),
+        "guardado_en": row.get("guardado_en"),
+        "snapshot_id": row.get("id"),
+        "generado_en": datetime.now().isoformat(timespec="seconds"),
+        "filas": data.get("filas") or [],
+        "totales": data.get("totales") or {},
+    }
+
+
+@app.post("/api/inventario_cavas/guardar")
+def post_inventario_cavas_guardar():
+    """Fuerza foto actual + guardado en historial gestor_canales."""
+    return get_inventario_cavas(refresh="1", guardar="1")
 
 
 # ═══════════════════════════════════════════════════════

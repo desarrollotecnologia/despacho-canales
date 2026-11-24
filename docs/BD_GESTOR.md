@@ -57,5 +57,6 @@ Luego `restart.bat`.
 | Progreso OPL | `opl_progreso_snapshot` |
 | Histórico de cierres | `historico_operacion` |
 | Overrides futuros sobre SIRT | `override_pieza` |
+| Historial Inventario × Cavas | `inventario_cavas_snapshot` |
 
 No se escribe en tablas SIRT (`trazabilidad_proceso`, `organizaciones`, etc.).

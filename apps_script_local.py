@@ -427,6 +427,29 @@ def limpiarHistorico():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# INVENTARIO × CAVAS — historial en gestor_canales
+# ═══════════════════════════════════════════════════════════════════════════
+def saveInventarioCavasSnapshot(momento, payload, origen="ahora", min_minutes=0):
+    return db_gestor.save_inventario_cavas_snapshot(
+        momento, payload, origen=origen, min_minutes=int(min_minutes or 0)
+    )
+
+
+def listInventarioCavasSnapshots(limit=50):
+    return {
+        "success": True,
+        "items": db_gestor.list_inventario_cavas_snapshots(limit=limit),
+    }
+
+
+def getInventarioCavasSnapshot(snap_id):
+    row = db_gestor.get_inventario_cavas_snapshot(int(snap_id))
+    if not row:
+        return {"success": False, "message": "Snapshot no encontrado"}
+    return {"success": True, **row}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # DISPATCH
 # ═══════════════════════════════════════════════════════════════════════════
 def dispatch(function_name, args):
