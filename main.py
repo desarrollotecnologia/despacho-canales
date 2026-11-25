@@ -3460,7 +3460,11 @@ def _beneficio_fecha_plan(fecha_plan: Optional[str] = None) -> str:
 
 @app.get("/api/beneficio")
 def get_beneficio(fecha_plan: Optional[str] = None):
-    """Resumen del plan de faena: planificados vs ya insensibilizados (solo SIRT)."""
+    """
+    Resumen del plan de faena: planificados vs ya insensibilizados (solo SIRT).
+    Excluye reses con producto.con_plan_faena = 'N' (sacadas del plan del día;
+    quedan para otro plan de faena).
+    """
     fecha = _beneficio_fecha_plan(fecha_plan)
     rows = safe_query(
         """
@@ -3469,7 +3473,10 @@ def get_beneficio(fecha_plan: Optional[str] = None):
             FROM trazabilidad_proceso.plan_faena pf
             JOIN trazabilidad_proceso.plan_faena_producto pfp
               ON pfp.id_plan_faena = pf.id
+            JOIN trazabilidad_proceso.producto p
+              ON p.id = pfp.id_producto
             WHERE pf.fecha_plan = %s
+              AND UPPER(TRIM(COALESCE(p.con_plan_faena, 'S'))) <> 'N'
         ),
         base AS (
             SELECT
@@ -3567,7 +3574,7 @@ def get_beneficio(fecha_plan: Optional[str] = None):
 
 @app.get("/api/beneficio/detalle")
 def get_beneficio_detalle(fecha_plan: Optional[str] = None, cliente: Optional[str] = None, opl: Optional[str] = None):
-    """Detalle por animal del plan de faena (solo lectura SIRT)."""
+    """Detalle por animal del plan de faena (solo lectura SIRT). Excluye con_plan_faena = N."""
     fecha = _beneficio_fecha_plan(fecha_plan)
     rows = safe_query(
         """
@@ -3576,7 +3583,10 @@ def get_beneficio_detalle(fecha_plan: Optional[str] = None, cliente: Optional[st
             FROM trazabilidad_proceso.plan_faena pf
             JOIN trazabilidad_proceso.plan_faena_producto pfp
               ON pfp.id_plan_faena = pf.id
+            JOIN trazabilidad_proceso.producto p
+              ON p.id = pfp.id_producto
             WHERE pf.fecha_plan = %s
+              AND UPPER(TRIM(COALESCE(p.con_plan_faena, 'S'))) <> 'N'
             GROUP BY pfp.id_producto
         )
         SELECT
