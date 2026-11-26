@@ -3450,8 +3450,9 @@ def _beneficio_fecha_plan(fecha_plan: Optional[str] = None) -> str:
 def get_beneficio(fecha_plan: Optional[str] = None):
     """
     Resumen del plan de faena: planificados vs ya insensibilizados (solo SIRT).
-    Excluye reses con producto.con_plan_faena = 'N' (sacadas del plan del día;
-    quedan para otro plan de faena).
+    Solo cuenta reses vigentes en ese día: plan_faena_producto.fecha_fin_vigencia
+    = fecha_plan. Si la sacan del plan (pasan a otro día), dejan fin_vigencia en NULL
+    y dejan de contar aunque el vínculo al plan del día siga en SIRT.
     """
     fecha = _beneficio_fecha_plan(fecha_plan)
     rows = safe_query(
@@ -3461,10 +3462,9 @@ def get_beneficio(fecha_plan: Optional[str] = None):
             FROM trazabilidad_proceso.plan_faena pf
             JOIN trazabilidad_proceso.plan_faena_producto pfp
               ON pfp.id_plan_faena = pf.id
-            JOIN trazabilidad_proceso.producto p
-              ON p.id = pfp.id_producto
             WHERE pf.fecha_plan = %s
-              AND UPPER(TRIM(COALESCE(p.con_plan_faena, 'S'))) <> 'N'
+              AND pfp.fecha_fin_vigencia IS NOT NULL
+              AND pfp.fecha_fin_vigencia = pf.fecha_plan
         ),
         base AS (
             SELECT
@@ -3562,7 +3562,7 @@ def get_beneficio(fecha_plan: Optional[str] = None):
 
 @app.get("/api/beneficio/detalle")
 def get_beneficio_detalle(fecha_plan: Optional[str] = None, cliente: Optional[str] = None, opl: Optional[str] = None):
-    """Detalle por animal del plan de faena (solo lectura SIRT). Excluye con_plan_faena = N."""
+    """Detalle por animal del plan (solo vigentes ese día: fecha_fin_vigencia = fecha_plan)."""
     fecha = _beneficio_fecha_plan(fecha_plan)
     rows = safe_query(
         """
@@ -3571,10 +3571,9 @@ def get_beneficio_detalle(fecha_plan: Optional[str] = None, cliente: Optional[st
             FROM trazabilidad_proceso.plan_faena pf
             JOIN trazabilidad_proceso.plan_faena_producto pfp
               ON pfp.id_plan_faena = pf.id
-            JOIN trazabilidad_proceso.producto p
-              ON p.id = pfp.id_producto
             WHERE pf.fecha_plan = %s
-              AND UPPER(TRIM(COALESCE(p.con_plan_faena, 'S'))) <> 'N'
+              AND pfp.fecha_fin_vigencia IS NOT NULL
+              AND pfp.fecha_fin_vigencia = pf.fecha_plan
             GROUP BY pfp.id_producto
         )
         SELECT
