@@ -1144,6 +1144,8 @@ def consultar_canales_planilla(
             s.nombre                                AS sucursal_origen,
             s.direccion                             AS direccion_entrega,
             de.nombre                               AS destino_real,
+            prod.peso_media_canal_1                 AS peso_media_canal_1,
+            prod.peso_media_canal_2                 AS peso_media_canal_2,
             prod.peso_animal_pie                    AS peso_pie,
             prod.sexo                               AS sexo
         FROM actuales pp
@@ -1172,7 +1174,14 @@ def consultar_canales_planilla(
         r["destino"] = r.get("zona") or ""
         r["fecha_programacion"] = fecha_filtro
         _marcar_estado_pieza(r, fecha_filtro)
-        r["descripcion"] = tipo_canal_label(int(r.get("id_tipo") or 0))
+        id_tipo = int(r.get("id_tipo") or 0)
+        r["descripcion"] = tipo_canal_label(id_tipo)
+        if id_tipo == ID_MC1:
+            r["peso"] = r.get("peso_media_canal_1")
+        elif id_tipo == ID_MC2:
+            r["peso"] = r.get("peso_media_canal_2")
+        else:
+            r["peso"] = None
     data.sort(key=lambda x: (
         0 if x.get("en_cava") else 1,
         str(x.get("zona") or "").upper(),
@@ -1193,7 +1202,7 @@ def obtener_piezas_programadas(
     incluir_despachadas=False → solo en cava (despachos / reetiquetado).
     incluir_despachadas=True → foto del día (planilla / Excel con Estado).
     """
-    ck = ("programados", fecha_filtro, turno, "v9_sexo_pie_desc", bool(incluir_despachadas))
+    ck = ("programados", fecha_filtro, turno, "v10_con_peso", bool(incluir_despachadas))
     hit = cache_get(ck)
     if hit is not None:
         return hit
@@ -1670,6 +1679,7 @@ def _escribir_hoja_excel_opl(
         ("Temprana", 11, lambda r, a: marcador_destino_temp(r.get("destino_real"), r.get("opl") or opl)),
         ("Estado", 12, lambda r, a: r.get("estado") or _estado_pieza(r)),
         ("Descripción", 16, lambda r, a: r.get("descripcion") or r.get("sufijo") or tipo_canal_label(int(r.get("id_tipo") or 0))),
+        ("Peso", 10, lambda r, a: r.get("peso") if r.get("peso") not in (None, "") else ""),
         ("Peso en pie", 12, lambda r, a: r.get("peso_pie") if r.get("peso_pie") not in (None, "") else ""),
         ("Sexo", 10, lambda r, a: r.get("sexo") or ""),
         ("Tipo", 12, lambda r, a: "Adicional" if a.get("adicional") else "Normal"),
@@ -1677,6 +1687,7 @@ def _escribir_hoja_excel_opl(
     ]
     col_temprana = next(i for i, c in enumerate(columnas, 1) if c[0] == "Temprana")
     col_estado = next(i for i, c in enumerate(columnas, 1) if c[0] == "Estado")
+    col_peso = next(i for i, c in enumerate(columnas, 1) if c[0] == "Peso")
     col_destino = next(i for i, c in enumerate(columnas, 1) if c[0] == "Destino SIRT")
     ncol = len(columnas)
     ultima = get_column_letter(ncol)
@@ -1748,6 +1759,7 @@ def _escribir_hoja_excel_opl(
                 cell.fill = fill
         ws.cell(idx, col_destino).alignment = Alignment(wrap_text=True, vertical="center")
         ws.cell(idx, col_estado).alignment = Alignment(horizontal="center")
+        ws.cell(idx, col_peso).alignment = Alignment(horizontal="center")
         if temp and est != "Despachado":
             c = ws.cell(idx, col_temprana)
             c.fill = rojo
